@@ -1,0 +1,10 @@
+<h1> All Nodes in the Network </h1>
+{% if node_list %}
+    <ul>
+    {% for node in node_list %}
+        <li><a href="{% url 'network:detail' node.id %}">{{ node.description_text }}</a></li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>No polls are available.</p>
+{% endif %}
