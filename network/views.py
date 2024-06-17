@@ -2,7 +2,8 @@ import pandas as pd
 
 from .models import Node, Edge
 from django.views import generic
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
+
 
 class IndexView(generic.ListView):
     template_name = "network/index.html"
@@ -33,7 +34,7 @@ def getNetwork(request):
             'score',
             'effect_size'
         )
-        return JsonResponse(queryset, safe=False, status=200)
+        return JsonResponse(list(queryset), safe=False, status=200)
 
 def getVariables(request):
     """
@@ -61,16 +62,21 @@ def plotData(request):
         e.g. {"x_var":[25, 48, 21], "y_var":[0,1,0], "col_var": ["male", "female", "female]}
     """
     if request.method == 'GET':
-        x = str(request.GET.get("x"))
-        y = str(request.GET.get("y"))
-        c = str(request.GET.get("c"))
+        x = request.GET.get("x")
+        y = request.GET.get("y")
+        c = request.GET.get("c")
         phenotypes_filtered = pd.read_csv(
             '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
         index = [x, y]
-        if c != None:
+        if c is not None and c != "":
+            if c not in phenotypes_filtered.columns:
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the phenotype data', status=405)
             index = [x, y, c]
-        print(index)
+        if x is None or x == "" or y is None and y == "":
+            return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        elif x not in phenotypes_filtered.columns or y not in phenotypes_filtered.columns:
+            return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
         req_data_dict = phenotypes_filtered[index].to_dict(orient='list')
         return JsonResponse(req_data_dict, safe=True)
 
