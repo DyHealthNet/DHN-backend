@@ -1,15 +1,20 @@
 from django.urls import path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from . import views
 
 app_name = "network"
 urlpatterns = [
     # ex: /network/
-    path("", views.index, name="index"),
-    # ex: /network/5/
-    path("<int:node_id>/", views.detail, name="detail"),
-    # ex: /network/5/detail_edge/
-    path("<int:edge_id>/detail_edge/", views.detail_edge, name="detail_edge"),
+    path("", views.IndexView.as_view(), name="index"),
+    # # ex: /network/5/
+    path("<int:pk>/", views.DetailView.as_view(), name="detail"),
+    # # ex: /network/5/detail_edge/
+    path("<int:pk>/detail_edge/", views.Detail_EdgeView.as_view(), name="detail_edge"),
+    # # ex: /network/variables
+    path("variables/", views.getVariables, name="get_variables"),
+    # # # ex: /network/plotData
+    path("plotData/", views.getData, name="get_plot_data"),
 
 # Unused for now/ #TODO:
     # ex: /network/5/results/

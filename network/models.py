@@ -18,6 +18,9 @@ class Edge(models.Model):
     def __str__(self):
         return "Edge from " + self.node1.__str__() + " to " + self.node2.__str__()
 
-    # Unused for now/ #TODO ?:
+    def passed_pvalue_threshold(self):
+        return
+
+    #TODO:
     def calculate_association_score(self):
         return calculate_score_from_nodes(self.node1, self.node2)
