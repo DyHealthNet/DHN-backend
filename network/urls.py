@@ -14,7 +14,9 @@ urlpatterns = [
     # # ex: /network/variables
     path("variables/", views.getVariables, name="get_variables"),
     # # # ex: /network/plotData
-    path("plotData/", views.getData, name="get_plot_data"),
+    path("plotData/", views.plotData, name="get_plot_data"),
+    # # # ex: /network/getNetwork
+    path("getNetwork/", views.getNetwork, name="get_network"),
 
 # Unused for now/ #TODO:
     # ex: /network/5/results/

@@ -20,22 +20,16 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularRedocView, SpectacularSwaggerView
 
-from rest_framework import routers
 from network import views
-#router = routers.DefaultRouter()
-#router.register(r"users", views.UserViewSet)
-#router.register(r"groups", views.GroupViewSet)
 
 
 urlpatterns = [
     path("network/", include("network.urls")),
     path("admin/", admin.site.urls),
-    #path("", include(router.urls)),
-    path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
     # Added for OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(api_version='v1'), name="schema"),
     # Swagger UI:
-    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     # Redoc UI:
     #path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
