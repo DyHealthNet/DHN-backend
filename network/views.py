@@ -1,3 +1,6 @@
+import re
+
+import numpy as np
 import pandas as pd
 
 from .models import Node, Edge
@@ -42,17 +45,31 @@ def getVariables(request):
         e.g. {"discrete":["age_id"], "countinous":["BMI_id","Height_id"]}
     """
     if request.method == 'GET':
+        def makeGroup(cols):
+            ctype = cols[0]
+            cnumcat = cols[1]
+            if ctype == 'integer' or ctype == 'float' or ctype == 'time':
+                return 'continuous'
+            elif cnumcat == 2:
+                return 'binary-categorical'
+            else:
+                return 'nonbinary-categorical'
         phenotypes_filtered = pd.read_csv(
             '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
         phenotypes_meta_filtered = pd.read_csv(
             '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
-            sep='\t', header=0, index_col=0)
-        # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
+            sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
+        # get sub-table of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
             [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
+        phenotypes_meta_filtered_small['num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
+        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,
+                                                                                                            axis=1)
+        phenotypes_meta_filtered_small['identifier'] = phenotypes_meta_filtered_small[
+                                                           'description'] + ' (' + phenotypes_meta_filtered_small.index + ')'
+        values_dict = phenotypes_meta_filtered_small.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         #indes_descr_dict = dict(zip(phenotypes_meta_filtered_small['description'], phenotypes_meta_filtered_small.index))
-        values_dict = phenotypes_meta_filtered_small.groupby('type').apply(lambda dd: list(dd.index)).to_dict()
         return JsonResponse(values_dict, safe=True)
 
 
@@ -68,16 +85,21 @@ def plotData(request):
         phenotypes_filtered = pd.read_csv(
             '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
-        index = [x, y]
+        req_data_dict = {}
         if c is not None and c != "":
-            if c not in phenotypes_filtered.columns:
+            c_id = re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')
+            if c_id not in phenotypes_filtered.columns:
                 return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the phenotype data', status=405)
-            index = [x, y, c]
+            req_data_dict[c] = list(phenotypes_filtered[c_id])
         if x is None or x == "" or y is None and y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
-        elif x not in phenotypes_filtered.columns or y not in phenotypes_filtered.columns:
+        x_id = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
+        y_id = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
+        if x_id not in phenotypes_filtered.columns or y_id not in phenotypes_filtered.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
-        req_data_dict = phenotypes_filtered[index].to_dict(orient='list')
+        req_data_dict[x] = list(phenotypes_filtered[x_id])
+        req_data_dict[y] = list(phenotypes_filtered[y_id])
+        print(req_data_dict)
         return JsonResponse(req_data_dict, safe=True)
 
 # Unused for now/ #TODO:
