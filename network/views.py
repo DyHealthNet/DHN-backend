@@ -2,7 +2,7 @@ import pandas as pd
 import re
 import numpy as np
 
-from .models import Node, Edge
+from .models import Node, Edge, Disorders
 from django.views import generic
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 
@@ -31,12 +31,19 @@ def getNetwork(request):
 
     """
     if request.method == 'GET':
-        queryset = Edge.objects.values('node1__description_text',
-            'node2__description_text',
-            'score',
-            'effect_size'
+        queryset = Disorders.objects.values('mondo_id',
+            'description',
+            'xrefs',
+            'observation_source'
         )
         return JsonResponse(list(queryset), safe=False, status=200)
+    # if request.method == 'GET':
+    #     queryset = Edge.objects.values('node1__description_text',
+    #         'node2__description_text',
+    #         'score',
+    #         'effect_size'
+    #     )
+    #     return JsonResponse(list(queryset), safe=False, status=200)
 
 def getVariables(request):
     """
@@ -54,10 +61,10 @@ def getVariables(request):
             else:
                 return 'nonbinary-categorical'
         phenotypes_filtered = pd.read_csv(
-            '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
+            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
         phenotypes_meta_filtered = pd.read_csv(
-            '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
+            '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
         # get sub-table of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
@@ -81,7 +88,7 @@ def plotData(request):
         y = request.GET.get("y")
         c = request.GET.get("c")
         phenotypes_filtered = pd.read_csv(
-            '/Users/basti/Documents/Uni/Bioinformatik/Master/2.Semester/MasterPraktikum/Server_data/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
+            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
         req_data_dict = {}
         if c is not None and c != "":
