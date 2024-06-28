@@ -2,9 +2,18 @@ import pandas as pd
 import re
 import numpy as np
 
-from .models import Node, Edge, Disorders
+from .models import Node, Edge, Disorders, Proteins, EffectsProteinDisorder
 from django.views import generic
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
+
+#from itertools import chain
+
+phenotypes_filtered = pd.read_csv(
+            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
+            sep=',', header=0, index_col=0)
+phenotypes_meta_filtered = pd.read_csv(
+            '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
+            sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
 
 
 class IndexView(generic.ListView):
@@ -31,12 +40,34 @@ def getNetwork(request):
 
     """
     if request.method == 'GET':
-        queryset = Disorders.objects.values('mondo_id',
+        queryset_disorders = Disorders.objects.values('mondo_id',
             'description',
             'xrefs',
             'observation_source'
-        )
-        return JsonResponse(list(queryset), safe=False, status=200)
+        )[5:15]
+        queryset_protein = Proteins.objects.values('uniprot_id',
+            'sequence',
+            'gene_entrez_id',
+            'description',
+            'observation_source'
+        )[5:15]
+        queryset_edge = EffectsProteinDisorder.objects.values('uniprot',
+                                                    'mondo',
+                                                    'p_value',
+                                                    'adjusted_p_value',
+                                                    'effect_size',
+                                                    'effect_size_type'
+                                                   )[5:15]
+        combined_query = {
+            'Nodes':{
+                'Disorder': list(queryset_disorders),
+                'Proteins': list(queryset_protein)
+            },
+            'Edges':{
+                'Disorder_Protein': list(queryset_edge)
+            }
+        }
+        return JsonResponse(combined_query, safe=False, status=200)
     # if request.method == 'GET':
     #     queryset = Edge.objects.values('node1__description_text',
     #         'node2__description_text',
@@ -57,15 +88,9 @@ def getVariables(request):
             if ctype == 'integer' or ctype == 'float' or ctype == 'time':
                 return 'continuous'
             elif cnumcat == 2:
-                return 'binary-categorical'
+                return 'binaryCategorical'
             else:
-                return 'nonbinary-categorical'
-        phenotypes_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
-            sep=',', header=0, index_col=0)
-        phenotypes_meta_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
-            sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
+                return 'nonbinaryCategorical'
         # get sub-table of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
             [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
@@ -87,9 +112,7 @@ def plotData(request):
         x = request.GET.get("x")
         y = request.GET.get("y")
         c = request.GET.get("c")
-        phenotypes_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
-            sep=',', header=0, index_col=0)
+
         req_data_dict = {}
         if c is not None and c != "":
             c_id = re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')
