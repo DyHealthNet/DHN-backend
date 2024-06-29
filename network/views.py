@@ -1,6 +1,8 @@
 import pandas as pd
 import re
 import numpy as np
+import matplotlib.colors as mcolors
+
 
 from .models import Node, Edge, Disorders, Proteins, EffectsProteinDisorder
 from django.views import generic
@@ -114,19 +116,35 @@ def plotData(request):
         c = request.GET.get("c")
 
         req_data_dict = {}
-        if c is not None and c != "":
-            c_id = re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')
-            if c_id not in phenotypes_filtered.columns:
-                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the phenotype data', status=405)
-            req_data_dict[c] = list(phenotypes_filtered[c_id])
         if x is None or x == "" or y is None and y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
-        x_id = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
-        y_id = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
-        if x_id not in phenotypes_filtered.columns or y_id not in phenotypes_filtered.columns:
+        x_idx = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
+        y_idx = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
+        if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
-        req_data_dict[x] = list(phenotypes_filtered[x_id])
-        req_data_dict[y] = list(phenotypes_filtered[y_id])
+        req_data_dict["labels"] = list(phenotypes_filtered[x_idx])
+        temp = []
+        if c is not None and c != "":
+            c_idx = re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')
+            if c_idx not in phenotypes_filtered.columns:
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the phenotype data', status=405)
+            grouped_data = phenotypes_filtered[y_idx].groupby(phenotypes_filtered[c_idx], dropna=True).agg(list)
+            color = 0
+            color_pal = list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            for i in grouped_data.index:
+                temp.append({
+                    "label": i,
+                    "backgroundColor": color_pal[color],
+                    "data": grouped_data[i]
+                })
+                color += 1
+        else:
+            temp.append({
+                "label": y,
+                "backgroundColor": "black",   #TODO change default color?
+                "data": list(phenotypes_filtered[y_idx])
+            })
+        req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
 # Unused for now/ #TODO:
