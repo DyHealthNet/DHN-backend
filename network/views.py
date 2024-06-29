@@ -107,8 +107,15 @@ def getVariables(request):
 
 def plotData(request):
     """
-        Returns the data out of the given variables x, y and c in JSON format
-        e.g. {"x_var":[25, 48, 21], "y_var":[0,1,0], "col_var": ["male", "female", "female]}
+        Returns the data out of the given variables x (e.g. time), y (dosage) and c(drug) in JSON format
+        e.g. {"labels": ["18:00","18:30","19:00","19:30","20:00","20:30","21:00"], # x var values
+            "datasets": [{
+                "label": "Iboprofen",
+                    "backgroundColor": "pink",
+                    "data": [0, 20,40, 65, 70, 75, 80]},{      # y var values of c var group "Iboprofen"
+                "label": "Aspirin",
+                    "backgroundColor": "blue",
+                    "data": [0, 10,20, 30, 40, 45, 50]}]}      # y var values of c var group "Aspirin"
     """
     if request.method == 'GET':
         x = request.GET.get("x")
