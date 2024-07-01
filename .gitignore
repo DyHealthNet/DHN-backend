@@ -2,4 +2,4 @@
 dyhealthnet_project/.env #?
 /env
 *.env
-dyhealthnet_project/__pycache__/
+**/__pycache__/*

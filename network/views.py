@@ -2,14 +2,13 @@ import pandas as pd
 import re
 import numpy as np
 import matplotlib.colors as mcolors
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from .models import Node, Edge, Disorders, Proteins, EffectsProteinDisorder
 from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
-
-#from itertools import chain
+from itertools import chain
 
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
@@ -24,9 +23,9 @@ class IndexView(generic.ListView):
     context_object_name = "node_list"
     def get_queryset(self):
         """Return the last five added nodes."""
-        return Node.objects.order_by("context_object_name")
+        return Node.objects.order_by("description_text")
 
-class DetailView(generic.DetailView):
+class Detail_NodeView(generic.DetailView):
     model = Node
     template_name = "network/detail.html"
 
@@ -68,15 +67,18 @@ class EdgeDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Edge.objects.all()
     serializer_class = EdgeSerializer
 
-def getNetwork(request):
-    """
-        Returns all network edges whilst giving for each node (foreign key) its description
-        e.g. [{"node1__description_text":"Pro (Metabolite)","node2__description_text":"PC aa C34:4 (Metabolite)",
-        "score":"0.1104","effect_size":"-0.6072"},{"node1__description_text":"Pro (Metabolite)",
-        "node2__description_text":"Pro (Metabolite)","score":"534.5000","effect_size":"684.0000"}]
-
-    """
-    if request.method == 'GET':
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns all network edges whilst giving for each node (foreign key) its description",
+        description="""Returns all network edges whilst giving for each node (foreign key) its description
+            e.g. [{"node1__description_text":"Pro (Metabolite)","node2__description_text":"PC aa C34:4 (Metabolite)",
+            "score":"0.1104","effect_size":"-0.6072"},{"node1__description_text":"Pro (Metabolite)",
+            "node2__description_text":"Pro (Metabolite)","score":"534.5000","effect_size":"684.0000"}]
+            """
+    )
+)
+class GetNetworkView(generics.GenericAPIView):
+    def get(self, request):
         queryset_disorders = Disorders.objects.values('mondo_id',
             'description',
             'xrefs',
@@ -143,14 +145,39 @@ class GetVariablesView(generics.GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Returns the data out of the given variables x (e.g. time), y (dosage) and c(drug) in JSON format",
-        description='Returns the data for the given variables x, y, and c in JSON format. e.g. {"labels": ["18:00","18:30","19:00","19:30","20:00","20:30","21:00"], # x var values
-            "datasets": [{
-                "label": "Iboprofen",
+        description="""Returns the data for the given variables x, y, and c in JSON format. 
+            e.g. {"labels": ["18:00","18:30","19:00","19:30","20:00","20:30","21:00"], 
+            # x var values "datasets": [{
+                "label": "Ibuprofen",
                     "backgroundColor": "pink",
                     "data": [0, 20,40, 65, 70, 75, 80]},{      # y var values of c var group "Iboprofen"
                 "label": "Aspirin",
                     "backgroundColor": "blue",
-                    "data": [0, 10,20, 30, 40, 45, 50]}]}      # y var values of c var group "Aspirin"'
+                    "data": [0, 10,20, 30, 40, 45, 50]}]}      # y var values of c var group "Aspirin"
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='X parameter',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='y',
+                description='Y parameter',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='c',
+                description='C parameter',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
     )
 )
 class GetDataView(generics.GenericAPIView):
