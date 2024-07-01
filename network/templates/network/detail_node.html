@@ -3,7 +3,7 @@
 {% if node.node1.all %}
     <ul>
     {% for edge in node.node1.all %}
-        <li><a href="{% url 'network:detail_edge' edge.id %}">{{ edge }}</a></li>
+        <li><a href="{% url 'network:edge' edge.id %}">{{ edge }}</a></li>
     {% endfor %}
     </ul>
 {% else %}
@@ -13,7 +13,7 @@
 {% if node.node2.all %}
     <ul>
     {% for edge in node.node2.all %}
-        <li><a href="{% url 'network:detail_edge' edge.id %}">{{ edge }}</a></li>
+        <li><a href="{% url 'network:edge' edge.id %}">{{ edge }}</a></li>
     {% endfor %}
     </ul>
 {% else %}

@@ -11,14 +11,19 @@ class Node(models.Model):
 class Edge(models.Model):
     node1 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node1')
     node2 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node2')
-    score = models.DecimalField(max_digits=10, decimal_places=4)
+    pval = models.DecimalField(max_digits=10, decimal_places=4)
+    pval_adj = models.DecimalField(max_digits=10, decimal_places=4)
     effect_size = models.DecimalField(max_digits=10, decimal_places=4)
+    effect_size_type = models.CharField(max_length=25)
 
     def __str__(self):
         return "Edge from " + self.node1.__str__() + " to " + self.node2.__str__()
 
     def passed_pvalue_threshold(self):
-        return
+        if self.pval_adj < threshold:
+            return True
+        else:
+            return False
 
     #TODO:
     def calculate_association_score(self):
