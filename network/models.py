@@ -11,14 +11,19 @@ class Node(models.Model):
 class Edge(models.Model):
     node1 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node1')
     node2 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node2')
-    score = models.DecimalField(max_digits=10, decimal_places=4)
+    pval = models.DecimalField(max_digits=10, decimal_places=4)
+    pval_adj = models.DecimalField(max_digits=10, decimal_places=4)
     effect_size = models.DecimalField(max_digits=10, decimal_places=4)
+    effect_size_type = models.CharField(max_length=25)
 
     def __str__(self):
         return "Edge from " + self.node1.__str__() + " to " + self.node2.__str__()
 
     def passed_pvalue_threshold(self):
-        return
+        if self.pval_adj < threshold:
+            return True
+        else:
+            return False
 
     #TODO:
     def calculate_association_score(self):
@@ -99,7 +104,7 @@ class Edge(models.Model):
 class DisorderAssociatesPhenotypes(models.Model):
     mondo = models.ForeignKey('Disorders', models.DO_NOTHING, blank=True, null=True)
     hpo = models.ForeignKey('Phenotypes', models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True)
+    edge_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -107,10 +112,10 @@ class DisorderAssociatesPhenotypes(models.Model):
 
 
 class Disorders(models.Model):
-    mondo_id = models.CharField(primary_key=True)
-    description = models.CharField(blank=True, null=True)
+    mondo_id = models.CharField(primary_key=True, max_length=200)
+    description = models.CharField(blank=True, null=True, max_length=200)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    observation_source = models.CharField(blank=True, null=True)
+    observation_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -168,7 +173,7 @@ class EffectsDisorderDisorder(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -181,7 +186,7 @@ class EffectsMetaboliteDisorder(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -194,7 +199,7 @@ class EffectsMetaboliteMetabolite(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -207,7 +212,7 @@ class EffectsMetabolitePhenotype(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -220,7 +225,7 @@ class EffectsPhenotypeDisorder(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -233,7 +238,7 @@ class EffectsPhenotypePhenotype(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -246,7 +251,7 @@ class EffectsProteinDisorder(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -259,7 +264,7 @@ class EffectsProteinMetabolite(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -272,7 +277,7 @@ class EffectsProteinPhenotype(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -285,7 +290,7 @@ class EffectsProteinProtein(models.Model):
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True)
+    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -295,7 +300,7 @@ class EffectsProteinProtein(models.Model):
 class GeneAssociatesDisorders(models.Model):
     entrez = models.ForeignKey('Genes', models.DO_NOTHING, blank=True, null=True)
     mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True)
+    edge_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -303,12 +308,12 @@ class GeneAssociatesDisorders(models.Model):
 
 
 class Genes(models.Model):
-    entrez_id = models.CharField(primary_key=True)
-    display_name = models.CharField(blank=True, null=True)
-    description = models.CharField(blank=True, null=True)
+    entrez_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(blank=True, null=True, max_length=200)
+    description = models.CharField(blank=True, null=True, max_length=200)
     synonyms = models.TextField(blank=True, null=True)  # This field type is a guess.
-    chromosome = models.CharField(blank=True, null=True)
-    observation_source = models.CharField(blank=True, null=True)
+    chromosome = models.CharField(blank=True, null=True, max_length=200)
+    observation_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -318,7 +323,7 @@ class Genes(models.Model):
 class MetaboliteAssociatesDisorders(models.Model):
     hmdb = models.ForeignKey('Metabolites', models.DO_NOTHING, blank=True, null=True)
     mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True)
+    edge_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -326,12 +331,12 @@ class MetaboliteAssociatesDisorders(models.Model):
 
 
 class Metabolites(models.Model):
-    hmdb_id = models.CharField(primary_key=True)
-    display_name = models.CharField(blank=True, null=True)
-    description = models.CharField(blank=True, null=True)
-    synonyms = models.CharField(blank=True, null=True)
+    hmdb_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(blank=True, null=True, max_length=200)
+    description = models.CharField(blank=True, null=True, max_length=200)
+    synonyms = models.CharField(blank=True, null=True, max_length=200)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    observation_source = models.CharField(blank=True, null=True)
+    observation_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -339,12 +344,12 @@ class Metabolites(models.Model):
 
 
 class Phenotypes(models.Model):
-    hpo_id = models.CharField(primary_key=True)
-    display_name = models.CharField(blank=True, null=True)
-    description = models.CharField(blank=True, null=True)
+    hpo_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(blank=True, null=True, max_length=200)
+    description = models.CharField(blank=True, null=True, max_length=200)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    synonyms = models.CharField(blank=True, null=True)
-    observation_source = models.CharField(blank=True, null=True)
+    synonyms = models.CharField(blank=True, null=True, max_length=200)
+    observation_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -354,7 +359,7 @@ class Phenotypes(models.Model):
 class ProteinAssociatesMetabolites(models.Model):
     uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, blank=True, null=True)
     hmdb = models.ForeignKey(Metabolites, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True)
+    edge_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False
@@ -362,8 +367,8 @@ class ProteinAssociatesMetabolites(models.Model):
 
 
 class ProteinAssociatesProteins(models.Model):
-    uniprot_id_memberone = models.CharField(db_column='uniprot_id_memberOne', blank=True, null=True)  # Field name made lowercase.
-    uniprot_id_membertwo = models.CharField(db_column='uniprot_id_memberTwo', blank=True, null=True)  # Field name made lowercase.
+    uniprot_id_memberone = models.CharField(db_column='uniprot_id_memberOne', blank=True, null=True, max_length=200)  # Field name made lowercase.
+    uniprot_id_membertwo = models.CharField(db_column='uniprot_id_memberTwo', blank=True, null=True, max_length=200)  # Field name made lowercase.
 
     class Meta:
         managed = False
@@ -371,11 +376,11 @@ class ProteinAssociatesProteins(models.Model):
 
 
 class Proteins(models.Model):
-    uniprot_id = models.CharField(primary_key=True)
-    sequence = models.CharField(blank=True, null=True)
-    gene_entrez_id = models.CharField(blank=True, null=True)
-    description = models.CharField(blank=True, null=True)
-    observation_source = models.CharField(blank=True, null=True)
+    uniprot_id = models.CharField(primary_key=True, max_length=200)
+    sequence = models.CharField(blank=True, null=True, max_length=200)
+    gene_entrez_id = models.CharField(blank=True, null=True, max_length=200)
+    description = models.CharField(blank=True, null=True, max_length=200)
+    observation_source = models.CharField(blank=True, null=True, max_length=200)
 
     class Meta:
         managed = False

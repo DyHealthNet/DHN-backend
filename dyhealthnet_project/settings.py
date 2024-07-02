@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-e3_h+7@zom7w$h0%=cr=4lspdb!z8)zj2ipdl#vm2$vfswpzpv'
+SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -53,6 +53,16 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS':'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'DyHealthNet API',
+    'DESCRIPTION': 'API documentation',
+    'VERSION': '1.0.0',
+    'SERVERS': [{
+            'url': 'http://localhost:8000',
+            'description': 'Development server'
+        }]
 }
 
 MIDDLEWARE = [
@@ -87,9 +97,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'dyhealthnet_project.wsgi.application'
-
-# Your secret key
-SECRET_KEY = env("SECRET_KEY")
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
