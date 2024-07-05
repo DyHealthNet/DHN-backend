@@ -367,8 +367,8 @@ class ProteinAssociatesMetabolites(models.Model):
 
 
 class ProteinAssociatesProteins(models.Model):
-    uniprot_id_memberone = models.CharField(db_column='uniprot_id_memberOne', blank=True, null=True, max_length=200)  # Field name made lowercase.
-    uniprot_id_membertwo = models.CharField(db_column='uniprot_id_memberTwo', blank=True, null=True, max_length=200)  # Field name made lowercase.
+    uniprot_id_memberOne = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberOne', blank=True, null=True)
+    uniprot_id_memberTwo = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberTwo', blank=True, null=True)
 
     class Meta:
         managed = False
