@@ -182,40 +182,66 @@ class GetVariablesView(generics.GenericAPIView):
 )
 class GetDataView(generics.GenericAPIView):
     def get(self, request):
+        # Get request vars
         x = request.GET.get("x")
         y = request.GET.get("y")
         c = request.GET.get("c")
+        print(x)
 
+        # build result dict in right format
         req_data_dict = {}
+        aggregated_df_mean = pd.DataFrame()
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None and y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Get var_id from request vars (stored in brackets at the end of the requents var which is built
+        # from description + (var_id)
         x_idx = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
         y_idx = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
-        req_data_dict["labels"] = list(phenotypes_filtered[x_idx])
         temp = []
+        # Check if c var is given
         if c is not None and c != "":
+            # Get var_id from request var (stored in brackets at the end of the requents var which is built
+            # from description + (var_id)
             c_idx = re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')
+            # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in phenotypes_filtered.columns:
                 return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the phenotype data', status=405)
-            grouped_data = phenotypes_filtered[y_idx].groupby(phenotypes_filtered[c_idx], dropna=True).agg(list)
+            # Make df subset with x, y and c var
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]])
+            # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
+            aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            # Add for each color var it's own dict containing it's label, a color from the color palette and a dict that
+            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
+            # values for x possitions with no aggregated value present)
             color = 0
-            color_pal = list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
-            for i in grouped_data.index:
+            color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
-                    "label": i,
+                    "label": group_name,
                     "backgroundColor": color_pal[color],
-                    "data": grouped_data[i]
+                    "data": group_data.apply(lambda row: {'x': row[x_idx], 'y': row[y_idx]}, axis=1).tolist()
                 })
                 color += 1
         else:
+            # Make df subset with x and y var
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]])
+            # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
+            aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": y,
+                #"label": y, #TODO rather empty label?
                 "backgroundColor": "black",   #TODO change default color?
-                "data": list(phenotypes_filtered[y_idx])
+                "data": aggregated_df_mean[y_idx].tolist()
             })
+        # Store unique x_var values
+        req_data_dict["labels"] = aggregated_df_mean[x_idx].unique().tolist()
+        # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
+        print(req_data_dict)
         return JsonResponse(req_data_dict, safe=True)
 
 # Unused for now/ #TODO:
