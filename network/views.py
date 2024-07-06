@@ -9,6 +9,7 @@ from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
+import seaborn as sns
 
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
@@ -218,7 +219,8 @@ class GetDataView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x possitions with no aggregated value present)
             color = 0
-            color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            #color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            color_pal = sns.color_palette("tab10")
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": group_name,
