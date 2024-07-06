@@ -3,3 +3,4 @@ dyhealthnet_project/.env
 /env
 **/.env
 **/__pycache__/*
+.idea/*
