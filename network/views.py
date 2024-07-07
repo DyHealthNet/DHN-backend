@@ -1,7 +1,6 @@
 import pandas as pd
 import re
 import numpy as np
-import matplotlib.colors as mcolors
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from .models import Node, Edge
 from .models import Disorders, Proteins, Metabolites, Phenotypes, Genes
@@ -15,6 +14,8 @@ from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
 from .db_queries import *
 
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import seaborn as sns
 
 
@@ -35,6 +36,11 @@ phenotypes_meta_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
 
+def rgb_to_hex(rgb):
+    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+def darken_rgb(rgb, factor=0.2):
+    darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
+    return tuple(darkened_rgb)
 
 class IndexView(generic.ListView):
     template_name = "network/index.html"
@@ -246,8 +252,9 @@ class GetDataView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x possitions with no aggregated value present)
             color = 0
-            color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
-            #color_pal = sns.color_palette("tab10")
+            #color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            colormap = sns.color_palette("tab10")
+            color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": group_name,
@@ -268,6 +275,98 @@ class GetDataView(generics.GenericAPIView):
             })
         # Store unique x_var values
         req_data_dict["labels"] = aggregated_df_mean[x_idx].unique().tolist()
+        # Store the y dict/ dicts (if color var was given)
+        req_data_dict["datasets"] = temp
+        return JsonResponse(req_data_dict, safe=True)
+
+class GetDataBoxPlotView(generics.GenericAPIView):
+    def get(self, request):
+        # Get request vars
+        x = request.GET.get("x")
+        y = request.GET.get("y")
+        c = request.GET.get("c")
+
+        # build result dict in right format
+        req_data_dict = {}
+        df = pd.DataFrame()
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "" or y is None and y == "":
+            return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Get var_id from request vars (stored in brackets at the end of the requents var which is built
+        # from description + (var_id)
+        x_idx = re.findall(r'\(.*?\)', x)[-1].replace('(', '').replace(')', '')
+        y_idx = re.findall(r'\(.*?\)', y)[-1].replace('(', '').replace(')', '')
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
+            return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data',
+                                          status=405)
+        temp = []
+        # Check if c var is given
+        if c is not None and c != "":
+            # Get var_id from request var (stored in brackets at the end of the requents var which is built
+            # from description + (var_id)
+            c_idx = re.findall(r'\(.*?\)', c)[-1].replace('(', '').replace(')', '')
+            # Check if c var is present in our data -> else throw HttpResponseBadRequest
+            if c_idx not in phenotypes_filtered.columns:
+                return HttpResponseBadRequest(
+                    'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
+            # Make df subset with x, y and c var
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True)
+            # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
+            #aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx,
+            #                                                                                        ascending=True)
+            # Add for each color var it's own dict containing it's label, a color from the color palette and a dict that
+            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
+            # values for x possitions with no aggregated value present)
+            color = 0
+            # color_pal = ["blue", "orange", "green", "pink","grey"]  # list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            # color_pal = sns.color_palette("tab10")
+            colormap = sns.color_palette("tab10")
+            color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
+            bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
+            for group_name, group_data in df.groupby(c_idx):
+                dataset = {
+                    'label': group_name,
+                    'backgroundColor': color_pal[color],
+                    'borderColor': bordercolor_pal[color],
+                    'padding': 10,
+                    'itemRadius': 0,
+                    'borderWidth': 1,
+                    'data': ((group_data.groupby(x_idx).apply(lambda col: {
+                        'min': col[y_idx].min(),
+                        'q1': col[y_idx].quantile(0.25),
+                        'median': col[y_idx].median(),
+                        'q3': col[y_idx].quantile(0.75),
+                        'max': col[y_idx].max(),
+                    }).tolist()) if not group_data.empty else (
+                        {'min': np.nan, 'q1': np.nan, 'median': np.nan,
+                         'q3': np.nan, 'max': np.nan}.tolist())
+                             ),
+                }
+                temp.append(dataset)
+                color += 1
+        else:
+            # Make df subset with x and y var
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx,ascending=True)
+            # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
+            #aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            # Add dict for y axis containing the y label, black as the color and the aggregated values
+            temp.append({
+                "label": "Whole Population",  # TODO rather empty label?
+                "backgroundColor": "black",  # TODO change default color?
+                'padding': 10,
+                'itemRadius': 0,
+                'borderWidth': 1,
+                'data': {
+                    'min': np.min(df[y_idx]),
+                    'q1': np.percentile(df[y_idx], 25),
+                    'median': np.median(df[y_idx]),
+                    'q3': np.percentile(df[y_idx], 75),
+                    'max': np.min(df[y_idx]),
+                }.tolist(),
+            })
+        # Store unique x_var values
+        req_data_dict["labels"] = df[x_idx].unique().tolist()
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
