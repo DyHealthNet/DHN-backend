@@ -15,6 +15,7 @@ from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
 from .db_queries import *
 
+import seaborn as sns
 
 
 #Nodes = [Disorders, Proteins, Metabolites, Phenotypes, Genes]
@@ -95,9 +96,7 @@ class EdgeDetailView(generics.RetrieveUpdateDestroyAPIView):
     )
 )
 class GetNetworkView(generics.GenericAPIView):
-    print("Hey")
     def get(self, request):
-        print("Hey2")
         # queryset_disorders = Disorders.objects.values('mondo_id',
         #     'description',
         #     'xrefs',
@@ -248,6 +247,7 @@ class GetDataView(generics.GenericAPIView):
             # values for x possitions with no aggregated value present)
             color = 0
             color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            #color_pal = sns.color_palette("tab10")
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": group_name,

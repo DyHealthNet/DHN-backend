@@ -19,7 +19,7 @@ class Edge(models.Model):
     def __str__(self):
         return "Edge from " + self.node1.__str__() + " to " + self.node2.__str__()
 
-    def passed_pvalue_threshold(self):
+    def passed_pvalue_threshold(self, threshold):
         if self.pval_adj < threshold:
             return True
         else:
@@ -246,7 +246,7 @@ class EffectsPhenotypePhenotype(models.Model):
 
 
 class EffectsProteinDisorder(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, blank=True, null=True)
+    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, related_name='effectsproteindisorder_uniprot_set', blank=True, null=True)
     mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -285,8 +285,8 @@ class EffectsProteinPhenotype(models.Model):
 
 
 class EffectsProteinProtein(models.Model):
-    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_1', blank=True, null=True)
-    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_2', related_name='effectsproteinprotein_uniprot_id_2_set', blank=True, null=True)
+    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_1', related_name='effectsproteinprotein_uniprot_id_1_set', blank=True, null=True)
+    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_2', related_name='effectsproteinprotein_uniprot_id_2_set',blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
