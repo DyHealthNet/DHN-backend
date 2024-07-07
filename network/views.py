@@ -3,14 +3,31 @@ import re
 import numpy as np
 import matplotlib.colors as mcolors
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
-from .models import Node, Edge, Disorders, Proteins, EffectsProteinDisorder
+from .models import Node, Edge
+from .models import Disorders, Proteins, Metabolites, Phenotypes, Genes
+from .models import (EffectsProteinDisorder, EffectsProteinProtein, EffectsDisorderDisorder, EffectsProteinPhenotype,
+                     EffectsPhenotypePhenotype, EffectsPhenotypeDisorder, EffectsMetabolitePhenotype,
+                     EffectsProteinMetabolite, EffectsMetaboliteMetabolite, EffectsMetaboliteDisorder)
 from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
+from .db_queries import *
+
 import seaborn as sns
 
+
+#Nodes = [Disorders, Proteins, Metabolites, Phenotypes, Genes]
+Nodes = {'Disorders':Disorders, 'Proteins':Proteins, 'Metabolites':Metabolites, 'Phenotypes': Phenotypes, 'Genes':Genes}
+#Edges = [EffectsProteinDisorder, EffectsProteinProtein, EffectsDisorderDisorder, EffectsProteinPhenotype,
+ #                    EffectsPhenotypePhenotype, EffectsPhenotypeDisorder, EffectsMetabolitePhenotype,
+  #                   EffectsProteinMetabolite, EffectsMetaboliteMetabolite, EffectsMetaboliteDisorder]
+Edges = {'EffectsProteinDisorder':EffectsProteinDisorder, 'EffectsProteinProtein':EffectsProteinProtein,
+         'EffectsDisorderDisorder':EffectsDisorderDisorder, 'EffectsProteinPhenotype':EffectsProteinPhenotype,
+         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype, 'EffectsPhenotypeDisorder':EffectsPhenotypeDisorder,
+         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype, 'EffectsProteinMetabolite':EffectsProteinMetabolite,
+         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite, 'EffectsMetaboliteDisorder':EffectsMetaboliteDisorder}
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
@@ -80,34 +97,45 @@ class Detail_EdgeView(generic.DetailView):
 )
 class GetNetworkView(generics.GenericAPIView):
     def get(self, request):
-        queryset_disorders = Disorders.objects.values('mondo_id',
-            'description',
-            'xrefs',
-            'observation_source'
-        )[5:15]
-        queryset_protein = Proteins.objects.values('uniprot_id',
-            'sequence',
-            'gene_entrez_id',
-            'description',
-            'observation_source'
-        )[5:15]
-        queryset_edge = EffectsProteinDisorder.objects.values('uniprot',
-                                                    'mondo',
-                                                    'p_value',
-                                                    'adjusted_p_value',
-                                                    'effect_size',
-                                                    'effect_size_type'
-                                                   )[5:15]
-        combined_query = {
-            'Nodes':{
-                'Disorder': list(queryset_disorders),
-                'Proteins': list(queryset_protein)
-            },
-            'Edges':{
-                'Disorder_Protein': list(queryset_edge)
-            }
-        }
-        return JsonResponse(combined_query, safe=False, status=200)
+        # queryset_disorders = Disorders.objects.values('mondo_id',
+        #     'description',
+        #     'xrefs',
+        #     'observation_source'
+        # )[5:15]
+        # queryset_protein = Proteins.objects.values('uniprot_id',
+        #     'sequence',
+        #     'gene_entrez_id',
+        #     'description',
+        #     'observation_source'
+        # )[5:15]
+        # queryset_edge = EffectsProteinDisorder.objects.values('uniprot',
+        #                                             'mondo',
+        #                                             'p_value',
+        #                                             'adjusted_p_value',
+        #                                             'effect_size',
+        #                                             'effect_size_type'
+        #                                            )[5:15]
+        # combined_query = {
+        #     'Nodes':{
+        #         'Disorder': list(queryset_disorders),
+        #         'Proteins': list(queryset_protein)
+        #     },
+        #     'Edges':{
+        #         'Disorder_Protein': list(queryset_edge)
+        #     }
+        # }
+        query = {}
+        node_dict = {}
+        edge_dict = {}
+        for node_name, node_info in Nodes.items():
+            node_dict[node_name] = list(node_info.objects.values()[1:3])
+        query['Nodes'] = node_dict
+        for edge_name, edge_info in Edges.items():
+            edge_dict[edge_name] = list(edge_info.objects.values()[1:3])
+        query['Edges'] = edge_dict
+        #print("query: ")
+        #print(query)
+        return JsonResponse(query, safe=False, status=200)
     # if request.method == 'GET':
     #     queryset = Edge.objects.values('node1__description_text',
     #         'node2__description_text',
@@ -187,7 +215,6 @@ class GetDataView(generics.GenericAPIView):
         x = request.GET.get("x")
         y = request.GET.get("y")
         c = request.GET.get("c")
-        print(x)
 
         # build result dict in right format
         req_data_dict = {}
@@ -219,8 +246,8 @@ class GetDataView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x possitions with no aggregated value present)
             color = 0
-            #color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
-            color_pal = sns.color_palette("tab10")
+            color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
+            #color_pal = sns.color_palette("tab10")
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": group_name,
@@ -235,7 +262,7 @@ class GetDataView(generics.GenericAPIView):
             aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                #"label": y, #TODO rather empty label?
+                "label": "Whole Population", #TODO rather empty label?
                 "backgroundColor": "black",   #TODO change default color?
                 "data": aggregated_df_mean[y_idx].tolist()
             })
@@ -243,7 +270,6 @@ class GetDataView(generics.GenericAPIView):
         req_data_dict["labels"] = aggregated_df_mean[x_idx].unique().tolist()
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
-        print(req_data_dict)
         return JsonResponse(req_data_dict, safe=True)
 
 # Unused for now/ #TODO:
