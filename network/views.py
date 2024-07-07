@@ -57,39 +57,39 @@ class Detail_EdgeView(generic.DetailView):
     model = Edge
     template_name = "network/detail_edge.html"
 
-@extend_schema_view(
-    get=extend_schema(summary="List all nodes", responses={200: NodeSerializer(many=True)}),
-    post=extend_schema(summary="Create a new node", responses={201: NodeSerializer}),
-)
-class NodeListView(generics.ListCreateAPIView):
-    queryset = Node.objects.all()
-    serializer_class = NodeSerializer
-
-@extend_schema_view(
-    get=extend_schema(summary="Retrieve a node", responses={200: NodeSerializer}),
-    put=extend_schema(summary="Update a node", responses={200: NodeSerializer}),
-    delete=extend_schema(summary="Delete a node", responses={204: None}),
-)
-class NodeDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Node.objects.all()
-    serializer_class = NodeSerializer
-
-@extend_schema_view(
-    get=extend_schema(summary="List all edges", responses={200: EdgeSerializer(many=True)}),
-    post=extend_schema(summary="Create a new edge", responses={201: EdgeSerializer}),
-)
-class EdgeListView(generics.ListCreateAPIView):
-    queryset = Edge.objects.all()
-    serializer_class = EdgeSerializer
-
-@extend_schema_view(
-    get=extend_schema(summary="Retrieve an edge", responses={200: EdgeSerializer}),
-    put=extend_schema(summary="Update an edge", responses={200: EdgeSerializer}),
-    delete=extend_schema(summary="Delete an edge", responses={204: None}),
-)
-class EdgeDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Edge.objects.all()
-    serializer_class = EdgeSerializer
+# @extend_schema_view(
+#     get=extend_schema(summary="List all nodes", responses={200: NodeSerializer(many=True)}),
+#     post=extend_schema(summary="Create a new node", responses={201: NodeSerializer}),
+# )
+# class NodeListView(generics.ListCreateAPIView):
+#     queryset = Node.objects.all()
+#     serializer_class = NodeSerializer
+#
+# @extend_schema_view(
+#     get=extend_schema(summary="Retrieve a node", responses={200: NodeSerializer}),
+#     put=extend_schema(summary="Update a node", responses={200: NodeSerializer}),
+#     delete=extend_schema(summary="Delete a node", responses={204: None}),
+# )
+# class NodeDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     queryset = Node.objects.all()
+#     serializer_class = NodeSerializer
+#
+# @extend_schema_view(
+#     get=extend_schema(summary="List all edges", responses={200: EdgeSerializer(many=True)}),
+#     post=extend_schema(summary="Create a new edge", responses={201: EdgeSerializer}),
+# )
+# class EdgeListView(generics.ListCreateAPIView):
+#     queryset = Edge.objects.all()
+#     serializer_class = EdgeSerializer
+#
+# @extend_schema_view(
+#     get=extend_schema(summary="Retrieve an edge", responses={200: EdgeSerializer}),
+#     put=extend_schema(summary="Update an edge", responses={200: EdgeSerializer}),
+#     delete=extend_schema(summary="Delete an edge", responses={204: None}),
+# )
+# class EdgeDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     queryset = Edge.objects.all()
+#     serializer_class = EdgeSerializer
 
 @extend_schema_view(
     get=extend_schema(

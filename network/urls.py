@@ -18,13 +18,13 @@ urlpatterns = [
     # ex: /network/api/getNetwork
     path("api/getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
     # ex: /network/api/nodes
-    path('api/nodes/', views.NodeListView.as_view(), name="node_list"),
+    #path('api/nodes/', views.NodeListView.as_view(), name="node_list"),
     # ex: /network/api/nodes/1
-    path('api/nodes/<int:pk>/', views.NodeDetailView.as_view(), name="node_edit"),
+    #path('api/nodes/<int:pk>/', views.NodeDetailView.as_view(), name="node_edit"),
     # ex: /network/api/edges
-    path('api/edges/', views.EdgeListView.as_view(), name="edge_list"),
+    #path('api/edges/', views.EdgeListView.as_view(), name="edge_list"),
     # ex: /network/api/edges/1
-    path('api/edges/<int:pk>/', views.EdgeDetailView.as_view(), name="edge_edit"),
+    #path('api/edges/<int:pk>/', views.EdgeDetailView.as_view(), name="edge_edit"),
 
 
 # Unused for now/ #TODO:
