@@ -1,0 +1,239 @@
+openapi: 3.0.3
+info:
+  title: DyHealthNet API
+  version: 1.0.0
+  description: API documentation
+paths:
+  /api/schema/:
+    get:
+      operationId: api_schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /network/api/getNetwork/:
+    get:
+      operationId: network_api_getNetwork_retrieve
+      description: "Returns all network edges whilst giving for each node (foreign\
+        \ key) its description\n            e.g. [{\"node1__description_text\":\"\
+        Pro (Metabolite)\",\"node2__description_text\":\"PC aa C34:4 (Metabolite)\"\
+        ,\n            \"score\":\"0.1104\",\"effect_size\":\"-0.6072\"},{\"node1__description_text\"\
+        :\"Pro (Metabolite)\",\n            \"node2__description_text\":\"Pro (Metabolite)\"\
+        ,\"score\":\"534.5000\",\"effect_size\":\"684.0000\"}]\n            "
+      summary: Returns all network edges whilst giving for each node (foreign key)
+        its description
+      tags:
+      - network
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /network/api/plotData/:
+    get:
+      operationId: network_api_plotData_retrieve
+      description: "Returns the data for the given variables x, y, and c in JSON format.\
+        \ \n            e.g. {\"labels\": [\"18:00\",\"18:30\",\"19:00\",\"19:30\"\
+        ,\"20:00\",\"20:30\",\"21:00\"], \n            # x var values \"datasets\"\
+        : [{\n                \"label\": \"Ibuprofen\",\n                    \"backgroundColor\"\
+        : \"pink\",\n                    \"data\": [0, 20,40, 65, 70, 75, 80]},{ \
+        \     # y var values of c var group \"Iboprofen\"\n                \"label\"\
+        : \"Aspirin\",\n                    \"backgroundColor\": \"blue\",\n     \
+        \               \"data\": [0, 10,20, 30, 40, 45, 50]}]}      # y var values\
+        \ of c var group \"Aspirin\"\n            "
+      summary: Returns the data out of the given variables x (e.g. time), y (dosage)
+        and c(drug) in JSON format
+      parameters:
+      - in: query
+        name: c
+        schema:
+          type: string
+        description: C parameter
+      - in: query
+        name: x
+        schema:
+          type: string
+        description: X parameter
+        required: true
+      - in: query
+        name: y
+        schema:
+          type: string
+        description: Y parameter
+        required: true
+      tags:
+      - network
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /network/api/variables/:
+    get:
+      operationId: network_api_variables_retrieve
+      description: Returns all possible phenotype variables grouped by their type
+        in JSON format. e.g. {"discrete":["age_id"], "countinous":["BMI_id","Height_id"]}
+      summary: Returns all possible phenotype variables grouped by their type in JSON
+        format
+      tags:
+      - network
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+servers:
+- url: http://localhost:8000
+  description: Development server
