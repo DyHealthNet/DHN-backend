@@ -14,7 +14,7 @@ urlpatterns = [
     # ex: /network/api/plotData
     path("api/plotData/", views.GetDataView.as_view(), name="get_plot_data"),
     # ex: /network/api/getNetwork
-    path("getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
+    path("api/getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
     # ex: /network/api/nodes
     path('api/nodes/', views.NodeListView.as_view(), name="node_list"),
     # ex: /network/api/nodes/1
