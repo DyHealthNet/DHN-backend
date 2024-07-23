@@ -1,5 +1,6 @@
-from dyhealthnet_project.myFunctions.calculate_association import calculate_score_from_nodes # test
+from dyhealthnet_project.myFunctions.calculate_association import calculate_score_from_nodes  # test
 from django.db import models
+
 
 class Node(models.Model):
     description_text = models.CharField(max_length=200)
@@ -7,6 +8,7 @@ class Node(models.Model):
 
     def __str__(self):
         return self.description_text
+
 
 class Edge(models.Model):
     node1 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node1')
@@ -25,9 +27,10 @@ class Edge(models.Model):
         else:
             return False
 
-    #TODO:
+    # TODO:
     def calculate_association_score(self):
         return calculate_score_from_nodes(self.node1, self.node2)
+
 
 ## Automatically generated models for the tables of the actual db from the database group via command
 ## python manage.py inspectdb > network/models.py
@@ -169,7 +172,8 @@ class Disorders(models.Model):
 
 class EffectsDisorderDisorder(models.Model):
     mondo_id_1 = models.ForeignKey(Disorders, models.DO_NOTHING, db_column='mondo_id_1', blank=True, null=True)
-    mondo_id_2 = models.ForeignKey(Disorders, models.DO_NOTHING, db_column='mondo_id_2', related_name='effectsdisorderdisorder_mondo_id_2_set', blank=True, null=True)
+    mondo_id_2 = models.ForeignKey(Disorders, models.DO_NOTHING, db_column='mondo_id_2',
+                                   related_name='effectsdisorderdisorder_mondo_id_2_set', blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
@@ -195,7 +199,8 @@ class EffectsMetaboliteDisorder(models.Model):
 
 class EffectsMetaboliteMetabolite(models.Model):
     hmdb_id_1 = models.ForeignKey('Metabolites', models.DO_NOTHING, db_column='hmdb_id_1', blank=True, null=True)
-    hmdb_id_2 = models.ForeignKey('Metabolites', models.DO_NOTHING, db_column='hmdb_id_2', related_name='effectsmetabolitemetabolite_hmdb_id_2_set', blank=True, null=True)
+    hmdb_id_2 = models.ForeignKey('Metabolites', models.DO_NOTHING, db_column='hmdb_id_2',
+                                  related_name='effectsmetabolitemetabolite_hmdb_id_2_set', blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
@@ -234,7 +239,8 @@ class EffectsPhenotypeDisorder(models.Model):
 
 class EffectsPhenotypePhenotype(models.Model):
     hpo_id_1 = models.ForeignKey('Phenotypes', models.DO_NOTHING, db_column='hpo_id_1', blank=True, null=True)
-    hpo_id_2 = models.ForeignKey('Phenotypes', models.DO_NOTHING, db_column='hpo_id_2', related_name='effectsphenotypephenotype_hpo_id_2_set', blank=True, null=True)
+    hpo_id_2 = models.ForeignKey('Phenotypes', models.DO_NOTHING, db_column='hpo_id_2',
+                                 related_name='effectsphenotypephenotype_hpo_id_2_set', blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
@@ -246,7 +252,8 @@ class EffectsPhenotypePhenotype(models.Model):
 
 
 class EffectsProteinDisorder(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, related_name='effectsproteindisorder_uniprot_set', blank=True, null=True)
+    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, related_name='effectsproteindisorder_uniprot_set',
+                                blank=True, null=True)
     mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -285,8 +292,10 @@ class EffectsProteinPhenotype(models.Model):
 
 
 class EffectsProteinProtein(models.Model):
-    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_1', related_name='effectsproteinprotein_uniprot_id_1_set', blank=True, null=True)
-    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_2', related_name='effectsproteinprotein_uniprot_id_2_set',blank=True, null=True)
+    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_1',
+                                     related_name='effectsproteinprotein_uniprot_id_1_set', blank=True, null=True)
+    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_2',
+                                     related_name='effectsproteinprotein_uniprot_id_2_set', blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
@@ -367,10 +376,10 @@ class ProteinAssociatesMetabolites(models.Model):
 
 
 class ProteinAssociatesProteins(models.Model):
-    uniprot_id_memberOne = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberOne',
-                                             related_name='associates_member_one', blank=True, null=True)
-    uniprot_id_memberTwo = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberTwo',
-                                             related_name='associates_member_two', blank=True, null=True)
+    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberOne',
+                                     related_name='associates_member_one', blank=True, null=True)
+    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberTwo',
+                                     related_name='associates_member_two', blank=True, null=True)
 
     class Meta:
         managed = False
@@ -387,3 +396,14 @@ class Proteins(models.Model):
     class Meta:
         managed = False
         db_table = 'proteins'
+
+
+class ViewDescriptionFTS(models.Model):
+    id = models.CharField(primary_key=True, max_length=200, db_column='id')
+    description = models.CharField(blank=True, null=True, db_column='description', max_length=2000)
+    display_name = models.CharField(blank=True, null=True, db_column='display_name', max_length=200)
+    source_table = models.TextField(blank=True, null=True, db_column='source_table')
+
+    class Meta:
+        managed = False
+        db_table = 'view_description_fts'

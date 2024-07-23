@@ -4,7 +4,7 @@ import timeit
 # we were using the sqlalchemy library to connect to the database, but you should probably change it to
 # the django ORM
 from sqlalchemy import select, func, text
-from sqlalchemy import URL, create_engine
+from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import sessionmaker
 
 
@@ -172,3 +172,7 @@ if __name__ == '__main__':
     start = timeit.default_timer()
     edges, num_edges = get_edges(session, 'uniprot_id', 'uniprot.P31946', limit=10)
     print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
+    print(type(edges))
+    for table, edge in edges.items():
+        print(table)
+        print(edge)

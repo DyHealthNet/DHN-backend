@@ -9,10 +9,6 @@ import json
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
 django.setup()
 
-#from models import Proteins, Metabolites, Disorders, Phenotypes, Genes
-#from models import ProteinAssociatesMetabolites, ProteinAssociatesProteins, DisorderAssociatesPhenotypes, GeneAssociatesDisorders, MetaboliteAssociatesDisorders
-#from models import EffectsProteinProtein, EffectsProteinDisorder, EffectsProteinPhenotype, EffectsProteinMetabolite, EffectsPhenotypeDisorder, EffectsMetaboliteDisorder, EffectsDisorderDisorder, EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite, EffectsPhenotypePhenotype
-
 BASE_TABLES = {'proteins': 'uniprot_id', 'metabolites': 'hmdb_id',
                'disorders': 'mondo_id', 'phenotypes': 'hpo_id',
                'genes': 'entrez_id', 'genomic_variant': 'varinat_primaryDomainId'}
@@ -76,7 +72,7 @@ def query_identity_table(table, id_names, base_table, query_id, limit):
     # Account for differences in table names vs. model names
     parts = table.split('_')
     table = ''.join([part.capitalize() for part in parts])
-    table_model = apps.get_model('network', table.capitalize())
+    table_model = apps.get_model('network', table)
 
     base_table_name = base_table[0].capitalize()
     base_table_model = apps.get_model('network', base_table_name.capitalize())
@@ -177,21 +173,20 @@ def get_edges(node_type, query_id, limit=100):
         nodes_results[table] = nodes
         edges_results[table] = edges
 
-    # get the sum of the results
+    # get the number of results
     total_edges_results = sum(len(edges) for edges in edges_results.values())
     total_nodes_results = sum(len(nodes) for nodes in nodes_results.values())
     return nodes_results, edges_results, total_edges_results, total_nodes_results
 
 if __name__ == '__main__':
     start = timeit.default_timer()
-    nodes, edges, num_edges, num_nodes = get_edges('uniprot_id', 'uniprot.P31946', limit=100)
+
+    nodes, edges, num_edges, num_nodes = get_edges('uniprot_id', 'uniprot.P31946', limit=10)
     print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges and {num_nodes} nodes.")
 
     print('Edges:')
     for table, objects in edges.items():
         print(table, objects)
-        #for result in table:
-        #    print(result)
 
     print('Nodes:')
     for table in nodes.values():
