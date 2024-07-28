@@ -232,8 +232,11 @@ if __name__ == '__main__':
     # as some of the nodes can have no connection to the knowledge graph, they can be None
     example_nodes = [None, 'uniprot.Q9BUT1', 'uniprot.Q3SXY7', None, 'uniprot.P22087', 'uniprot.P28908',
                      'uniprot.Q13421', None, 'uniprot.Q9UM07', 'uniprot.Q96DN0', 'hmdb.HMDB0000011', 'hmdb.HMDB0008189']
-    print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
-    print(type(edges))
-    for table, edge in edges.items():
-        print(table)
-        print(edge)
+    #print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
+    #print(type(edges))
+    #for table, edge in edges.items():
+    #    print(table)
+    #    print(edge)
+    results = knowledge_graph_edges(session, example_nodes)
+    print(f"Took {timeit.default_timer() - start:.2f} seconds!")
+    print(results)

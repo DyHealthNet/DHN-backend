@@ -3,10 +3,10 @@ import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from .models import Node, Edge
-from .models import Disorders, Proteins, Metabolites, Phenotypes, Genes
-from .models import (EffectsProteinDisorder, EffectsProteinProtein, EffectsDisorderDisorder, EffectsProteinPhenotype,
-                     EffectsPhenotypePhenotype, EffectsPhenotypeDisorder, EffectsMetabolitePhenotype,
-                     EffectsProteinMetabolite, EffectsMetaboliteMetabolite, EffectsMetaboliteDisorder)
+from .models import Disorder, Protein, Metabolite, Phenotype, Gene
+from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
+                     EffectsPhenotypePhenotype, EffectsMetabolitePhenotype,
+                     EffectsProteinMetabolite, EffectsMetaboliteMetabolite)
 from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
@@ -20,15 +20,15 @@ import seaborn as sns
 
 
 #Nodes = [Disorders, Proteins, Metabolites, Phenotypes, Genes]
-Nodes = {'Disorders':Disorders, 'Proteins':Proteins, 'Metabolites':Metabolites, 'Phenotypes': Phenotypes, 'Genes':Genes}
+Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
 #Edges = [EffectsProteinDisorder, EffectsProteinProtein, EffectsDisorderDisorder, EffectsProteinPhenotype,
  #                    EffectsPhenotypePhenotype, EffectsPhenotypeDisorder, EffectsMetabolitePhenotype,
   #                   EffectsProteinMetabolite, EffectsMetaboliteMetabolite, EffectsMetaboliteDisorder]
-Edges = {'EffectsProteinDisorder':EffectsProteinDisorder, 'EffectsProteinProtein':EffectsProteinProtein,
-         'EffectsDisorderDisorder':EffectsDisorderDisorder, 'EffectsProteinPhenotype':EffectsProteinPhenotype,
-         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype, 'EffectsPhenotypeDisorder':EffectsPhenotypeDisorder,
+Edges = {'EffectsProteinProtein':EffectsProteinProtein,
+         'EffectsProteinPhenotype':EffectsProteinPhenotype,
+         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
          'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype, 'EffectsProteinMetabolite':EffectsProteinMetabolite,
-         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite, 'EffectsMetaboliteDisorder':EffectsMetaboliteDisorder}
+         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0, index_col=0)
