@@ -1,4 +1,10 @@
-from dyhealthnet_project.myFunctions.calculate_association import calculate_score_from_nodes # test
+# This is an auto-generated Django model module.
+# You'll have to do the following manually to clean this up:
+#   * Rearrange models' order
+#   * Make sure each model has one field with primary_key=True
+#   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
+#   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
+# Feel free to rename the models, but don't rename db_table values or field names.
 from django.db import models
 
 class Node(models.Model):
@@ -7,6 +13,7 @@ class Node(models.Model):
 
     def __str__(self):
         return self.description_text
+
 
 class Edge(models.Model):
     node1 = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='node1')
@@ -25,181 +32,74 @@ class Edge(models.Model):
         else:
             return False
 
-    #TODO:
+    # TODO:
     def calculate_association_score(self):
         return calculate_score_from_nodes(self.node1, self.node2)
 
-## Automatically generated models for the tables of the actual db from the database group via command
-## python manage.py inspectdb > network/models.py
-
-# class AuthGroup(models.Model):
-#     name = models.CharField(unique=True, max_length=150)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_group'
-#
-#
-# class AuthGroupPermissions(models.Model):
-#     id = models.BigAutoField(primary_key=True)
-#     group = models.ForeignKey(AuthGroup, models.DO_NOTHING)
-#     permission = models.ForeignKey('AuthPermission', models.DO_NOTHING)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_group_permissions'
-#         unique_together = (('group', 'permission'),)
-#
-#
-# class AuthPermission(models.Model):
-#     name = models.CharField(max_length=255)
-#     content_type = models.ForeignKey('DjangoContentType', models.DO_NOTHING)
-#     codename = models.CharField(max_length=100)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_permission'
-#         unique_together = (('content_type', 'codename'),)
-#
-#
-# class AuthUser(models.Model):
-#     password = models.CharField(max_length=128)
-#     last_login = models.DateTimeField(blank=True, null=True)
-#     is_superuser = models.BooleanField()
-#     username = models.CharField(unique=True, max_length=150)
-#     first_name = models.CharField(max_length=150)
-#     last_name = models.CharField(max_length=150)
-#     email = models.CharField(max_length=254)
-#     is_staff = models.BooleanField()
-#     is_active = models.BooleanField()
-#     date_joined = models.DateTimeField()
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_user'
-#
-#
-# class AuthUserGroups(models.Model):
-#     id = models.BigAutoField(primary_key=True)
-#     user = models.ForeignKey(AuthUser, models.DO_NOTHING)
-#     group = models.ForeignKey(AuthGroup, models.DO_NOTHING)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_user_groups'
-#         unique_together = (('user', 'group'),)
-#
-#
-# class AuthUserUserPermissions(models.Model):
-#     id = models.BigAutoField(primary_key=True)
-#     user = models.ForeignKey(AuthUser, models.DO_NOTHING)
-#     permission = models.ForeignKey(AuthPermission, models.DO_NOTHING)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'auth_user_user_permissions'
-#         unique_together = (('user', 'permission'),)
-
-
-class DisorderAssociatesPhenotypes(models.Model):
-    mondo = models.ForeignKey('Disorders', models.DO_NOTHING, blank=True, null=True)
-    hpo = models.ForeignKey('Phenotypes', models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True, max_length=200)
+class CohortMetabolite(models.Model):
+    cohort_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    hmdb_id = models.ForeignKey('Metabolite', models.DO_NOTHING, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'disorder_associates_phenotypes'
+        db_table = 'cohort_metabolite'
 
 
-class Disorders(models.Model):
+class CohortPhenotype(models.Model):
+    cohort_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
+    hpo_id = models.ForeignKey('Phenotype', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_phenotype'
+
+
+class CohortProtein(models.Model):
+    cohort_id = models.CharField(primary_key=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    uniprot_id = models.ForeignKey('Protein', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_protein'
+
+
+class Disorder(models.Model):
     mondo_id = models.CharField(primary_key=True, max_length=200)
-    description = models.CharField(blank=True, null=True, max_length=200)
+    description = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    observation_source = models.CharField(blank=True, null=True, max_length=200)
+    observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'disorders'
+        db_table = 'disorder'
 
 
-# class DjangoAdminLog(models.Model):
-#     action_time = models.DateTimeField()
-#     object_id = models.TextField(blank=True, null=True)
-#     object_repr = models.CharField(max_length=200)
-#     action_flag = models.SmallIntegerField()
-#     change_message = models.TextField()
-#     content_type = models.ForeignKey('DjangoContentType', models.DO_NOTHING, blank=True, null=True)
-#     user = models.ForeignKey(AuthUser, models.DO_NOTHING)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'django_admin_log'
-#
-#
-# class DjangoContentType(models.Model):
-#     app_label = models.CharField(max_length=100)
-#     model = models.CharField(max_length=100)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'django_content_type'
-#         unique_together = (('app_label', 'model'),)
-#
-#
-# class DjangoMigrations(models.Model):
-#     id = models.BigAutoField(primary_key=True)
-#     app = models.CharField(max_length=255)
-#     name = models.CharField(max_length=255)
-#     applied = models.DateTimeField()
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'django_migrations'
-#
-#
-# class DjangoSession(models.Model):
-#     session_key = models.CharField(primary_key=True, max_length=40)
-#     session_data = models.TextField()
-#     expire_date = models.DateTimeField()
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'django_session'
-
-
-class EffectsDisorderDisorder(models.Model):
-    mondo_id_1 = models.ForeignKey(Disorders, models.DO_NOTHING, db_column='mondo_id_1', blank=True, null=True)
-    mondo_id_2 = models.ForeignKey(Disorders, models.DO_NOTHING, db_column='mondo_id_2', related_name='effectsdisorderdisorder_mondo_id_2_set', blank=True, null=True)
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+class DisorderAssociatesPhenotype(models.Model):
+    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
+    hpo_id = models.ForeignKey('Phenotype', models.DO_NOTHING, blank=True, null=True)
+    edge_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_disorder_disorder'
-
-
-class EffectsMetaboliteDisorder(models.Model):
-    hmdb = models.ForeignKey('Metabolites', models.DO_NOTHING, blank=True, null=True)
-    mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
-
-    class Meta:
-        managed = False
-        db_table = 'effects_metabolite_disorder'
+        db_table = 'disorder_associates_phenotype'
 
 
 class EffectsMetaboliteMetabolite(models.Model):
-    hmdb_id_1 = models.ForeignKey('Metabolites', models.DO_NOTHING, db_column='hmdb_id_1', blank=True, null=True)
-    hmdb_id_2 = models.ForeignKey('Metabolites', models.DO_NOTHING, db_column='hmdb_id_2', related_name='effectsmetabolitemetabolite_hmdb_id_2_set', blank=True, null=True)
+    metabolite_id_1 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_1', blank=True, null=True,
+                                        related_name='cohort_metabolite_1')
+    metabolite_id_2 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_2', blank=True, null=True,
+                                        related_name='cohort_metabolite_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -207,64 +107,40 @@ class EffectsMetaboliteMetabolite(models.Model):
 
 
 class EffectsMetabolitePhenotype(models.Model):
-    hmdb = models.ForeignKey('Metabolites', models.DO_NOTHING, blank=True, null=True)
-    hpo = models.ForeignKey('Phenotypes', models.DO_NOTHING, blank=True, null=True)
+    metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
+    phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'effects_metabolite_phenotype'
 
 
-class EffectsPhenotypeDisorder(models.Model):
-    hpo = models.ForeignKey('Phenotypes', models.DO_NOTHING, blank=True, null=True)
-    mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
-
-    class Meta:
-        managed = False
-        db_table = 'effects_phenotype_disorder'
-
-
 class EffectsPhenotypePhenotype(models.Model):
-    hpo_id_1 = models.ForeignKey('Phenotypes', models.DO_NOTHING, db_column='hpo_id_1', blank=True, null=True)
-    hpo_id_2 = models.ForeignKey('Phenotypes', models.DO_NOTHING, db_column='hpo_id_2', related_name='effectsphenotypephenotype_hpo_id_2_set', blank=True, null=True)
+    phenotype_id_1 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_1', blank=True, null=True,
+                                       related_name='cohort_phenotype_1')
+    phenotype_id_2 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_2', blank=True, null=True,
+                                       related_name='cohort_phenotype_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'effects_phenotype_phenotype'
 
 
-class EffectsProteinDisorder(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, related_name='effectsproteindisorder_uniprot_set', blank=True, null=True)
-    mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
-
-    class Meta:
-        managed = False
-        db_table = 'effects_protein_disorder'
-
-
 class EffectsProteinMetabolite(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, blank=True, null=True)
-    hmdb = models.ForeignKey('Metabolites', models.DO_NOTHING, blank=True, null=True)
+    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
+    metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -272,12 +148,12 @@ class EffectsProteinMetabolite(models.Model):
 
 
 class EffectsProteinPhenotype(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, blank=True, null=True)
-    hpo = models.ForeignKey('Phenotypes', models.DO_NOTHING, blank=True, null=True)
+    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
+    phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -285,105 +161,144 @@ class EffectsProteinPhenotype(models.Model):
 
 
 class EffectsProteinProtein(models.Model):
-    uniprot_id_1 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_1', related_name='effectsproteinprotein_uniprot_id_1_set', blank=True, null=True)
-    uniprot_id_2 = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_2', related_name='effectsproteinprotein_uniprot_id_2_set',blank=True, null=True)
+    protein_id_1 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_1', blank=True, null=True,
+                                     related_name='cohort_protein_1')
+    protein_id_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
+                                     related_name='cohort_protein_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(blank=True, null=True, max_length=200)
+    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
         db_table = 'effects_protein_protein'
 
 
-class GeneAssociatesDisorders(models.Model):
-    entrez = models.ForeignKey('Genes', models.DO_NOTHING, blank=True, null=True)
-    mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True, max_length=200)
-
-    class Meta:
-        managed = False
-        db_table = 'gene_associates_disorders'
-
-
-class Genes(models.Model):
+class Gene(models.Model):
     entrez_id = models.CharField(primary_key=True, max_length=200)
-    display_name = models.CharField(blank=True, null=True, max_length=200)
-    description = models.CharField(blank=True, null=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
     synonyms = models.TextField(blank=True, null=True)  # This field type is a guess.
-    chromosome = models.CharField(blank=True, null=True, max_length=200)
-    observation_source = models.CharField(blank=True, null=True, max_length=200)
+    chromosome = models.CharField(max_length=200, blank=True, null=True)
+    observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'genes'
+        db_table = 'gene'
 
 
-class MetaboliteAssociatesDisorders(models.Model):
-    hmdb = models.ForeignKey('Metabolites', models.DO_NOTHING, blank=True, null=True)
-    mondo = models.ForeignKey(Disorders, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True, max_length=200)
+class GeneAssociatesDisorder(models.Model):
+    entrez_id = models.ForeignKey('Gene', models.DO_NOTHING, blank=True, null=True)
+    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
+    edge_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'metabolite_associates_disorders'
+        db_table = 'gene_associates_disorder'
 
 
-class Metabolites(models.Model):
+class GenomicVariant(models.Model):
+    variant_primarydomainid = models.CharField(db_column='variant_primaryDomainId', primary_key=True, max_length=200)  # Field name made lowercase.
+    alternativesequence = models.CharField(db_column='alternativeSequence', max_length=200, blank=True, null=True)  # Field name made lowercase.
+    chromosome = models.CharField(max_length=200, blank=True, null=True)
+    created = models.CharField(max_length=200, blank=True, null=True)
+    datasources = models.CharField(db_column='dataSources', max_length=200, blank=True, null=True)  # Field name made lowercase.
+    domainids = models.CharField(db_column='domainIds', max_length=200, blank=True, null=True)  # Field name made lowercase.
+    position = models.CharField(max_length=200, blank=True, null=True)
+    referencesequence = models.CharField(db_column='referenceSequence', max_length=200, blank=True, null=True)  # Field name made lowercase.
+    type = models.CharField(max_length=200, blank=True, null=True)
+    varianttype = models.CharField(db_column='variantType', max_length=200, blank=True, null=True)  # Field name made lowercase.
+
+    class Meta:
+        managed = False
+        db_table = 'genomic_variant'
+
+
+class Metabolite(models.Model):
     hmdb_id = models.CharField(primary_key=True, max_length=200)
-    display_name = models.CharField(blank=True, null=True, max_length=200)
-    description = models.CharField(blank=True, null=True, max_length=200)
-    synonyms = models.CharField(blank=True, null=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    synonyms = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    observation_source = models.CharField(blank=True, null=True, max_length=200)
+    observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'metabolites'
+        db_table = 'metabolite'
 
 
-class Phenotypes(models.Model):
+class MetaboliteAssociatesDisorder(models.Model):
+    hmdb_id = models.ForeignKey('Metabolite', models.DO_NOTHING, blank=True, null=True)
+    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
+    edge_source = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'metabolite_associates_disorder'
+
+
+class Phenotype(models.Model):
     hpo_id = models.CharField(primary_key=True, max_length=200)
-    display_name = models.CharField(blank=True, null=True, max_length=200)
-    description = models.CharField(blank=True, null=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
-    synonyms = models.CharField(blank=True, null=True, max_length=200)
-    observation_source = models.CharField(blank=True, null=True, max_length=200)
+    synonyms = models.CharField(max_length=200, blank=True, null=True)
+    observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'phenotypes'
+        db_table = 'phenotype'
 
 
-class ProteinAssociatesMetabolites(models.Model):
-    uniprot = models.ForeignKey('Proteins', models.DO_NOTHING, blank=True, null=True)
-    hmdb = models.ForeignKey(Metabolites, models.DO_NOTHING, blank=True, null=True)
-    edge_source = models.CharField(blank=True, null=True, max_length=200)
-
-    class Meta:
-        managed = False
-        db_table = 'protein_associates_metabolites'
-
-
-class ProteinAssociatesProteins(models.Model):
-    uniprot_id_memberOne = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberOne',
-                                             related_name='associates_member_one', blank=True, null=True)
-    uniprot_id_memberTwo = models.ForeignKey('Proteins', models.DO_NOTHING, db_column='uniprot_id_memberTwo',
-                                             related_name='associates_member_two', blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'protein_associates_proteins'
-
-
-class Proteins(models.Model):
+class Protein(models.Model):
     uniprot_id = models.CharField(primary_key=True, max_length=200)
-    sequence = models.CharField(blank=True, null=True, max_length=200)
-    gene_entrez_id = models.CharField(blank=True, null=True, max_length=200)
-    description = models.CharField(blank=True, null=True, max_length=200)
-    observation_source = models.CharField(blank=True, null=True, max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    sequence = models.CharField(max_length=200, blank=True, null=True)
+    gene_entrez_id = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'proteins'
+        db_table = 'protein'
+
+
+class ProteinAssociatesMetabolite(models.Model):
+    uniprot_id = models.ForeignKey('Protein', models.DO_NOTHING, blank=True, null=True)
+    hmdb_id = models.ForeignKey('Metabolite', models.DO_NOTHING, blank=True, null=True)
+    edge_source = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'protein_associates_metabolite'
+
+
+class ProteinAssociatesProtein(models.Model):
+    uniprot_id_1 = models.ForeignKey('Protein', models.DO_NOTHING, db_column='uniprot_id_1', blank=True, null=True,
+                                     related_name='protein_1')
+    uniprot_id_2 = models.ForeignKey('Protein', models.DO_NOTHING, db_column='uniprot_id_2', blank=True, null=True,
+                                     related_name='protein_2')
+
+    class Meta:
+        managed = False
+        db_table = 'protein_associates_protein'
+
+
+class VariantAffectsGene(models.Model):
+    genomic_variant = models.ForeignKey('GenomicVariant', models.DO_NOTHING, db_column='genomic_variant', blank=True, null=True)
+    entrez_id = models.ForeignKey('Gene', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'variant_affects_gene'
+
+class ViewDescriptionFTS(models.Model):
+    id = models.CharField(primary_key=True, max_length=200, db_column='id')
+    description = models.CharField(blank=True, null=True, db_column='description', max_length=2000)
+    display_name = models.CharField(blank=True, null=True, db_column='display_name', max_length=200)
+    source_table = models.TextField(blank=True, null=True, db_column='source_table')
+
+    class Meta:
+        managed = False
+        db_table = 'view_description_fts'

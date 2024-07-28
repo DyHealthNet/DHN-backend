@@ -4,7 +4,7 @@ import timeit
 # we were using the sqlalchemy library to connect to the database, but you should probably change it to
 # the django ORM
 from sqlalchemy import select, func, text
-from sqlalchemy import URL, create_engine
+from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import sessionmaker
 
 
@@ -164,11 +164,79 @@ def get_edges(session, node_type, query_id, limit=10):
     return results, total_results
 
 
+# this function retrieves all edges from the knowledge graph that connect the nodes in the input list,
+# and corresponds to my point 3 in the message I sent
+def knowledge_graph_edges(session, nodes):
+    # Define the list of all possible models and name mappings
+    all_models = [
+        'protein_associates_metabolite', 'protein_associates_protein', 'variant_affects_gene',
+        'metabolite_affects_disorder', 'gene_associates_disorder', 'disorder_associates_phenotype'
+    ]
+
+    name_map = {'uniprot': 'protein', 'hmdb': 'metabolite', 'mondo': 'disorder', 'hpo': 'phenotype'}
+
+    reverse_name_map = {v: f"{k}_id" for k, v in name_map.items()}
+
+    # Create the nodes CTE block
+    nodes_block = f"""
+    WITH nodes AS (
+        SELECT UNNEST(ARRAY[{", ".join([f"'{node}'" for node in nodes if node])}]) AS node_id
+    )
+    """
+
+    # generate the join block for each edge table
+    def get_join_block(block_num, edge_table, edge_columns):
+        return f"""
+            SELECT e{block_num}.{edge_columns[0]} AS source,
+                   e{block_num}.{edge_columns[1]} AS target
+            FROM {edge_table} e{block_num}
+            JOIN nodes n1 ON e{block_num}.{edge_columns[0]} = n1.node_id
+            JOIN nodes n2 ON e{block_num}.{edge_columns[1]} = n2.node_id
+        """
+
+    necessary_tables = set(name_map[node.split('.')[0]] for node in nodes if node)
+
+    query_tables = [
+        model for model in all_models
+        if model.split('_')[0] in necessary_tables and model.split('_')[2] in necessary_tables
+    ]
+
+    print("Need to query the following tables:", query_tables)
+
+    # Construct the SQL query string
+    sql_string = nodes_block
+    for block_count, table in enumerate(query_tables):
+        edges = table.split('_')
+        edge_columns = (
+            f"{reverse_name_map[edges[0]]}_1" if edges[0] == edges[2] else reverse_name_map[edges[0]],
+            f"{reverse_name_map[edges[2]]}_2" if edges[0] == edges[2] else reverse_name_map[edges[2]]
+        )
+        sql_string += get_join_block(block_count, table, edge_columns) + "UNION ALL\n"
+
+    # Remove the trailing 'UNION ALL' and add a semicolon at the end
+    sql_string = sql_string.rstrip("UNION ALL\n") + ";"
+
+    print(sql_string)
+
+    # Execute the query and fetch all edges
+    all_edges = session.execute(text(sql_string)).fetchall()
+    return all_edges
+
+
 if __name__ == '__main__':
     # this is also SQLAlchemy code, you should change it to Django ORM
     Session = sessionmaker(bind=engine)
     session = Session()
 
     start = timeit.default_timer()
-    edges, num_edges = get_edges(session, 'uniprot_id', 'uniprot.P31946', limit=10)
-    print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
+    # as some of the nodes can have no connection to the knowledge graph, they can be None
+    example_nodes = [None, 'uniprot.Q9BUT1', 'uniprot.Q3SXY7', None, 'uniprot.P22087', 'uniprot.P28908',
+                     'uniprot.Q13421', None, 'uniprot.Q9UM07', 'uniprot.Q96DN0', 'hmdb.HMDB0000011', 'hmdb.HMDB0008189']
+    #print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
+    #print(type(edges))
+    #for table, edge in edges.items():
+    #    print(table)
+    #    print(edge)
+    results = knowledge_graph_edges(session, example_nodes)
+    print(f"Took {timeit.default_timer() - start:.2f} seconds!")
+    print(results)
