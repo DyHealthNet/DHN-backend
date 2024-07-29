@@ -31,7 +31,7 @@ Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
-            sep=',', header=0, index_col=0)
+            sep=',', header=0)#, index_col=0)
 phenotypes_meta_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
@@ -217,6 +217,8 @@ class GetDataView(generics.GenericAPIView):
 
         # build result dict in right format
         req_data_dict = {}
+        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
+        show = False
         aggregated_df_mean = pd.DataFrame()
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None and y == "":
@@ -240,7 +242,9 @@ class GetDataView(generics.GenericAPIView):
             # Make df subset with x, y and c var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]])
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            #aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            aggregated_df_mean = df.groupby([x_idx, c_idx]).filter(lambda x:
+                x[y_idx].notna().sum() >= 5).groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add for each color var it's own dict containing it's label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x possitions with no aggregated value present)
@@ -259,7 +263,9 @@ class GetDataView(generics.GenericAPIView):
             # Make df subset with x and y var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]])
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            #aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
+                 x[y_idx].notna().sum() >= 5).groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population", #TODO rather empty label?
@@ -336,7 +342,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
             # Make df subset with x, y and c var
-            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True)
+            print(phenotypes_filtered)
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True).reset_index()
+            #print(df)
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             #aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx,
             #                                                                                        ascending=True)
@@ -357,16 +365,24 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'padding': 10,
                     'itemRadius': 0,
                     'borderWidth': 1,
+                    # Get stats for each group. If group has less than 5 values (excluding Nan's) only nan stats are
+                    # sent for privacy protection.
                     'data': ((group_data.groupby(x_idx).apply(lambda col: {
-                        'min': col[y_idx].min(),
-                        'q1': col[y_idx].quantile(0.25),
-                        'median': col[y_idx].median(),
-                        'q3': col[y_idx].quantile(0.75),
-                        'max': col[y_idx].max(),
-                    }).tolist()) if not group_data.empty else (
+                            'min': col[y_idx].min(),
+                            'q1': col[y_idx].quantile(0.25),
+                            'median': col[y_idx].median(),
+                            'q3': col[y_idx].quantile(0.75),
+                            'max': col[y_idx].max(),
+                        }
+                        if col[y_idx].notna().sum() >= 5 else {
+                            'min': np.nan, 'q1': np.nan, 'median': np.nan,
+                            'q3': np.nan, 'max': np.nan}
+                        ).tolist()
+                    # For case if all data is empty
+                    if not group_data.empty else (
                         {'min': np.nan, 'q1': np.nan, 'median': np.nan,
                          'q3': np.nan, 'max': np.nan}.tolist())
-                             ),
+                             )),
                 }
                 temp.append(dataset)
                 color += 1
@@ -376,20 +392,30 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             #aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
-            temp.append({
+            temp_style = {
                 "label": "Whole Population",  # TODO rather empty label?
                 "backgroundColor": "black",  # TODO change default color?
                 'padding': 10,
                 'itemRadius': 0,
                 'borderWidth': 1,
-                'data': {
-                    'min': np.min(df[y_idx]),
-                    'q1': np.percentile(df[y_idx], 25),
-                    'median': np.median(df[y_idx]),
-                    'q3': np.percentile(df[y_idx], 75),
-                    'max': np.min(df[y_idx]),
-                }.tolist(),
-            })
+            }
+            if df[y_idx].notna().sum() >= 5:
+                temp_style['data']= {
+                        'min': np.min(df[y_idx]),
+                        'q1': np.percentile(df[y_idx], 25),
+                        'median': np.median(df[y_idx]),
+                        'q3': np.percentile(df[y_idx], 75),
+                        'max': np.min(df[y_idx]),
+                    }.tolist()
+            else:
+                temp_style['data'] = {
+                    'min': np.nan,
+                    'q1': np.nan,
+                    'median': np.nan,
+                    'q3': np.nan,
+                    'max': np.nan,
+                }.tolist()
+            temp.append(temp_style)
         # Store unique x_var values
         req_data_dict["labels"] = df[x_idx].unique().tolist()
         # Store the y dict/ dicts (if color var was given)
