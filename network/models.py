@@ -298,3 +298,39 @@ class ViewDescriptionFTS(models.Model):
     class Meta:
         managed = False
         db_table = 'view_description_fts'
+
+class CohortReferencesMetabolite(models.Model):
+    id = models.IntegerField(primary_key=True)
+    cohort_id = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
+    hmdb_id = models.ForeignKey('Metabolite', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_references_metabolite'
+
+class CohortReferencesDisease(models.Model):
+    id = models.IntegerField(primary_key=True)
+    cohort_id = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
+    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_references_disease'
+
+class CohortReferencesPhenotype(models.Model):
+    id = models.IntegerField(primary_key=True)
+    cohort_id = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
+    hpo_id = models.ForeignKey('Phenotype', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_references_phenotype'
+
+class CohortReferencesProtein(models.Model):
+    id = models.IntegerField(primary_key=True)
+    cohort_id = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
+    uniprot_id = models.ForeignKey('Protein', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'cohort_references_protein'
