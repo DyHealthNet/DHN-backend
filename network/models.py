@@ -40,7 +40,6 @@ class CohortMetabolite(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    hmdb_id = models.ForeignKey('Metabolite', models.DO_NOTHING, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -51,8 +50,6 @@ class CohortPhenotype(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    mondo_id = models.ForeignKey('Disorder', models.DO_NOTHING, blank=True, null=True)
-    hpo_id = models.ForeignKey('Phenotype', models.DO_NOTHING, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -63,7 +60,6 @@ class CohortProtein(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    uniprot_id = models.ForeignKey('Protein', models.DO_NOTHING, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -92,9 +88,9 @@ class DisorderAssociatesPhenotype(models.Model):
 
 
 class EffectsMetaboliteMetabolite(models.Model):
-    metabolite_id_1 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_1', blank=True, null=True,
+    metabolite_1 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_1', blank=True, null=True,
                                         related_name='cohort_metabolite_1')
-    metabolite_id_2 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_2', blank=True, null=True,
+    metabolite_2 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_2', blank=True, null=True,
                                         related_name='cohort_metabolite_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -120,9 +116,9 @@ class EffectsMetabolitePhenotype(models.Model):
 
 
 class EffectsPhenotypePhenotype(models.Model):
-    phenotype_id_1 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_1', blank=True, null=True,
+    phenotype_1 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_1', blank=True, null=True,
                                        related_name='cohort_phenotype_1')
-    phenotype_id_2 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_2', blank=True, null=True,
+    phenotype_2 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_2', blank=True, null=True,
                                        related_name='cohort_phenotype_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -161,9 +157,9 @@ class EffectsProteinPhenotype(models.Model):
 
 
 class EffectsProteinProtein(models.Model):
-    protein_id_1 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_1', blank=True, null=True,
+    protein_1 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_1', blank=True, null=True,
                                      related_name='cohort_protein_1')
-    protein_id_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
+    protein_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
                                      related_name='cohort_protein_2')
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
