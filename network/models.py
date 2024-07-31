@@ -37,7 +37,7 @@ class Edge(models.Model):
         return calculate_score_from_nodes(self.node1, self.node2)
 
 class CohortMetabolite(models.Model):
-    cohort_id = models.CharField(primary_key=True, max_length=200)
+    cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
 
@@ -47,7 +47,7 @@ class CohortMetabolite(models.Model):
 
 
 class CohortPhenotype(models.Model):
-    cohort_id = models.CharField(primary_key=True, max_length=200)
+    cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
 
@@ -57,7 +57,7 @@ class CohortPhenotype(models.Model):
 
 
 class CohortProtein(models.Model):
-    cohort_id = models.CharField(primary_key=True, max_length=200)
+    cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
 
@@ -67,7 +67,7 @@ class CohortProtein(models.Model):
 
 
 class Disorder(models.Model):
-    mondo_id = models.CharField(primary_key=True, max_length=200)
+    mondo_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
     observation_source = models.CharField(max_length=200, blank=True, null=True)
@@ -88,6 +88,7 @@ class DisorderAssociatesPhenotype(models.Model):
 
 
 class EffectsMetaboliteMetabolite(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     metabolite_1 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_1', blank=True, null=True,
                                         related_name='cohort_metabolite_1')
     metabolite_2 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_2', blank=True, null=True,
@@ -103,6 +104,7 @@ class EffectsMetaboliteMetabolite(models.Model):
 
 
 class EffectsMetabolitePhenotype(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
@@ -116,6 +118,7 @@ class EffectsMetabolitePhenotype(models.Model):
 
 
 class EffectsPhenotypePhenotype(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     phenotype_1 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_1', blank=True, null=True,
                                        related_name='cohort_phenotype_1')
     phenotype_2 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_2', blank=True, null=True,
@@ -131,6 +134,7 @@ class EffectsPhenotypePhenotype(models.Model):
 
 
 class EffectsProteinMetabolite(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
@@ -144,6 +148,7 @@ class EffectsProteinMetabolite(models.Model):
 
 
 class EffectsProteinPhenotype(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
@@ -157,6 +162,7 @@ class EffectsProteinPhenotype(models.Model):
 
 
 class EffectsProteinProtein(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
     protein_1 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_1', blank=True, null=True,
                                      related_name='cohort_protein_1')
     protein_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
@@ -172,7 +178,7 @@ class EffectsProteinProtein(models.Model):
 
 
 class Gene(models.Model):
-    entrez_id = models.CharField(primary_key=True, max_length=200)
+    entrez_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     synonyms = models.TextField(blank=True, null=True)  # This field type is a guess.
@@ -195,7 +201,7 @@ class GeneAssociatesDisorder(models.Model):
 
 
 class GenomicVariant(models.Model):
-    variant_primarydomainid = models.CharField(db_column='variant_primaryDomainId', primary_key=True, max_length=200)  # Field name made lowercase.
+    variant_primarydomainid = models.CharField(db_column='variant_primaryDomainId', primary_key=True, max_length=200, db_index=True)  # Field name made lowercase.
     alternativesequence = models.CharField(db_column='alternativeSequence', max_length=200, blank=True, null=True)  # Field name made lowercase.
     chromosome = models.CharField(max_length=200, blank=True, null=True)
     created = models.CharField(max_length=200, blank=True, null=True)
@@ -212,7 +218,7 @@ class GenomicVariant(models.Model):
 
 
 class Metabolite(models.Model):
-    hmdb_id = models.CharField(primary_key=True, max_length=200)
+    hmdb_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     synonyms = models.CharField(max_length=200, blank=True, null=True)
@@ -235,7 +241,7 @@ class MetaboliteAssociatesDisorder(models.Model):
 
 
 class Phenotype(models.Model):
-    hpo_id = models.CharField(primary_key=True, max_length=200)
+    hpo_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.TextField(blank=True, null=True)  # This field type is a guess.
@@ -248,7 +254,7 @@ class Phenotype(models.Model):
 
 
 class Protein(models.Model):
-    uniprot_id = models.CharField(primary_key=True, max_length=200)
+    uniprot_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     sequence = models.CharField(max_length=200, blank=True, null=True)
     gene_entrez_id = models.CharField(max_length=200, blank=True, null=True)

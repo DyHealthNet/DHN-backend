@@ -44,7 +44,6 @@ def network_query(query_id, type, limit):
             # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))
 
-
         edges[table] = queryset
 
     # Query nodes
