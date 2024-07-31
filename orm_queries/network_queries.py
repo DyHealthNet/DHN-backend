@@ -14,6 +14,7 @@ CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
 def network_query(query_id, type, limit):
     edges = {}
     node_ids = set()
+    external_ids = set()
 
     # Query edges
     for table in CHRIS_EDGES:
@@ -30,7 +31,12 @@ def network_query(query_id, type, limit):
                                                   ).order_by('p_value')[:limit].values()
 
             # Find second type
-            type_2 = str(table.split(type.capitalize(), 1)[1]).lower()
+            substring = table.split('Effects')[1]
+            if substring.index(type.capitalize()) == 0:
+                type_2 = substring.split(type.capitalize())[1].lower()
+            else:
+                type_2 = substring.split(type.capitalize())[0].lower()
+
             # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_id', f'{type_2}_id')))
 
@@ -52,11 +58,33 @@ def network_query(query_id, type, limit):
     # Filter for collected unique node IDs
     nodes = node_model.objects.filter(id__in=node_ids).values()
 
-    return edges, nodes
+    # Query external edges
+    # Retrieve all references from cohort nodes to external nodes
+    ref_model = apps.get_model('network', 'ViewReferencesEdges')
+    refs = ref_model.objects.filter(cohort_id__in=node_ids).values()
+    external_ids.update(*zip(*refs.values_list('reference_id')))
+
+    # Retrieve all edges between those referenced external nodes
+    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
+    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) & Q(target_id__in=external_ids)).values()
+
+    # Map externals back to original nodes
+    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
+    mapped_externals = [
+        {
+            'source_id': external['source_id'],
+            'target_id': external['target_id'],
+            'source_cohort_id': id_mapping.get(external['source_id']),
+            'target_cohort_id': id_mapping.get(external['target_id'])
+        }
+        for external in externals
+    ]
+
+    return edges, nodes, mapped_externals
 
 
 start = timeit.default_timer()
-edges, nodes = network_query('x0so1193', 'protein', 10)
+edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
 time = timeit.default_timer() - start
 
 num_edges = 0
@@ -64,11 +92,16 @@ for table, results in edges.items():
     print(table)
     print(results)
     for entry in results:
-        num_edges+=1
+        num_edges += 1
 
 num_nodes = 0
 for results in nodes:
     print(results)
-    num_nodes+=1
+    num_nodes += 1
 
-print(f"Took {time} seconds to get {num_edges} edges and {num_nodes} nodes.")
+num_externals = 0
+for results in externals:
+    print(results)
+    num_externals += 1
+
+print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")

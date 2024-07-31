@@ -135,7 +135,7 @@ class EffectsPhenotypePhenotype(models.Model):
 
 class EffectsProteinMetabolite(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
-    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
+    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True, db_index=True)
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -149,7 +149,7 @@ class EffectsProteinMetabolite(models.Model):
 
 class EffectsProteinPhenotype(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
-    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True)
+    protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True, db_index=True)
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
@@ -164,9 +164,9 @@ class EffectsProteinPhenotype(models.Model):
 class EffectsProteinProtein(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
     protein_1 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_1', blank=True, null=True,
-                                     related_name='cohort_protein_1')
+                                     related_name='cohort_protein_1', db_index=True)
     protein_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
-                                     related_name='cohort_protein_2')
+                                     related_name='cohort_protein_2', db_index=True)
     p_value = models.FloatField(blank=True, null=True)
     adjusted_p_value = models.FloatField(blank=True, null=True)
     effect_size = models.FloatField(blank=True, null=True)
@@ -297,7 +297,7 @@ class VariantAffectsGene(models.Model):
 
 class ViewDescriptionFTS(models.Model):
     id = models.CharField(primary_key=True, max_length=200, db_column='id')
-    description = models.CharField(blank=True, null=True, db_column='description', max_length=2000)
+    description = models.CharField(blank=True, null=True, db_column='description', max_length=200)
     display_name = models.CharField(blank=True, null=True, db_column='display_name', max_length=200)
     source_table = models.TextField(blank=True, null=True, db_column='source_table')
 
@@ -340,3 +340,20 @@ class CohortReferencesProtein(models.Model):
     class Meta:
         managed = False
         db_table = 'cohort_references_protein'
+
+class ViewAssociationsEdges(models.Model):
+    source_id = models.CharField(primary_key=True, blank=True, null=True, max_length=200, db_column='source_id')
+    target_id = models.CharField(blank=True, null=True, max_length=200, db_column='target_id')
+
+    class Meta:
+        managed = False
+        db_table = 'view_associations_edges'
+
+class ViewReferencesEdges(models.Model):
+    source_table = models.TextField(blank=True, null=True)
+    cohort_id = models.CharField(primary_key=True, blank=True, null=True, max_length=200, db_column='cohort_id')
+    reference_id = models.CharField(blank=True, null=True, max_length=200, db_column='reference_id')
+
+    class Meta:
+        managed = False
+        db_table = 'view_references_edges'
