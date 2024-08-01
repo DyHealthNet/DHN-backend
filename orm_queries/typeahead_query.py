@@ -15,8 +15,9 @@ def typeahead_query(query):
 
 if __name__ == '__main__':
     start = timeit.default_timer()
-    results = typeahead_query('high')
+    results = typeahead_query('Bec')
     print(f"Took {timeit.default_timer() - start} seconds.")
+    #print(results)
 
     print('Results:')
     for entry in results:

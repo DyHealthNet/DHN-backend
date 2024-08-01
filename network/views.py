@@ -2,17 +2,19 @@ import pandas as pd
 import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
-from .models import Node, Edge
-from .models import Disorder, Protein, Metabolite, Phenotype, Gene
+from .models import *
+#from .models import Node, Edge
+from .models import Disorder, CohortProtein, CohortMetabolite, CohortPhenotype, Gene
 from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
-                     EffectsPhenotypePhenotype, EffectsMetabolitePhenotype,
-                     EffectsProteinMetabolite, EffectsMetaboliteMetabolite)
-from .serializers import NodeSerializer, EdgeSerializer
+                     EffectsProteinMetabolite, EffectsPhenotypePhenotype,
+                     EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite)
+#from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
-from .db_queries import *
+from orm_queries.network_queries import *
+from orm_queries.typeahead_query import *
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -27,7 +29,8 @@ Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Ph
 Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsProteinPhenotype':EffectsProteinPhenotype,
          'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
-         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype, 'EffectsProteinMetabolite':EffectsProteinMetabolite,
+         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
+         'EffectsProteinMetabolite':EffectsProteinMetabolite,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
@@ -91,31 +94,68 @@ class Detail_EdgeView(generic.DetailView):
 #     queryset = Edge.objects.all()
 #     serializer_class = EdgeSerializer
 
+types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns all network edges and the descriptions of their corresponding edges (foreign key)",
-        description="""Returns all network edges and the descriptions of their corresponding edges (foreign key)
-            e.g. [{"node1__description_text":"Pro (Metabolite)","node2__description_text":"PC aa C34:4 (Metabolite)",
-            "score":"0.1104","effect_size":"-0.6072"},{"node1__description_text":"Pro (Metabolite)",
-            "node2__description_text":"Pro (Metabolite)","score":"534.5000","effect_size":"684.0000"}]
+        summary="Returns the top network edges and corresponding nodes that are connected to a query node q",
+        description="""Returns for a query node q the top l (limit, default = 10) network edges and corresponding nodes for each type
+            protein, metabolite, phenotype (e.g. for limit 10 -> 30 edges). To look at the correct tables it also need 
+            the type of input node as a variable t. Refering to function orm_queries/network_query.
+            e.g. input: q="x0rd09",t="phenotype",limit = 10
+            output=
             """
     )
 )
 class GetNetworkView(generics.GenericAPIView):
     def get(self, request):
-        # queryset_disorders = Disorders.objects.values('mondo_id',
-        #     'description',
-        #     'xrefs',
-        #     'observation_source'
+        query_id = request.GET.get("q")
+        type = request.GET.get("t")
+        limit = request.GET.get("l")
+        if query_id is None or query_id == "":
+            return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
+        if type is None or type not in types:
+            return HttpResponseBadRequest('Query type t must be declared and either protein, metabolite and phenotype', status=405)
+        if limit is None or limit == "":
+            limit = 10
+        else:
+            try:
+                limit = int(limit)
+            except ValueError as e:
+                return HttpResponseBadRequest(
+                    f'Limit l must be a valid integerl, not {limit}', status=405)
+
+        if limit > 20:
+            return HttpResponseBadRequest(
+                f'Limit l takes a maximal value of 15, not {limit}', status=405)
+        edges, nodes, externals = network_query(query_id, type, limit)
+        Edges = {}
+        for table, results in edges.items():
+            Edges[table] = list(results)
+        #print(Edges)
+        Nodes = {}
+        for results in nodes:
+            # TODO get uniprot Id for node
+            if results['source_table'] in Nodes:
+                Nodes[results['source_table']].append(results)
+            else:
+                Nodes[results['source_table']] = [results]
+        combined_query = {
+            'Nodes': Nodes,
+            'Edges': Edges
+        }
+        return JsonResponse(combined_query, safe=False, status=200)
+        #queryset_disorders = Disorder.objects.values('mondo_id',
+        #    'description',
+        #    'xrefs',
+        #    'observation_source'
+        #)[5:15]
+        # queryset_protein = CohortProtein.objects.values('cohort_id',
+        #     'display_name',
+        #     'description'
         # )[5:15]
-        # queryset_protein = Proteins.objects.values('uniprot_id',
-        #     'sequence',
-        #     'gene_entrez_id',
-        #     'description',
-        #     'observation_source'
-        # )[5:15]
-        # queryset_edge = EffectsProteinDisorder.objects.values('uniprot',
-        #                                             'mondo',
+        # print("HI\n\n")
+        # queryset_edge = EffectsProteinPhenotype.objects.values('protein',
+        #                                             'phenotype',
         #                                             'p_value',
         #                                             'adjusted_p_value',
         #                                             'effect_size',
@@ -123,32 +163,52 @@ class GetNetworkView(generics.GenericAPIView):
         #                                            )[5:15]
         # combined_query = {
         #     'Nodes':{
-        #         'Disorder': list(queryset_disorders),
+        #         #'Disorder': list(queryset_disorders),
         #         'Proteins': list(queryset_protein)
         #     },
         #     'Edges':{
         #         'Disorder_Protein': list(queryset_edge)
         #     }
         # }
-        query = {}
-        node_dict = {}
-        edge_dict = {}
-        for node_name, node_info in Nodes.items():
-            node_dict[node_name] = list(node_info.objects.values()[1:3])
-        query['Nodes'] = node_dict
-        for edge_name, edge_info in Edges.items():
-            edge_dict[edge_name] = list(edge_info.objects.values()[1:3])
-        query['Edges'] = edge_dict
+        # print(combined_query)
+        # return JsonResponse(combined_query, safe=False, status=200)
+        # query = {}
+        # node_dict = {}
+        # edge_dict = {}
+        # for node_name, node_info in Nodes.items():
+        #     node_dict[node_name] = list(node_info.objects.values()[1:3])
+        # query['Nodes'] = node_dict
+        # for edge_name, edge_info in Edges.items():
+        #     edge_dict[edge_name] = list(edge_info.objects.values()[1:3])
+        # query['Edges'] = edge_dict
         #print("query: ")
         #print(query)
-        return JsonResponse(query, safe=False, status=200)
+        # return JsonResponse(query, safe=False, status=200)
     # if request.method == 'GET':
     #     queryset = Edge.objects.values('node1__description_text',
     #         'node2__description_text',
     #         'score',
     #         'effect_size'
     #     )
-    #     return JsonResponse(list(queryset), safe=False, status=200)
+        return JsonResponse(list(combined_query), safe=False, status=200)
+
+# TODO: update schema & function
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns node id/name recommendations depending on the typed input request by the user",
+        description="""
+            """
+    )
+)
+class TypaheadView(generics.GenericAPIView):
+    def get(self, request):
+        s = request.GET.get("s")
+        if s is None or s == "":
+            return HttpResponseBadRequest('Query string s must be declared and non empty.', status=405)
+        res = typeahead_query(s)
+        res_filtered = res.values('id', 'description', 'display_name')
+        dict_from_queryset = {item['id']: {'display_name':item['display_name'], 'description':item['description']} for item in res_filtered}
+        return JsonResponse(dict_from_queryset, safe=True)
 
 @extend_schema_view(
     get=extend_schema(
@@ -342,7 +402,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
             # Make df subset with x, y and c var
-            print(phenotypes_filtered)
+            #print(phenotypes_filtered)
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True).reset_index()
             #print(df)
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)

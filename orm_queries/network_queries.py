@@ -82,26 +82,26 @@ def network_query(query_id, type, limit):
 
     return edges, nodes, mapped_externals
 
+if __name__ == '__main__':
+    start = timeit.default_timer()
+    edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
+    time = timeit.default_timer() - start
 
-start = timeit.default_timer()
-edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
-time = timeit.default_timer() - start
+    num_edges = 0
+    for table, results in edges.items():
+        print(table)
+        print(results)
+        for entry in results:
+            num_edges += 1
 
-num_edges = 0
-for table, results in edges.items():
-    print(table)
-    print(results)
-    for entry in results:
-        num_edges += 1
+    num_nodes = 0
+    for results in nodes:
+        print(results)
+        num_nodes += 1
+    print("\nExternals\n")
+    num_externals = 0
+    for results in externals:
+        print(results)
+        num_externals += 1
 
-num_nodes = 0
-for results in nodes:
-    print(results)
-    num_nodes += 1
-
-num_externals = 0
-for results in externals:
-    print(results)
-    num_externals += 1
-
-print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
+    print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")

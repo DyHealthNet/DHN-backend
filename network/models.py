@@ -342,7 +342,7 @@ class CohortReferencesProtein(models.Model):
         db_table = 'cohort_references_protein'
 
 class ViewAssociationsEdges(models.Model):
-    source_id = models.CharField(primary_key=True, blank=True, null=True, max_length=200, db_column='source_id')
+    source_id = models.CharField(primary_key=True, blank=True, max_length=200, db_column='source_id')
     target_id = models.CharField(blank=True, null=True, max_length=200, db_column='target_id')
 
     class Meta:
@@ -351,7 +351,7 @@ class ViewAssociationsEdges(models.Model):
 
 class ViewReferencesEdges(models.Model):
     source_table = models.TextField(blank=True, null=True)
-    cohort_id = models.CharField(primary_key=True, blank=True, null=True, max_length=200, db_column='cohort_id')
+    cohort_id = models.CharField(primary_key=True, blank=True, max_length=200, db_column='cohort_id')
     reference_id = models.CharField(blank=True, null=True, max_length=200, db_column='reference_id')
 
     class Meta:
