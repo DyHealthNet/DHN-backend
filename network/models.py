@@ -40,6 +40,7 @@ class CohortMetabolite(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
+    xrefs = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -50,6 +51,7 @@ class CohortPhenotype(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
+    xrefs = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -60,6 +62,7 @@ class CohortProtein(models.Model):
     cohort_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
+    xrefs = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -300,6 +303,7 @@ class ViewDescriptionFTS(models.Model):
     description = models.CharField(blank=True, null=True, db_column='description', max_length=200)
     display_name = models.CharField(blank=True, null=True, db_column='display_name', max_length=200)
     source_table = models.TextField(blank=True, null=True, db_column='source_table')
+    xrefs = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
         managed = False

@@ -11,7 +11,8 @@ def typeahead_query(query):
     model = apps.get_model('network', 'ViewDescriptionFTS')
     return model.objects.filter(Q(description__icontains=query) |
                                 Q(display_name__icontains=query) |
-                                Q(id__icontains=query)).values()
+                                Q(id__icontains=query) |
+                                Q(xrefs__icontains=query)).values()
 
 if __name__ == '__main__':
     start = timeit.default_timer()
