@@ -20,18 +20,14 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 
-
-#Nodes = [Disorders, Proteins, Metabolites, Phenotypes, Genes]
 Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
-#Edges = [EffectsProteinDisorder, EffectsProteinProtein, EffectsDisorderDisorder, EffectsProteinPhenotype,
- #                    EffectsPhenotypePhenotype, EffectsPhenotypeDisorder, EffectsMetabolitePhenotype,
-  #                   EffectsProteinMetabolite, EffectsMetaboliteMetabolite, EffectsMetaboliteDisorder]
 Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsProteinPhenotype':EffectsProteinPhenotype,
          'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
          'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
          'EffectsProteinMetabolite':EffectsProteinMetabolite,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
+types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 phenotypes_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
             sep=',', header=0)#, index_col=0)
@@ -39,6 +35,7 @@ phenotypes_meta_filtered = pd.read_csv(
             '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
 
+# functions to get appropriate colors for plotting
 def rgb_to_hex(rgb):
     return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
 def darken_rgb(rgb, factor=0.2):
@@ -60,54 +57,43 @@ class Detail_EdgeView(generic.DetailView):
     model = Edge
     template_name = "network/detail_edge.html"
 
-# @extend_schema_view(
-#     get=extend_schema(summary="List all nodes", responses={200: NodeSerializer(many=True)}),
-#     post=extend_schema(summary="Create a new node", responses={201: NodeSerializer}),
-# )
-# class NodeListView(generics.ListCreateAPIView):
-#     queryset = Node.objects.all()
-#     serializer_class = NodeSerializer
-#
-# @extend_schema_view(
-#     get=extend_schema(summary="Retrieve a node", responses={200: NodeSerializer}),
-#     put=extend_schema(summary="Update a node", responses={200: NodeSerializer}),
-#     delete=extend_schema(summary="Delete a node", responses={204: None}),
-# )
-# class NodeDetailView(generics.RetrieveUpdateDestroyAPIView):
-#     queryset = Node.objects.all()
-#     serializer_class = NodeSerializer
-#
-# @extend_schema_view(
-#     get=extend_schema(summary="List all edges", responses={200: EdgeSerializer(many=True)}),
-#     post=extend_schema(summary="Create a new edge", responses={201: EdgeSerializer}),
-# )
-# class EdgeListView(generics.ListCreateAPIView):
-#     queryset = Edge.objects.all()
-#     serializer_class = EdgeSerializer
-#
-# @extend_schema_view(
-#     get=extend_schema(summary="Retrieve an edge", responses={200: EdgeSerializer}),
-#     put=extend_schema(summary="Update an edge", responses={200: EdgeSerializer}),
-#     delete=extend_schema(summary="Delete an edge", responses={204: None}),
-# )
-# class EdgeDetailView(generics.RetrieveUpdateDestroyAPIView):
-#     queryset = Edge.objects.all()
-#     serializer_class = EdgeSerializer
-
-types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 @extend_schema_view(
     get=extend_schema(
         summary="Returns the top network edges and corresponding nodes that are connected to a query node q",
-        description="""Returns for a query node q the top l (limit, default = 10) network edges and corresponding nodes for each type
-            protein, metabolite, phenotype (e.g. for limit 10 -> 30 edges). To look at the correct tables it also need 
-            the type of input node as a variable t. Refering to function orm_queries/network_query.
+        description="""Returns for a query node q the top l (limit, default = 10) network edges and corresponding nodes 
+            for each type meaning protein, metabolite, phenotype (e.g. for limit 10 -> 30 edges). To efficiently query
+            the correct tables the type of input node as a variable t is required. (Referring to function 
+            orm_queries/network_query.)
             e.g. input: q="x0rd09",t="phenotype",limit = 10
-            output=
-            """
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='q',
+                description='query id/ node id',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='t',
+                description='query type/ node type',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='l',
+                description='limit (concerning node retrieval)',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
     )
 )
 class GetNetworkView(generics.GenericAPIView):
     def get(self, request):
+        # Get request vars
         query_id = request.GET.get("q")
         type = request.GET.get("t")
         limit = request.GET.get("l")
@@ -127,93 +113,65 @@ class GetNetworkView(generics.GenericAPIView):
         if limit > 20:
             return HttpResponseBadRequest(
                 f'Limit l takes a maximal value of 15, not {limit}', status=405)
-        edges, nodes, externals = network_query(query_id, type, limit)
+        # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
+        edges, nodes, externals, node_reference_dict = network_query(query_id, type, limit)
+        # reformat Edges and Nodes and return as json
         Edges = {}
         for table, results in edges.items():
             Edges[table] = list(results)
-        #print(Edges)
         Nodes = {}
         for results in nodes:
-            # TODO get uniprot Id for node
+            # Add reference id(s) (if present) to a nodes description dict using the node_reference_dict
+            results['reference_ids'] = node_reference_dict[results['id']]
             if results['source_table'] in Nodes:
                 Nodes[results['source_table']].append(results)
             else:
                 Nodes[results['source_table']] = [results]
         combined_query = {
             'Nodes': Nodes,
-            'Edges': Edges
+            'Edges': Edges,
+            'External Edges': list(externals)
         }
         return JsonResponse(combined_query, safe=False, status=200)
-        #queryset_disorders = Disorder.objects.values('mondo_id',
-        #    'description',
-        #    'xrefs',
-        #    'observation_source'
-        #)[5:15]
-        # queryset_protein = CohortProtein.objects.values('cohort_id',
-        #     'display_name',
-        #     'description'
-        # )[5:15]
-        # print("HI\n\n")
-        # queryset_edge = EffectsProteinPhenotype.objects.values('protein',
-        #                                             'phenotype',
-        #                                             'p_value',
-        #                                             'adjusted_p_value',
-        #                                             'effect_size',
-        #                                             'effect_size_type'
-        #                                            )[5:15]
-        # combined_query = {
-        #     'Nodes':{
-        #         #'Disorder': list(queryset_disorders),
-        #         'Proteins': list(queryset_protein)
-        #     },
-        #     'Edges':{
-        #         'Disorder_Protein': list(queryset_edge)
-        #     }
-        # }
-        # print(combined_query)
-        # return JsonResponse(combined_query, safe=False, status=200)
-        # query = {}
-        # node_dict = {}
-        # edge_dict = {}
-        # for node_name, node_info in Nodes.items():
-        #     node_dict[node_name] = list(node_info.objects.values()[1:3])
-        # query['Nodes'] = node_dict
-        # for edge_name, edge_info in Edges.items():
-        #     edge_dict[edge_name] = list(edge_info.objects.values()[1:3])
-        # query['Edges'] = edge_dict
-        #print("query: ")
-        #print(query)
-        # return JsonResponse(query, safe=False, status=200)
-    # if request.method == 'GET':
-    #     queryset = Edge.objects.values('node1__description_text',
-    #         'node2__description_text',
-    #         'score',
-    #         'effect_size'
-    #     )
-        return JsonResponse(list(combined_query), safe=False, status=200)
 
-# TODO: update schema & function
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns node id/name recommendations depending on the typed input request by the user",
-        description="""
-            """
+        summary="Returns node id/name recommendations depending on the input request typed by the user",
+        description="""Returns a dictionary of node id containing a display name, description, and source_table 
+            (/node_type) (as dictionary) depending on the input request typed by the user which is sent via string s. 
+            (Referring to function orm_queries/typeahead_query)
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='s',
+                description='typed query string',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
     )
 )
-class TypaheadView(generics.GenericAPIView):
+class TypeaheadView(generics.GenericAPIView):
     def get(self, request):
+        # Get request vars
         s = request.GET.get("s")
         if s is None or s == "":
             return HttpResponseBadRequest('Query string s must be declared and non empty.', status=405)
+        # retrieve recommendations using the orm_queries/typeahead_query function
         res = typeahead_query(s)
-        res_filtered = res.values('id', 'description', 'display_name')
-        dict_from_queryset = {item['id']: {'display_name':item['display_name'], 'description':item['description']} for item in res_filtered}
+        # reformat and return as json
+        res_filtered = res.values('id', 'description', 'display_name','source_table')
+        dict_from_queryset = {item['id']: {'display_name':item['display_name'], 'description':item['description'], 'source_table':item['source_table']} for item in res_filtered}
         return JsonResponse(dict_from_queryset, safe=True)
 
 @extend_schema_view(
     get=extend_schema(
         summary="Returns all possible phenotype variables grouped by their type in JSON format",
-        description='Returns all possible phenotype variables grouped by their type in JSON format. e.g. {"discrete":["age_id"], "countinous":["BMI_id","Height_id"]}'
+        description='Returns all possible phenotype variables grouped by their type in JSON format. '
+                    'e.g. {"nonbinaryCategorical":["Happiness on Scale 1 to 10 (happiness_scale_id)"],'
+                    '"binaryCategorical":["Disease XY (diseaseXY_id)"], '
+                    '"countinous":["BMI (BMI_id)","Height in cm (Height_id)"]}'
     )
 )
 class GetVariablesView(generics.GenericAPIView):
@@ -230,13 +188,20 @@ class GetVariablesView(generics.GenericAPIView):
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
             [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
+        # calculate the number of categories to differentiate the binary and nonbinary categorical type
         phenotypes_meta_filtered_small['num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
-        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,                                                                                      axis=1)
-        phenotypes_meta_filtered_small['identifier'] = phenotypes_meta_filtered_small[
-                                                           'description'] + ' (' + phenotypes_meta_filtered_small.index + ')'
+        # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
+        # based on the type variable in the data and the calculated number of categories
+        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,
+                                                                                                            axis=1)
+        # create identifier annotation which combines the user friendly description with the chris id in brackets
+        phenotypes_meta_filtered_small['identifier'] = (
+                phenotypes_meta_filtered_small['description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
+        # create output dict and return it
         values_dict = phenotypes_meta_filtered_small.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
 
+# TODO assess if we want a limit for number of categories that color variable c has?
 @extend_schema_view(
     get=extend_schema(
         summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
@@ -246,21 +211,21 @@ class GetVariablesView(generics.GenericAPIView):
         parameters=[
             OpenApiParameter(
                 name='x',
-                description='X parameter',
+                description='variable x',
                 required=True,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
                 name='y',
-                description='Y parameter',
+                description='variable y',
                 required=True,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
                 name='c',
-                description='C parameter',
+                description='colour variable',
                 required=False,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -279,19 +244,18 @@ class GetDataView(generics.GenericAPIView):
         req_data_dict = {}
         # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
         show = False
-        aggregated_df_mean = pd.DataFrame()
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None and y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
-        # Get var_id from request vars (stored in brackets at the end of the requents var which is built
-        # from description + (var_id)
+        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
+        # from description + (var_id))
         x_idx = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
         y_idx = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
         temp = []
-        # Check if c var is given
+        # Check if c var is given and if so split data by it
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
             # from description + (var_id)
@@ -302,15 +266,15 @@ class GetDataView(generics.GenericAPIView):
             # Make df subset with x, y and c var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]])
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            #aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            # privacy restriction: only return groups with 5 or more values =! NaN
             aggregated_df_mean = df.groupby([x_idx, c_idx]).filter(lambda x:
                 x[y_idx].notna().sum() >= 5).groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
-            # Add for each color var it's own dict containing it's label, a color from the color palette and a dict that
+            # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
-            # values for x possitions with no aggregated value present)
+            # values for x positions with no aggregated value present)
             color = 0
-            #color_pal = ["blue","orange","green","pink","grey"] #list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
             colormap = sns.color_palette("tab10")
+            # convert colors to hexcolors for compatibility with vue-chartjs plotting
             color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
@@ -319,11 +283,12 @@ class GetDataView(generics.GenericAPIView):
                     "data": group_data.apply(lambda row: {'x': row[x_idx], 'y': row[y_idx]}, axis=1).tolist()
                 })
                 color += 1
+        # if no color var c is given simply return all data in one group
         else:
             # Make df subset with x and y var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]])
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            #aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            # privacy restriction: only return something when there are 5 or more values =! NaN (opposite is very unlikely) # TODO cover and test this corner case (show var?)
             aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
                  x[y_idx].notna().sum() >= 5).groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
@@ -338,7 +303,6 @@ class GetDataView(generics.GenericAPIView):
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
-#TODO
 @extend_schema_view(
     get=extend_schema(
         summary="Returns boxplot data for the given variables x and y grouped by c in JSON format",
@@ -348,21 +312,21 @@ class GetDataView(generics.GenericAPIView):
         parameters=[
             OpenApiParameter(
                 name='x',
-                description='X parameter',
+                description='variable x',
                 required=True,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
                 name='y',
-                description='Y parameter',
+                description='variable y',
                 required=True,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
                 name='c',
-                description='C parameter',
+                description='colour variable',
                 required=False,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -379,7 +343,6 @@ class GetDataBoxPlotView(generics.GenericAPIView):
 
         # build result dict in right format
         req_data_dict = {}
-        df = pd.DataFrame()
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None and y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
@@ -392,7 +355,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data',
                                           status=405)
         temp = []
-        # Check if c var is given
+        # Check if c var is given and if so split data by it
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
             # from description + (var_id)
@@ -402,19 +365,12 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
             # Make df subset with x, y and c var
-            #print(phenotypes_filtered)
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True).reset_index()
-            #print(df)
-            # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            #aggregated_df_mean = df.groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx,
-            #                                                                                        ascending=True)
-            # Add for each color var it's own dict containing it's label, a color from the color palette and a dict that
-            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
-            # values for x possitions with no aggregated value present)
+            # Add for each color var its own dict containing its label, a background and darker border color, some
+            # styling parameters and the box plot statistics in a data dictionary.
             color = 0
-            # color_pal = ["blue", "orange", "green", "pink","grey"]  # list(mcolors.TABLEAU_COLORS.keys()) #TODO change color palatte?
-            # color_pal = sns.color_palette("tab10")
             colormap = sns.color_palette("tab10")
+            # convert colors to hexcolors for compatibility with vue-chartjs plotting
             color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
             for group_name, group_data in df.groupby(c_idx):
@@ -438,7 +394,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                             'min': np.nan, 'q1': np.nan, 'median': np.nan,
                             'q3': np.nan, 'max': np.nan}
                         ).tolist()
-                    # For case if all data is empty
+                    # corner case when all data is empty
                     if not group_data.empty else (
                         {'min': np.nan, 'q1': np.nan, 'median': np.nan,
                          'q3': np.nan, 'max': np.nan}.tolist())
@@ -446,12 +402,12 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 }
                 temp.append(dataset)
                 color += 1
+        # if no color var c is given simply return all data in one group
         else:
             # Make df subset with x and y var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx,ascending=True)
-            # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            #aggregated_df_mean = df.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
-            # Add dict for y axis containing the y label, black as the color and the aggregated values
+            # Make a dict containing a background and darker border color, some styling parameters and
+            # the box plot statistics in a data dictionary.
             temp_style = {
                 "label": "Whole Population",  # TODO rather empty label?
                 "backgroundColor": "black",  # TODO change default color?
@@ -459,14 +415,16 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 'itemRadius': 0,
                 'borderWidth': 1,
             }
+            # privacy restriction: return values when there are 5 or more values =! NaN
             if df[y_idx].notna().sum() >= 5:
-                temp_style['data']= {
+                temp_style['data'] = {
                         'min': np.min(df[y_idx]),
                         'q1': np.percentile(df[y_idx], 25),
                         'median': np.median(df[y_idx]),
                         'q3': np.percentile(df[y_idx], 75),
                         'max': np.min(df[y_idx]),
-                    }.tolist()
+                    }
+            # otherwise only NaNs (very unlikely) # TODO cover and test this corner case (show var?)
             else:
                 temp_style['data'] = {
                     'min': np.nan,
@@ -474,7 +432,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'median': np.nan,
                     'q3': np.nan,
                     'max': np.nan,
-                }.tolist()
+                }
             temp.append(temp_style)
         # Store unique x_var values
         req_data_dict["labels"] = df[x_idx].unique().tolist()
