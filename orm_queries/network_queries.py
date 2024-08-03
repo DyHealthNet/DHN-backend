@@ -3,6 +3,7 @@ import django
 from django.db.models import Q
 from django.apps import apps
 import timeit
+from collections import defaultdict
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
 django.setup()
@@ -79,29 +80,38 @@ def network_query(query_id, type, limit):
         }
         for external in externals
     ]
+    # Build a node to reference id dictionary from refs
+    # for node descripion in frontend
+    node_reference_dict = defaultdict(list)
+    for item in refs:
+        node_id = item.pop('cohort_id')
+        node_reference_dict[node_id].append(item['reference_id'])
 
-    return edges, nodes, mapped_externals
+    return edges, nodes, mapped_externals, node_reference_dict
 
+if __name__ == '__main__':
+    start = timeit.default_timer()
+    edges, nodes, externals, node_reference_dict = network_query('x0rd09', 'phenotype', 10)
+    time = timeit.default_timer() - start
 
-start = timeit.default_timer()
-edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
-time = timeit.default_timer() - start
+    num_edges = 0
+    for table, results in edges.items():
+        print(table)
+        print(results)
+        for entry in results:
+            num_edges += 1
 
-num_edges = 0
-for table, results in edges.items():
-    print(table)
-    print(results)
-    for entry in results:
-        num_edges += 1
+    num_nodes = 0
+    for results in nodes:
+        print(results)
+        num_nodes += 1
+    print("\nExternals\n")
+    num_externals = 0
+    for results in externals:
+        print(results)
+        num_externals += 1
 
-num_nodes = 0
-for results in nodes:
-    print(results)
-    num_nodes += 1
+    print("\nNode References\n")
+    print(node_reference_dict)
 
-num_externals = 0
-for results in externals:
-    print(results)
-    num_externals += 1
-
-print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
+    print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
