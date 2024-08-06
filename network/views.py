@@ -20,6 +20,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 
+import environ
+env = environ.Env()
+environ.Env.read_env()
+
 Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
 Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsProteinPhenotype':EffectsProteinPhenotype,
@@ -29,10 +33,10 @@ Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 phenotypes_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
-            sep=',', header=0)#, index_col=0)
+            env("PHENOTYPE_PATH"),
+            sep=',', header=0)
 phenotypes_meta_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
+            env("PHENOTYPE_META_PATH"),
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
 
 # functions to get appropriate colors for plotting
