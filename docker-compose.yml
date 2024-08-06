@@ -1,4 +1,14 @@
 services:
+  db:
+    container_name: dhn-db
+    image: postgres:latest
+    volumes:
+      - db_DHNpostgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=postgres
+
   backend:
     container_name: dhn-backend
     build:
@@ -13,3 +23,8 @@ services:
     # mount the data folder such that afterwards comes /DyHealthNet/chris_summary_data/...
     # then you won't have to change anything in the .env file
       - ./data/:/data
+
+volumes:
+  # this is only temporary as the volume already exists and I don't want to reinitialize the entire db.
+  DHNpostgres:
+    external: true
