@@ -1,0 +1,15 @@
+services:
+  backend:
+    container_name: dhn-backend
+    build:
+        context: .
+        dockerfile: Dockerfile
+    # we can maybe change this later so that the frontend is in the same network
+    ports:
+      - "9900:8000"
+    env_file:
+      - .env
+    volumes:
+    # mount the data folder such that afterwards comes /DyHealthNet/chris_summary_data/...
+    # then you won't have to change anything in the .env file
+      - ./data/:/data

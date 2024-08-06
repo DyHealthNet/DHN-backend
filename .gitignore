@@ -1,6 +1,6 @@
 # created by virtualenv automatically
-dyhealthnet_project/.env
+.env
 /env
-**/.env
+.env
 **/__pycache__/*
 .idea/*
