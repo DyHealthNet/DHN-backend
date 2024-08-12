@@ -58,6 +58,7 @@ def network_query(query_id, type, limit):
     node_model = apps.get_model('network', 'ViewDescriptionFTS')
     # Filter for collected unique node IDs
     nodes = node_model.objects.filter(id__in=node_ids).values()
+    print(nodes)
 
     # Query external edges
     # Retrieve all references from cohort nodes to external nodes
@@ -80,18 +81,11 @@ def network_query(query_id, type, limit):
         }
         for external in externals
     ]
-    # Build a node to reference id dictionary from refs
-    # for node descripion in frontend
-    node_reference_dict = defaultdict(list)
-    for item in refs:
-        node_id = item.pop('cohort_id')
-        node_reference_dict[node_id].append(item['reference_id'])
-
-    return edges, nodes, mapped_externals, node_reference_dict
+    return edges, nodes, mapped_externals
 
 if __name__ == '__main__':
     start = timeit.default_timer()
-    edges, nodes, externals, node_reference_dict = network_query('x0rd09', 'phenotype', 10)
+    edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
     time = timeit.default_timer() - start
 
     num_edges = 0
@@ -110,8 +104,5 @@ if __name__ == '__main__':
     for results in externals:
         print(results)
         num_externals += 1
-
-    print("\nNode References\n")
-    print(node_reference_dict)
 
     print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")

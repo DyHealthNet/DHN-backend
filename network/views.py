@@ -20,6 +20,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 
+import environ
+env = environ.Env()
+environ.Env.read_env()
+
 Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
 Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsProteinPhenotype':EffectsProteinPhenotype,
@@ -29,10 +33,10 @@ Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 phenotypes_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv',
-            sep=',', header=0)#, index_col=0)
+            env("PHENOTYPE_PATH"),
+            sep=',', header=0)
 phenotypes_meta_filtered = pd.read_csv(
-            '/nfs/scratch/DyHealthNet/chris_summary_data/phenotypes/pheno_meta_filtered.tsv',
+            env("PHENOTYPE_META_PATH"),
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
 
 # functions to get appropriate colors for plotting
@@ -41,21 +45,6 @@ def rgb_to_hex(rgb):
 def darken_rgb(rgb, factor=0.2):
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
     return tuple(darkened_rgb)
-
-class IndexView(generic.ListView):
-    template_name = "network/index.html"
-    context_object_name = "node_list"
-    def get_queryset(self):
-        """Return the last five added nodes."""
-        return Node.objects.order_by("description_text")
-
-class Detail_NodeView(generic.DetailView):
-    model = Node
-    template_name = "network/detail.html"
-
-class Detail_EdgeView(generic.DetailView):
-    model = Edge
-    template_name = "network/detail_edge.html"
 
 @extend_schema_view(
     get=extend_schema(
@@ -114,7 +103,7 @@ class GetNetworkView(generics.GenericAPIView):
             return HttpResponseBadRequest(
                 f'Limit l takes a maximal value of 15, not {limit}', status=405)
         # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
-        edges, nodes, externals, node_reference_dict = network_query(query_id, type, limit)
+        edges, nodes, externals = network_query(query_id, type, limit)
         # reformat Edges and Nodes and return as json
         Edges = {}
         for table, results in edges.items():
@@ -122,7 +111,6 @@ class GetNetworkView(generics.GenericAPIView):
         Nodes = {}
         for results in nodes:
             # Add reference id(s) (if present) to a nodes description dict using the node_reference_dict
-            results['reference_ids'] = node_reference_dict[results['id']]
             if results['source_table'] in Nodes:
                 Nodes[results['source_table']].append(results)
             else:
@@ -418,11 +406,11 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # privacy restriction: return values when there are 5 or more values =! NaN
             if df[y_idx].notna().sum() >= 5:
                 temp_style['data'] = {
-                        'min': np.min(df[y_idx]),
-                        'q1': np.percentile(df[y_idx], 25),
-                        'median': np.median(df[y_idx]),
-                        'q3': np.percentile(df[y_idx], 75),
-                        'max': np.min(df[y_idx]),
+                        'min': float(np.min(df[y_idx])),
+                        'q1': float(np.percentile(df[y_idx], 25)),
+                        'median': float(np.median(df[y_idx])),
+                        'q3': float(np.percentile(df[y_idx], 75)),
+                        'max': float(np.min(df[y_idx])),
                     }
             # otherwise only NaNs (very unlikely) # TODO cover and test this corner case (show var?)
             else:
