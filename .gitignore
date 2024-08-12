@@ -4,3 +4,4 @@ dyhealthnet_project/.env
 **/.env
 **/__pycache__/*
 .idea/*
+.ipynb_checkpoints/
