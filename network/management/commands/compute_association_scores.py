@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 import sys
 import pandas as pd
-import dyhealthnet_project.myFunctions.association_scores as scores
+import network.utils as utils
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -14,7 +14,8 @@ class Command(BaseCommand):
         try:
             print("Starting association score testing.")
             self.compute_association_scores()
-            print(f'Finished association score testing successfully. The results were saved in {env("CALCULATED_EDGES_PATH")}')
+            print(
+                f'Finished association score testing successfully. The results were saved in {env("CALCULATED_EDGES_PATH")}')
         except Exception as e:
             print(f"Association score testing failed: {e}")
             sys.exit(1)
@@ -39,6 +40,6 @@ class Command(BaseCommand):
         test_type = env("TEST_TYPE")
         id_column = env("PATIENT_ID_COLUMN")
 
-        results = scores.calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
-                                                      number_of_workers, test_type)
+        results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
+                                                     number_of_workers, test_type)
         results.to_csv(env("CALCULATED_EDGES_PATH"))

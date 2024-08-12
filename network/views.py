@@ -3,18 +3,17 @@ import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from .models import *
-#from .models import Node, Edge
 from .models import Disorder, CohortProtein, CohortMetabolite, CohortPhenotype, Gene
 from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
                      EffectsProteinMetabolite, EffectsPhenotypePhenotype,
                      EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite)
-#from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
-from orm_queries.network_queries import *
-from orm_queries.typeahead_query import *
+#from orm_queries.network_queries import *
+#from orm_queries.typeahead_query import *
+from network.queries import *
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors

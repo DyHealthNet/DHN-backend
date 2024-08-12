@@ -229,14 +229,23 @@ if __name__ == '__main__':
     session = Session()
 
     start = timeit.default_timer()
+    query = f"""
+    EXPLAIN
+    SELECT "effects_protein_protein"."protein_id_1", "effects_protein_protein"."protein_id_2" 
+    FROM "effects_protein_protein" 
+    WHERE ("effects_protein_protein"."protein_id_1" = 'x0so0410' OR "effects_protein_protein"."protein_id_2" = 'x0so0410') 
+    ORDER BY "effects_protein_protein"."p_value" ASC 
+    LIMIT 10;
+    """
+    result = session.execute(text(query)).fetchall()
     # as some of the nodes can have no connection to the knowledge graph, they can be None
-    example_nodes = [None, 'uniprot.Q9BUT1', 'uniprot.Q3SXY7', None, 'uniprot.P22087', 'uniprot.P28908',
-                     'uniprot.Q13421', None, 'uniprot.Q9UM07', 'uniprot.Q96DN0', 'hmdb.HMDB0000011', 'hmdb.HMDB0008189']
+    #example_nodes = [None, 'uniprot.Q9BUT1', 'uniprot.Q3SXY7', None, 'uniprot.P22087', 'uniprot.P28908',
+    #                 'uniprot.Q13421', None, 'uniprot.Q9UM07', 'uniprot.Q96DN0', 'hmdb.HMDB0000011', 'hmdb.HMDB0008189']
     #print(f"Took {timeit.default_timer() - start:.2f} seconds to get {num_edges} edges")
     #print(type(edges))
     #for table, edge in edges.items():
     #    print(table)
     #    print(edge)
-    results = knowledge_graph_edges(session, example_nodes)
+    #results = knowledge_graph_edges(session, example_nodes)
     print(f"Took {timeit.default_timer() - start:.2f} seconds!")
-    print(results)
+    print(result)
