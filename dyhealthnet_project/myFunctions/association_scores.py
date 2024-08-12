@@ -6,10 +6,14 @@ import itertools
 import concurrent.futures
 from joblib import Parallel, delayed
 from functools import partial
+import environ
+
+env = environ.Env()
+environ.Env.read_env()
 
 
 # Parallel processing functions
-def parallel_process(items, num_workers, function_call): # currently unused
+def parallel_process(items, num_workers, function_call):  # currently unused
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         results = executor.map(function_call, items)
     return list(results)
@@ -139,29 +143,29 @@ def testing(pairs, function_call, num_workers):
     return results
 
 
-def calculate_association_scores(phenotypes, phenotypes_meta, proteins=None, metabolites=None, workers=16,
+def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
                                  test='parametric'):
     # Data preprocessing
     phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
         phenotypes_meta[phenotypes_meta.type.isin(["categorical", "boolean"])].label)].copy()
     cat_data = phenotypes_cat.copy()
-    phenotypes_cat['Patient ID'] = phenotypes['Patient ID']
+    phenotypes_cat[id_column] = phenotypes[id_column]
     phenotypes_cont = phenotypes.iloc[:, phenotypes.columns.isin(
         phenotypes_meta[phenotypes_meta.type.isin(["integer", "float"])].label)].copy()
-    phenotypes_cont['Patient ID'] = phenotypes['Patient ID']
+    phenotypes_cont[id_column] = phenotypes[id_column]
 
     if metabolites is not None:
         if proteins is not None:
-            cont_data = pd.merge(metabolites, proteins, on='Patient ID')
-            cont_data = pd.merge(cont_data, phenotypes_cont, on='Patient ID')
+            cont_data = pd.merge(metabolites, proteins, on=id_column)
+            cont_data = pd.merge(cont_data, phenotypes_cont, on=id_column)
         else:
-            cont_data = pd.merge(metabolites, phenotypes_cont, on='Patient ID')
+            cont_data = pd.merge(metabolites, phenotypes_cont, on=id_column)
     elif proteins is not None:
-        cont_data = pd.merge(proteins, phenotypes_cont, on='Patient ID')
+        cont_data = pd.merge(proteins, phenotypes_cont, on=id_column)
     else:
         cont_data = phenotypes_cont
 
-    cont_data = cont_data.copy().drop('Patient ID', axis=1)
+    cont_data = cont_data.copy().drop(id_column, axis=1)
     cont_data = cont_data.select_dtypes(include=[np.number])
 
     # Create partial functions with the necessary additional arguments
@@ -173,11 +177,11 @@ def calculate_association_scores(phenotypes, phenotypes_meta, proteins=None, met
     pairs = list(itertools.combinations(cat_data.columns, 2))
     cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers)
 
-    # Continuous-Continuous assocation testing
+    # Continuous-Continuous association testing
     pairs = list(itertools.combinations(cont_data.columns, 2))
     cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers)
 
-    # Continuous-Categorical assocation testing
+    # Continuous-Categorical association testing
     pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns)))
     cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers)
 
