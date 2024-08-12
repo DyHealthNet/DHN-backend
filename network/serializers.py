@@ -38,15 +38,4 @@
 #         instance.save()
 #         return instancei
 
-class NodeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Node
-        fields = ['id', 'description_text', 'cross_reference']
 
-class EdgeSerializer(serializers.ModelSerializer):
-    node1 = NodeSerializer(read_only=True)
-    node2 = NodeSerializer(read_only=True)
-
-    class Meta:
-        model = Edge
-        fields = ['id', 'node1', 'node2', 'pval', 'pval_adj', 'effect_size', 'effect_size_type']
