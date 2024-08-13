@@ -96,11 +96,11 @@ class GetNetworkView(generics.GenericAPIView):
                 limit = int(limit)
             except ValueError as e:
                 return HttpResponseBadRequest(
-                    f'Limit l must be a valid integerl, not {limit}', status=405)
+                    f'Limit l must be a valid integer, not {limit}', status=405)
 
-        if limit > 20:
+        if limit > 50:
             return HttpResponseBadRequest(
-                f'Limit l takes a maximal value of 15, not {limit}', status=405)
+                f'Limit l takes a maximal value of 50, not {limit}', status=405)
         # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
         edges, nodes, externals = network_query(query_id, type, limit)
         # reformat Edges and Nodes and return as json
