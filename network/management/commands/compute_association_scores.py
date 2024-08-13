@@ -21,20 +21,22 @@ class Command(BaseCommand):
             sys.exit(1)
 
     def compute_association_scores(self):
-        phenotypes = pd.read_csv(env("PHENOTYPE_PATH"), header=0, index_col=None).copy()
-        phenotypes_meta = pd.read_csv(env("PHENOTYPE_META_PATH"), header=0,
-                                      index_col=None).copy()  # Add sep="\t" for our own data!
+        phenotypes = pd.read_csv(env("PHENOTYPE_PATH"), header=0, index_col=None).copy().iloc[:10, :10]
+        phenotypes_meta = pd.read_csv(env("PHENOTYPE_META_PATH"), header=0, sep="\t",
+                                      index_col=None).copy()  # Remove sep="\t" later, only relevant for our own data tables!
 
         if env("METABOLITE_PATH") is not None:
-            metabolites = pd.read_csv(env("METABOLITE_PATH"), header=0, index_col=None).copy()
+            metabolites = pd.read_csv(env("METABOLITE_PATH"), header=0, index_col=None).copy().iloc[:10, :10]
         else:
             metabolites = None
             print("No metabolites file was provided.")
         if env("PROTEIN_PATH") is not None:
-            proteins = pd.read_csv(env("PROTEIN_PATH"), header=0, index_col=None).copy()
+            proteins = pd.read_csv(env("PROTEIN_PATH"), header=0, index_col=None).copy().iloc[:10, :10]
         else:
             proteins = None
             print("No proteins file was provided.")
+
+        phenotypes['Patient ID'] = metabolites['Patient ID'] # Remove later, only relevant for our own data tables!
 
         number_of_workers = env("NUMBER_OF_WORKERS")
         test_type = env("TEST_TYPE")
