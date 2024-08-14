@@ -10,6 +10,7 @@ CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
                'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',
                'EffectsMetabolitePhenotype', 'EffectsPhenotypePhenotype'}
 
+
 def network_query(query_id, type, limit):
     edges = {}
     node_ids = set()
@@ -56,7 +57,6 @@ def network_query(query_id, type, limit):
     node_model = apps.get_model('network', 'ViewDescriptionFTS')
     # Filter for collected unique node IDs
     nodes = node_model.objects.filter(id__in=node_ids).values()
-    print(nodes)
 
     # Query external edges
     # Retrieve all references from cohort nodes to external nodes
@@ -80,6 +80,7 @@ def network_query(query_id, type, limit):
         for external in externals
     ]
     return edges, nodes, mapped_externals
+
 
 def typeahead_query(query):
     model = apps.get_model('network', 'ViewDescriptionFTS')

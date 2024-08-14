@@ -1,9 +1,9 @@
 import math
+import os
 import numpy as np
 import scipy as si
 import pandas as pd
 import itertools
-import concurrent.futures
 from joblib import Parallel, delayed
 from functools import partial
 import environ
@@ -11,29 +11,23 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-
-# Parallel processing functions
-def parallel_process(items, num_workers, function_call):  # currently unused
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        results = executor.map(function_call, items)
-    return list(results)
-
-
+# Parallel processing function
 def multiprocess(items, num_workers, function_call):
     results = Parallel(n_jobs=num_workers)(delayed(function_call)(i) for i in items)
-
     return list(results)
 
 
 # Categorical-Categorical association scores
 def cat_cat(pair, phenotypes_cat):
     label1, label2 = pair
+
+    # Determine number of categories per phenotype
     temp_cat1 = np.array(phenotypes_cat[label1].unique())
     temp_cat2 = np.array(phenotypes_cat[label2].unique())
     categ1 = len(temp_cat1[~pd.isna(temp_cat1)])
     categ2 = len(temp_cat2[~pd.isna(temp_cat2)])
 
-    if (categ1 < 2) or (categ2 < 2):
+    if (categ1 < 2) or (categ2 < 2):  # No test will be performed if a phenotype has only a single possible value
         return {
             'label1': label1,
             'label2': label2,
@@ -43,7 +37,7 @@ def cat_cat(pair, phenotypes_cat):
             'test': None
         }
 
-    else:
+    else:  # Chi-squared test
         contingency_table = pd.crosstab(phenotypes_cat[label1], phenotypes_cat[label2])
         pval = si.stats.chi2_contingency(contingency_table, correction=True)[1]
         effsize = si.stats.contingency.association(contingency_table, correction=True, method='cramer')
@@ -146,14 +140,24 @@ def testing(pairs, function_call, num_workers):
 def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
                                  test='parametric'):
     # Data preprocessing
+    allowed_types = ['boolean', 'categorical', 'float', 'integer']
+    # Check if all types of phenotype variables are in the allowed list
+    invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
+    if not invalid_types.empty:
+        print(f"Invalid variable types were found: {invalid_types.type.unique()}. These variables will be ignored.")
+
+    # Extract categorical phenotypes
     phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
-        phenotypes_meta[phenotypes_meta.type.isin(["categorical", "boolean"])].label)].copy()
+        phenotypes_meta[phenotypes_meta.type.str.lower().isin(["categorical", "boolean"])].label)].copy()
     cat_data = phenotypes_cat.copy()
     phenotypes_cat[id_column] = phenotypes[id_column]
+
+    # Extract continuous phenotypes
     phenotypes_cont = phenotypes.iloc[:, phenotypes.columns.isin(
-        phenotypes_meta[phenotypes_meta.type.isin(["integer", "float"])].label)].copy()
+        phenotypes_meta[phenotypes_meta.type.str.lower().isin(["integer", "float"])].label)].copy()
     phenotypes_cont[id_column] = phenotypes[id_column]
 
+    # Merge metabolites and proteins to continuous phenotypes if provided
     if metabolites is not None:
         if proteins is not None:
             cont_data = pd.merge(metabolites, proteins, on=id_column)
@@ -182,9 +186,26 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers)
 
     # Continuous-Categorical association testing
-    pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns)))
+    pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns))) # Use indices instead of labels
     cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers)
 
     scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_results], ignore_index=True)
 
     return scores
+
+
+# Check that provided pathways are leading to a csv or tsv file
+def check_files(path, id_column):
+    if os.path.splitext(path)[1].lower() == '.csv':
+        dataset = pd.read_csv(env(path), header=0, index_col=None).copy()
+        if id_column not in dataset.columns:
+            raise KeyError(f"{path} does not have the correct ID column {id_column}. Please make sure that all files have the same ID column.")
+        else:
+            return dataset
+
+    elif os.path.splitext(env(path))[1].lower() == '.tsv':
+        dataset = pd.read_csv(env(path), header=0, sep="\t", index_col=None).copy()
+        return dataset
+
+    else:
+        raise ImportError(f"{path} has an unknown file ending. Please provide csv or tsv files for your data.")

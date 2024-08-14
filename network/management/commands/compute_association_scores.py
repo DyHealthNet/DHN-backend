@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand
 import sys
-import pandas as pd
 import network.utils as utils
 import environ
 
@@ -21,26 +20,34 @@ class Command(BaseCommand):
             sys.exit(1)
 
     def compute_association_scores(self):
-        phenotypes = pd.read_csv(env("PHENOTYPE_PATH"), header=0, index_col=None).copy()
-        phenotypes_meta = pd.read_csv(env("PHENOTYPE_META_PATH"), header=0, sep="\t",
-                                      index_col=None).copy()  # Remove sep="\t" later, only relevant for our own data tables!
+        id_column = env("PATIENT_ID_COLUMN")
+        # The following will likely raise an error for our data, since the phenotypes table does not have the 'Patient ID' column!
+        # TODO: Add the Patient ID column to our toy dataset
+        phenotypes = utils.check_files(env("PHENOTYPE_PATH"), id_column)
+        phenotypes_meta = utils.check_files(env("PHENOTYPE_META_PATH"), id_column)
 
         if env("METABOLITE_PATH") is not None:
-            metabolites = pd.read_csv(env("METABOLITE_PATH"), header=0, index_col=None).copy()
+            metabolites = utils.check_files(env("METABOLITE_PATH"), id_column)
         else:
             metabolites = None
-            print("No metabolites file was provided.")
+            print("No metabolite file was provided.")
+
         if env("PROTEIN_PATH") is not None:
-            proteins = pd.read_csv(env("PROTEIN_PATH"), header=0, index_col=None).copy()
+            proteins = utils.check_files(env("PROTEIN_PATH"), id_column)
         else:
             proteins = None
-            print("No proteins file was provided.")
+            print("No protein file was provided.")
 
-        phenotypes['Patient ID'] = metabolites['Patient ID'] # Remove later, only relevant for our own data tables!
+        # phenotypes['Patient ID'] = metabolites['Patient ID']  Remove this later!
 
-        number_of_workers = env("NUMBER_OF_WORKERS")
+        if not isinstance(env("NUMBER_OF_WORKERS"), int):
+            number_of_workers = 16
+            print(f"{env('NUMBER_OF_WORKERS')} is not an integer. 16 workers will be used per default now.",
+                  "You might want to adjust this next time according to your resources.")
+        else:
+            number_of_workers = env("NUMBER_OF_WORKERS")
+
         test_type = env("TEST_TYPE")
-        id_column = env("PATIENT_ID_COLUMN")
 
         results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
                                                      number_of_workers, test_type)
