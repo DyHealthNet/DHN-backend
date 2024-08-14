@@ -195,17 +195,18 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
 
 # Check that provided pathways are leading to a csv or tsv file
-def check_files(path, id_column):
-    if os.path.splitext(path)[1].lower() == '.csv':
-        dataset = pd.read_csv(env(path), header=0, index_col=None).copy()
+def check_files(path, check_id=False, id_column=None):
+    ending = os.path.splitext(path)[1].lower()
+
+    if ending not in ['.csv', '.tsv']:
+        raise ValueError(f"Unsupported file format: {ending}. Only CSV and TSV files are supported.")
+
+    sep = ',' if ending == '.csv' else '\t'
+    dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
+
+    if check_id:
         if id_column not in dataset.columns:
-            raise KeyError(f"{path} does not have the correct ID column {id_column}. Please make sure that all files have the same ID column.")
-        else:
-            return dataset
+            raise KeyError(
+                f"{path} does not have the correct ID column {id_column}. Please make sure that all files have the same ID column.")
 
-    elif os.path.splitext(env(path))[1].lower() == '.tsv':
-        dataset = pd.read_csv(env(path), header=0, sep="\t", index_col=None).copy()
-        return dataset
-
-    else:
-        raise ImportError(f"{path} has an unknown file ending. Please provide csv or tsv files for your data.")
+    return dataset

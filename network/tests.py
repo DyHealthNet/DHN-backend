@@ -5,7 +5,8 @@ from network.utils import (
     cat_cat,
     cat_cont,
     cont_cont,
-    calculate_association_scores
+    calculate_association_scores,
+    check_files
 )
 
 
@@ -193,3 +194,23 @@ class AssociationScoresTestCase(TestCase):
         self.assertIn('effsize_type', result)
         self.assertIn('test', result)
         self.assertIn('adj_pval', result)
+
+
+class CheckFilesTestCase(TestCase):
+
+    def test_check_files(self):
+        # TODO: Replace paths to our data by something else, maybe we should include a demo dataset that we can use for testing
+        # Case 1: Unknown ID column
+        path = "/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.csv"
+        with self.assertRaises(KeyError):
+            check_files(path, check_id=True, id_column="ID")
+
+        # Case 2: Unsupported file format
+        path = "/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/phenotypes_filtered.txt"
+        with self.assertRaises(ValueError):
+            check_files(path, check_id=False)
+
+        # Case 3: Regular run with ID check
+        path = "/nfs/scratch/DyHealthNet/chris_summary_data/fully_simulated/metabolites.csv"
+        result = check_files(path, check_id=True, id_column="Patient ID")
+        self.assertFalse(result.empty)
