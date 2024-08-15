@@ -426,8 +426,3 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
-
-# Unused for now/ #TODO:
-def results(request, node_id):
-    response = "You're looking at the results of node %s."
-    return HttpResponse(response % node_id)
