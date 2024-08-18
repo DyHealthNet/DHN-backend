@@ -165,8 +165,8 @@ class TypeaheadView(generics.GenericAPIView):
 class GetVariablesView(generics.GenericAPIView):
     def get(self, request):
         def makeGroup(cols):
-            ctype = cols[0]
-            cnumcat = cols[1]
+            ctype = cols['type']
+            cnumcat = cols['num_cat']
             if ctype == 'integer' or ctype == 'float' or ctype == 'time':
                 return 'continuous'
             elif cnumcat == 2:
@@ -175,16 +175,16 @@ class GetVariablesView(generics.GenericAPIView):
                 return 'nonbinaryCategorical'
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
-            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
+            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]].copy()
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_meta_filtered_small['num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
+        phenotypes_meta_filtered_small.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
-        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,
+        phenotypes_meta_filtered_small.loc[:,'group'] = phenotypes_meta_filtered_small.loc[:, ['type', 'num_cat']].apply(makeGroup,
                                                                                                             axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
-        phenotypes_meta_filtered_small['identifier'] = (
-                phenotypes_meta_filtered_small['description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
+        phenotypes_meta_filtered_small.loc[:,'identifier'] = (
+                phenotypes_meta_filtered_small.loc[:,'description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
         # create output dict and return it
         values_dict = phenotypes_meta_filtered_small.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
