@@ -3,18 +3,17 @@ import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from .models import *
-#from .models import Node, Edge
 from .models import Disorder, CohortProtein, CohortMetabolite, CohortPhenotype, Gene
 from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
                      EffectsProteinMetabolite, EffectsPhenotypePhenotype,
                      EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite)
-#from .serializers import NodeSerializer, EdgeSerializer
 from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from itertools import chain
-from orm_queries.network_queries import *
-from orm_queries.typeahead_query import *
+#from orm_queries.network_queries import *
+#from orm_queries.typeahead_query import *
+from network.queries import *
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -97,11 +96,11 @@ class GetNetworkView(generics.GenericAPIView):
                 limit = int(limit)
             except ValueError as e:
                 return HttpResponseBadRequest(
-                    f'Limit l must be a valid integerl, not {limit}', status=405)
+                    f'Limit l must be a valid integer, not {limit}', status=405)
 
-        if limit > 20:
+        if limit > 50:
             return HttpResponseBadRequest(
-                f'Limit l takes a maximal value of 15, not {limit}', status=405)
+                f'Limit l takes a maximal value of 50, not {limit}', status=405)
         # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
         edges, nodes, externals = network_query(query_id, type, limit)
         # reformat Edges and Nodes and return as json
@@ -427,8 +426,3 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
-
-# Unused for now/ #TODO:
-def results(request, node_id):
-    response = "You're looking at the results of node %s."
-    return HttpResponse(response % node_id)

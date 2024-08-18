@@ -1,9 +1,0 @@
-<h1>
-    Edge from <a href="{% url 'network:node' edge.node1.id %}">{{ edge.node1 }}</a>
-    to <a href="{% url 'network:node' edge.node2.id %}">{{ edge.node2 }}</a>
-</h1>
-<p>score: {{ edge.score }}</p>
-<p>effect size: {{ edge.effect_size }}</p>
-<p>
-<a href="{% url 'network:index' %}">Back to Index Page</a>
-</p>

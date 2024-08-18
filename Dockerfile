@@ -9,13 +9,14 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # Copy the "requirements.txt" file from your host machine into the image's "/app" folder.
-COPY requirements.txt /app
+COPY backend/requirements.txt /app
 
 # Install any needed packages specified in "requirements.txt".
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy the Django project files to the container's "/app" directory, maintaining proper permissions and ownership.
-COPY . /app/
+COPY backend/ /app/
+COPY database /app/database
 RUN mkdir /app/staticfiles
 
 # Set up environment variables for Django settings file, static files location, etc.
