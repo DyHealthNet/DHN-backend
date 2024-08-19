@@ -296,7 +296,7 @@ class GetDataView(generics.GenericAPIView):
                  x[y_idx].notna().sum() >= 5).groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": "Whole Population", #TODO rather empty label?
+                "label": "Whole Population",  #TODO rather empty label?
                 "backgroundColor": "black",   #TODO change default color?
                 "data": aggregated_df_mean[y_idx].tolist()
             })
@@ -304,6 +304,90 @@ class GetDataView(generics.GenericAPIView):
         req_data_dict["labels"] = aggregated_df_mean[x_idx].unique().tolist()
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
+        return JsonResponse(req_data_dict, safe=True)
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns the count for the given variables x grouped by c in JSON format",
+        description="""Returns averaged data for the given variables x (e.g. time) in JSON format.
+            The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='c',
+                description='colour variable',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
+    )
+)
+class GetDataBarCountView(generics.GenericAPIView):
+    def get(self, request):
+        # Get request vars
+        x = request.GET.get("x")
+        c = request.GET.get("c")
+
+        # build result dict in right format
+        req_data_dict = {}
+        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
+        show = False
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "":
+            return HttpResponseBadRequest('Variable x must be declared.', status=405)
+        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
+        # from description + (var_id))
+        x_idx = re.findall(r'\(.*?\)', x)[-1].replace('(', '').replace(')', '')
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        if x_idx not in phenotypes_filtered.columns:
+            return HttpResponseBadRequest('Variable x must be a valid variable of the phenotype data',
+                                          status=405)
+        temp = []
+        # Check if c var is given and if so split data by it
+        if c is not None and c != "":
+            # Get var_id from request var (stored in brackets at the end of the requents var which is built
+            # from description + (var_id)
+            c_idx = re.findall(r'\(.*?\)', c)[-1].replace('(', '').replace(')', '')
+            # Check if c var is present in our data -> else throw HttpResponseBadRequest
+            if c_idx not in phenotypes_filtered.columns:
+                return HttpResponseBadRequest(
+                    'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
+            # Make df subset with x, c var and a count value for each pair of group
+            df_count = phenotypes_filtered.groupby([x_idx, c_idx]).size().reset_index(name='counts')
+            # Add for each color var its own dict containing its label, a color from the color palette and a dict that
+            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
+            # values for x positions with no aggregated value present)
+            color = 0
+            for group_name, group_data in df_count.groupby(c_idx):
+                temp.append({
+                    "label": group_name,
+                    "backgroundColor": colormap[color],
+                    "data": group_data.apply(lambda row: {'x': int(row[x_idx]), 'y': int(row['counts'])}, axis=1).tolist()
+                })
+                color += 1
+        # if no color var c is given simply return all data in one group
+        else:
+            # Make df subset with x var and a count variable
+            df_count = phenotypes_filtered.groupby([x_idx]).size().reset_index(name='counts')
+            # Add dict for y axis containing the y label, black as the color and the aggregated values
+            temp.append({
+                "label": "Whole Population",  # TODO rather empty label?
+                "backgroundColor": "black",  # TODO change default color?
+                "data": df_count['counts'].tolist()
+            })
+        # Store unique x_var values
+        req_data_dict["labels"] = df_count[x_idx].unique().tolist()
+        # Store the y dict/ dicts (if color var was given)
+        req_data_dict["datasets"] = temp
+        print(req_data_dict)
         return JsonResponse(req_data_dict, safe=True)
 
 @extend_schema_view(
@@ -358,6 +442,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data',
                                           status=405)
         temp = []
+        returned_labels = []
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
@@ -368,7 +453,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the phenotype data', status=405)
             # Make df subset with x, y and c var
-            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx,ascending=True).reset_index()
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx, c_idx]]).sort_values(x_idx, ascending=True).reset_index()
+            returned_labels = df.groupby([x_idx, c_idx]).filter(lambda x:
+                                                       x[y_idx].notna().sum() >= 5)[x_idx].unique().tolist()
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
@@ -384,20 +471,17 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'padding': 10,
                     'itemRadius': 0,
                     'borderWidth': 1,
-                    # Get stats for each group. If group has less than 5 values (excluding Nan's) only nan stats are
-                    # sent for privacy protection.
-                    'data': (group_data.groupby(x_idx).apply(lambda col: {
+                    # Get stats for each group. If group has less than 5 values (excluding Nan's) nothing is sent to
+                    # ensure privacy protection
+                    'data': (group_data.groupby(x_idx).filter(lambda x:
+                                                      x[y_idx].notna().sum() >= 5).groupby(x_idx).apply(lambda col: {
                             'min': col[y_idx].min(),
                             'q1': col[y_idx].quantile(0.25),
                             'median': col[y_idx].median(),
                             'mean': col[y_idx].mean(), # TODO round value to make it pretty?
                             'q3': col[y_idx].quantile(0.75),
                             'max': col[y_idx].max(),
-                        }
-                        if col[y_idx].notna().sum() >= 5 else {
-                            'min': np.nan, 'q1': np.nan, 'median': np.nan,
-                            'mean': np.nan, 'q3': np.nan, 'max': np.nan}
-                        ).tolist()),
+                        }).tolist()),
                 }
                 temp.append(dataset)
                 color += 1
@@ -407,36 +491,37 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx, ascending=True)
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
+            returned_labels = df.groupby(x_idx).filter(lambda x:
+                                                       x[y_idx].notna().sum() >= 5)[x_idx].unique().tolist()
             temp_style = {
                 "label": "Whole Population",  # TODO rather empty label?
                 "backgroundColor": "black",  # TODO change default color?
                 'padding': 10,
                 'itemRadius': 0,
                 'borderWidth': 1,
-                'data': (df.groupby(x_idx).apply(lambda col: {
+                # Get stats for each group. If group has less than 5 values (excluding Nan's) nothing is sent to
+                # ensure privacy protection
+                'data': (df.groupby(x_idx).filter(lambda x:
+                               x[y_idx].notna().sum() >= 5).groupby(x_idx).apply(lambda col: {
                     'min': col[y_idx].min(),
                     'q1': col[y_idx].quantile(0.25),
                     'median': col[y_idx].median(),
                     'mean': col[y_idx].mean(), # TODO round value to make it pretty?
                     'q3': col[y_idx].quantile(0.75),
                     'max': col[y_idx].max(),
-                }
-                if col[y_idx].notna().sum() >= 5 else {
-                    'min': np.nan, 'q1': np.nan, 'median': np.nan,
-                    'mean': np.nan, 'q3': np.nan, 'max': np.nan}
-                                                 ).tolist()
-                         ),
+                }).tolist()),
             }
             temp.append(temp_style)
         # Store unique x_var values
-        req_data_dict["labels"] = df[x_idx].unique().tolist()
+        returned_labels.sort()
+        req_data_dict["labels"] = returned_labels
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns contingency table for the given variables x and y for plotting a heatmap (in JSON format)",
+        summary="Returns contingency table for the given variables x and y for plotting a heatmap in JSON format",
         description="""Returns contingency table for the given categorical variables x (e.g. sex) and y (e.g. desease 
             stage) for plotting a heatmap in JSON format. """,
         parameters=[
@@ -463,8 +548,6 @@ class GetDataHeatmapView(generics.GenericAPIView):
         x = request.GET.get("x")
         y = request.GET.get("y")
 
-        # build result dict in right format
-        req_data_dict = {}
         # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
         show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
@@ -477,13 +560,12 @@ class GetDataHeatmapView(generics.GenericAPIView):
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
-        # get data subset
-        df = phenotypes_filtered[[x_idx, y_idx]]
         # compute contingency table
-        contingency_tab = pd.crosstab(df[x_idx], df[y_idx])
+        contingency_tab = pd.crosstab(phenotypes_filtered[x_idx], phenotypes_filtered[y_idx])
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = contingency_tab.columns.astype(str).tolist()
-        req_data_dict["yCategories"] = contingency_tab.index.astype(str).tolist()
-        req_data_dict["datasets"] = contingency_tab.values.tolist()
+        req_data_dict["xCategories"] = contingency_tab.index.astype(str).tolist()
+        req_data_dict["yCategories"] = contingency_tab.columns.astype(str).tolist()
+        contingency_tab_inverse = np.array(contingency_tab.values)
+        req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
         return JsonResponse(req_data_dict, safe=True)
