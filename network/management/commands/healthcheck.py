@@ -1,6 +1,5 @@
 import os
 import sys
-import logging
 from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
@@ -15,15 +14,35 @@ environ.Env.read_env()
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
+        # Store the results of each check
+        results = {
+            "files": False,
+            "database": False,
+            "tables": False
+        }
+
+        print("Start Health checks:")
         try:
-            print("Start Health checks:")
-            self.check_files()
-            self.check_database()
-            self.check_tables()
-            print("Health check successfully passed.")
+            results["files"] = self.check_files()
         except Exception as e:
-            print(f"Health check failed: {e}")
+            print(f"❌  Files check failed: {e}")
+
+        try:
+            results["database"] = self.check_database()
+        except Exception as e:
+            print(f"❌  Database check failed: {e}")
+
+        try:
+            results["tables"] = self.check_tables()
+        except Exception as e:
+            print(f"❌  Tables check failed: {e}")
+
+        # Exit with a non-zero code if any check failed
+        if not all(results.values()):
+            print("Health check failed.")
             sys.exit(1)
+        else:
+            print("Health check successfully passed.")
 
     def check_files(self):
         required_files = [
@@ -33,7 +52,8 @@ class Command(BaseCommand):
         for file_path in required_files:
             if not os.path.isfile(file_path):
                 raise FileNotFoundError(f"Required file not found: {file_path}")
-        print("All required files are present.")
+        print("✅  All required files are present.")
+        return True
 
     def check_database(self):
         db_conn = connections['default']
@@ -41,7 +61,8 @@ class Command(BaseCommand):
             db_conn.cursor()
         except OperationalError:
             raise OperationalError("Database connection failed.")
-        print("Database connection successful.")
+        print("✅  The database is successfully connected.")
+        return True
 
     def check_tables(self):
         db_conn = connections['default']
@@ -74,4 +95,5 @@ class Command(BaseCommand):
 
         if missing_tables:
             raise Exception(f"Missing database tables/views/materialized views: {', '.join(missing_tables)}")
-        print("All necessary database tables, views, and materialized views are present.")
+        print("✅  All necessary database tables, views, and materialized views are present.")
+        return True

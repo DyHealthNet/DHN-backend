@@ -23,20 +23,24 @@ Edges = {'EffectsProteinProtein':EffectsProteinProtein,
          'EffectsProteinMetabolite':EffectsProteinMetabolite,
          'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
-phenotypes_filtered = pd.read_csv(
-            env("PHENOTYPE_PATH"),
-            sep=',', header=0)
-phenotypes_meta_filtered = pd.read_csv(
-            env("PHENOTYPE_META_PATH"),
-            sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
-proteins = pd.read_csv(
-            env("PROTEIN_PATH"),
-            sep=',', header=0, index_col=0)
-proteins_meta = pd.read_csv(
-            env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0)
-metabolites = pd.read_csv(
-            env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
 
+# This is wrapped in try-except to be ignored before healthcheck
+try:
+    phenotypes_filtered = pd.read_csv(
+                env("PHENOTYPE_PATH"),
+                sep=',', header=0)
+    phenotypes_meta_filtered = pd.read_csv(
+                env("PHENOTYPE_META_PATH"),
+                sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
+    proteins = pd.read_csv(
+                env("PROTEIN_PATH"),
+                sep=',', header=0, index_col=0)
+    proteins_meta = pd.read_csv(
+                env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0)
+    metabolites = pd.read_csv(
+                env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
+except FileNotFoundError:
+    pass
 
 # functions to get appropriate background colors for plotting
 def darken_hex(hex_color, factor=0.2):
