@@ -1,5 +1,4 @@
 from django.test import TestCase
-import pandas as pd
 from network.utils import (
     multiprocess,
     cat_cat,

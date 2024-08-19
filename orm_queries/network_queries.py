@@ -5,6 +5,8 @@ from django.apps import apps
 import timeit
 from collections import defaultdict
 
+# This script is not an essential part of the django backend. It was only used for testing the network query.
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
 django.setup()
 

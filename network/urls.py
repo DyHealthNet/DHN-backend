@@ -3,6 +3,7 @@ from . import views
 
 app_name = "network"
 urlpatterns = [
+    # ex: /network/api/variables
     path("api/variables/", views.GetVariablesView.as_view(), name="get_variables"),
     # ex: /network/api/plotData
     path("api/plotData/", views.GetDataView.as_view(), name="get_plot_data"),
@@ -12,6 +13,6 @@ urlpatterns = [
     path("api/plotDataHeatmap/", views.GetDataHeatmapView.as_view(), name="get_heatmap_data"),
     # ex: /network/api/getNetwork
     path("api/getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
-    # ex: /network/api/getNetwork
+    # ex: /network/api/getTypeaheadResults
     path("api/getTypeaheadResults/", views.TypeaheadView.as_view(), name="get_typeahead"),
 ]

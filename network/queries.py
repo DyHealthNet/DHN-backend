@@ -1,10 +1,5 @@
-import os
-import django
 from django.db.models import Q
 from django.apps import apps
-
-#os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
-#django.setup()
 
 CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
                'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',

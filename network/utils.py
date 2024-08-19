@@ -55,9 +55,12 @@ def cat_cat(pair, phenotypes_cat):
 # Continuous-Categorical association scores
 def cat_cont(pair, phenotypes_cat, cont_data, test):
     cont, cat = pair
+
+    # Determine number of categories per phenotype
     temp_cat = np.array(phenotypes_cat.iloc[:, cat].unique())
     categ = len(temp_cat[~pd.isna(temp_cat)])
-    if (categ < 2):
+
+    if (categ < 2): # No test will be performed if the phenotype has only a single possible value
         return {
             'label1': cont_data.columns[cont],
             'label2': phenotypes_cat.columns[cat],
@@ -66,7 +69,8 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
             'effsize_type': None,
             'test': None
         }
-    elif (categ == 2):
+
+    elif (categ == 2): # t-test (parametric) or Mann-Whitney U (non-parametric) if phenotype has exactly 2 categories
         temp = [*(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list))]
         if test == 'parametric':
             r = si.stats.ttest_ind(temp[0], temp[1], nan_policy='omit')
@@ -85,7 +89,8 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
             'effsize_type': "Cohen's d",
             'test': test_performed
         }
-    else:
+
+    else: # one-way ANOVA test (parametric) or Kruskal-Wallis (non-parametric) if phenotype has more than 2 categories
         if test == 'parametric':
             r = si.stats.f_oneway(
                 *(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list)),
@@ -131,6 +136,7 @@ def cont_cont(pair, cont_data, test):
     }
 
 
+# Multiprocessing of all provided pairs of variables according to function_call and multiple-testing correction
 def testing(pairs, function_call, num_workers):
     results = pd.DataFrame(multiprocess(pairs, num_workers=num_workers, function_call=function_call))
     results['adj_pval'] = si.stats.false_discovery_control(results['pval'], method='bh')
@@ -140,7 +146,7 @@ def testing(pairs, function_call, num_workers):
 def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
                                  test='parametric'):
     # Data preprocessing
-    allowed_types = ['boolean', 'categorical', 'float', 'integer']
+    allowed_types = ['boolean', 'categorical', 'float', 'integer'] # Eventually, add temporal data
     # Check if all types of phenotype variables are in the allowed list
     invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
     if not invalid_types.empty:
@@ -194,16 +200,16 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     return scores
 
 
-# Check that provided pathways are leading to a csv or tsv file
 def check_files(path, check_id=False, id_column=None):
+    # Check that provided pathways are leading to a csv or tsv file
     ending = os.path.splitext(path)[1].lower()
-
     if ending not in ['.csv', '.tsv']:
         raise ValueError(f"Unsupported file format: {ending}. Only CSV and TSV files are supported.")
 
     sep = ',' if ending == '.csv' else '\t'
     dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
 
+    # Check that id_column exists if necessary
     if check_id:
         if id_column not in dataset.columns:
             raise KeyError(

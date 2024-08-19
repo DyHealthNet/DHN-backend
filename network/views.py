@@ -7,17 +7,9 @@ from .models import Disorder, CohortProtein, CohortMetabolite, CohortPhenotype, 
 from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
                      EffectsProteinMetabolite, EffectsPhenotypePhenotype,
                      EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite)
-from django.views import generic
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
-from itertools import chain
-#from orm_queries.network_queries import *
-#from orm_queries.typeahead_query import *
 from network.queries import *
-
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import seaborn as sns
 
 import environ
 env = environ.Env()
@@ -58,6 +50,7 @@ def darken_hex(hex_color, factor=0.2):
     # Convert back to hex
     return f'#{r:02x}{g:02x}{b:02x}'
 
+# Colormaps for overview page plots
 colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
 bordercolor_map = [darken_hex(i) for i in colormap]
 

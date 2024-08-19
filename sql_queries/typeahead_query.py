@@ -7,6 +7,8 @@ from sqlalchemy import select, func, text
 from sqlalchemy.engine import URL, create_engine
 from sqlalchemy.orm import sessionmaker
 
+# This script is not an essential part of the django backend.
+# We want to keep this in case ORM queries will be replaced at some point by sql queries in favor of the runtime.
 
 url = url_object = URL.create(
     "postgresql",
