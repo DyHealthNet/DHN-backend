@@ -164,8 +164,8 @@ class TypeaheadView(generics.GenericAPIView):
 class GetVariablesView(generics.GenericAPIView):
     def get(self, request):
         def makeGroup(cols):
-            ctype = cols['type']
-            cnumcat = cols['num_cat']
+            ctype = cols[0]
+            cnumcat = cols[1]
             if ctype == 'integer' or ctype == 'float' or ctype == 'time':
                 return 'continuous'
             elif cnumcat == 2:
@@ -174,16 +174,16 @@ class GetVariablesView(generics.GenericAPIView):
                 return 'nonbinaryCategorical'
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
-            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]].copy()
+            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_meta_filtered_small.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
+        phenotypes_meta_filtered_small['num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
-        phenotypes_meta_filtered_small.loc[:,'group'] = phenotypes_meta_filtered_small.loc[:, ['type', 'num_cat']].apply(makeGroup,
+        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,
                                                                                                             axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
-        phenotypes_meta_filtered_small.loc[:,'identifier'] = (
-                phenotypes_meta_filtered_small.loc[:,'description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
+        phenotypes_meta_filtered_small['identifier'] = (
+                phenotypes_meta_filtered_small['description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
         # create output dict and return it
         values_dict = phenotypes_meta_filtered_small.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
@@ -370,7 +370,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'borderWidth': 1,
                     # Get stats for each group. If group has less than 5 values (excluding Nan's) only nan stats are
                     # sent for privacy protection.
-                    'data': ((group_data.groupby(x_idx).apply(lambda col: {
+                    'data': (group_data.groupby(x_idx).apply(lambda col: {
                             'min': col[y_idx].min(),
                             'q1': col[y_idx].quantile(0.25),
                             'median': col[y_idx].median(),
@@ -380,19 +380,14 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                         if col[y_idx].notna().sum() >= 5 else {
                             'min': np.nan, 'q1': np.nan, 'median': np.nan,
                             'q3': np.nan, 'max': np.nan}
-                        ).tolist()
-                    # corner case when all data is empty
-                    if not group_data.empty else (
-                        {'min': np.nan, 'q1': np.nan, 'median': np.nan,
-                         'q3': np.nan, 'max': np.nan}.tolist())
-                             )),
+                        ).tolist()),
                 }
                 temp.append(dataset)
                 color += 1
         # if no color var c is given simply return all data in one group
         else:
             # Make df subset with x and y var
-            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx,ascending=True)
+            df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx, ascending=True)
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
             temp_style = {
@@ -401,28 +396,76 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 'padding': 10,
                 'itemRadius': 0,
                 'borderWidth': 1,
-            }
-            # privacy restriction: return values when there are 5 or more values =! NaN
-            if df[y_idx].notna().sum() >= 5:
-                temp_style['data'] = {
-                        'min': float(np.min(df[y_idx])),
-                        'q1': float(np.percentile(df[y_idx], 25)),
-                        'median': float(np.median(df[y_idx])),
-                        'q3': float(np.percentile(df[y_idx], 75)),
-                        'max': float(np.min(df[y_idx])),
-                    }
-            # otherwise only NaNs (very unlikely) # TODO cover and test this corner case (show var?)
-            else:
-                temp_style['data'] = {
-                    'min': np.nan,
-                    'q1': np.nan,
-                    'median': np.nan,
-                    'q3': np.nan,
-                    'max': np.nan,
+                'data': (df.groupby(x_idx).apply(lambda col: {
+                    'min': col[y_idx].min(),
+                    'q1': col[y_idx].quantile(0.25),
+                    'median': col[y_idx].median(),
+                    'q3': col[y_idx].quantile(0.75),
+                    'max': col[y_idx].max(),
                 }
+                if col[y_idx].notna().sum() >= 5 else {
+                    'min': np.nan, 'q1': np.nan, 'median': np.nan,
+                    'q3': np.nan, 'max': np.nan}
+                                                 ).tolist()
+                         ),
+            }
             temp.append(temp_style)
         # Store unique x_var values
         req_data_dict["labels"] = df[x_idx].unique().tolist()
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
+        return JsonResponse(req_data_dict, safe=True)
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns contingency table for the given variables x and y for plotting a heatmap (in JSON format)",
+        description="""Returns contingency table for the given categorical variables x (e.g. sex) and y (e.g. desease 
+            stage) for plotting a heatmap in JSON format. """,
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='y',
+                description='variable y',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
+    )
+)
+class GetDataHeatmapView(generics.GenericAPIView):
+    def get(self, request):
+        # Get request vars
+        x = request.GET.get("x")
+        y = request.GET.get("y")
+
+        # build result dict in right format
+        req_data_dict = {}
+        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
+        show = False
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "" or y is None and y == "":
+            return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
+        # from description + (var_id))
+        x_idx = re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','')
+        y_idx = re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','')
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        if x_idx not in phenotypes_filtered.columns or y_idx not in phenotypes_filtered.columns:
+            return HttpResponseBadRequest('Variable x and y must be a valid variable of the phenotype data', status=405)
+        # get data subset
+        df = phenotypes_filtered[[x_idx, y_idx]]
+        # compute contingency table
+        contingency_tab = pd.crosstab(df[x_idx], df[y_idx])
+        # save in dictionary and return in json format
+        req_data_dict = {}
+        req_data_dict["xCategories"] = contingency_tab.columns.tolist()
+        req_data_dict["yCategories"] = contingency_tab.index.tolist()
+        req_data_dict["datasets"] = contingency_tab.values.tolist()
         return JsonResponse(req_data_dict, safe=True)

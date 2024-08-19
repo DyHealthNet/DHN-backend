@@ -8,6 +8,8 @@ urlpatterns = [
     path("api/plotData/", views.GetDataView.as_view(), name="get_plot_data"),
     # ex: /network/api/plotDataBoxPlot
     path("api/plotDataBoxPlot/",views.GetDataBoxPlotView.as_view(), name="get_boxplot_data"),
+    # ex: /network/api/plotDataHeatmap
+    path("api/plotDataHeatmap/", views.GetDataHeatmapView.as_view(), name="get_heatmap_data"),
     # ex: /network/api/getNetwork
     path("api/getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
     # ex: /network/api/getNetwork
