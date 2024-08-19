@@ -37,14 +37,29 @@ phenotypes_filtered = pd.read_csv(
 phenotypes_meta_filtered = pd.read_csv(
             env("PHENOTYPE_META_PATH"),
             sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
+proteins = pd.read_csv(
+            env("PROTEIN_PATH"),
+            sep=',', header=0, index_col=0)
+proteins_meta = pd.read_csv(
+            env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0)
+metabolites = pd.read_csv(
+            env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
 
-# functions to get appropriate colors for plotting
-def rgb_to_hex(rgb):
-    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
-def darken_rgb(rgb, factor=0.2):
-    darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
-    return tuple(darkened_rgb)
-colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858']
+
+# functions to get appropriate background colors for plotting
+def darken_hex(hex_color, factor=0.2):
+    # Convert the hex color to RGB
+    hex_color = hex_color.lstrip('#')
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    # Darken the color by the factor
+    r = int(r * (1 - factor))
+    g = int(g * (1 - factor))
+    b = int(b * (1 - factor))
+    # Convert back to hex
+    return f'#{r:02x}{g:02x}{b:02x}'
+
+colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
+bordercolor_map = [darken_hex(i) for i in colormap]
 
 @extend_schema_view(
     get=extend_schema(
@@ -360,12 +375,12 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             #colormap = sns.color_palette("tab10")
             # convert colors to hexcolors for compatibility with vue-chartjs plotting
             #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
-            bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
+            #bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
             for group_name, group_data in df.groupby(c_idx):
                 dataset = {
                     'label': group_name,
                     'backgroundColor': colormap[color],
-                    'borderColor': bordercolor_pal[color],
+                    'borderColor': bordercolor_map[color],
                     'padding': 10,
                     'itemRadius': 0,
                     'borderWidth': 1,
@@ -375,17 +390,18 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                             'min': col[y_idx].min(),
                             'q1': col[y_idx].quantile(0.25),
                             'median': col[y_idx].median(),
+                            'mean': col[y_idx].mean(), # TODO round value to make it pretty?
                             'q3': col[y_idx].quantile(0.75),
                             'max': col[y_idx].max(),
                         }
                         if col[y_idx].notna().sum() >= 5 else {
                             'min': np.nan, 'q1': np.nan, 'median': np.nan,
-                            'q3': np.nan, 'max': np.nan}
+                            'mean': np.nan, 'q3': np.nan, 'max': np.nan}
                         ).tolist()),
                 }
                 temp.append(dataset)
                 color += 1
-        # if no color var c is given simply return all data in one group
+        # if no color var c is only group by x var
         else:
             # Make df subset with x and y var
             df = pd.DataFrame(phenotypes_filtered[[x_idx, y_idx]]).sort_values(x_idx, ascending=True)
@@ -401,12 +417,13 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'min': col[y_idx].min(),
                     'q1': col[y_idx].quantile(0.25),
                     'median': col[y_idx].median(),
+                    'mean': col[y_idx].mean(), # TODO round value to make it pretty?
                     'q3': col[y_idx].quantile(0.75),
                     'max': col[y_idx].max(),
                 }
                 if col[y_idx].notna().sum() >= 5 else {
                     'min': np.nan, 'q1': np.nan, 'median': np.nan,
-                    'q3': np.nan, 'max': np.nan}
+                    'mean': np.nan, 'q3': np.nan, 'max': np.nan}
                                                  ).tolist()
                          ),
             }
