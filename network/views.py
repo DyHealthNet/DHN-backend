@@ -44,6 +44,7 @@ def rgb_to_hex(rgb):
 def darken_rgb(rgb, factor=0.2):
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
     return tuple(darkened_rgb)
+colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858']
 
 @extend_schema_view(
     get=extend_schema(
@@ -164,8 +165,8 @@ class TypeaheadView(generics.GenericAPIView):
 class GetVariablesView(generics.GenericAPIView):
     def get(self, request):
         def makeGroup(cols):
-            ctype = cols[0]
-            cnumcat = cols[1]
+            ctype = cols['type']
+            cnumcat = cols['num_cat']
             if ctype == 'integer' or ctype == 'float' or ctype == 'time':
                 return 'continuous'
             elif cnumcat == 2:
@@ -174,16 +175,16 @@ class GetVariablesView(generics.GenericAPIView):
                 return 'nonbinaryCategorical'
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_meta_filtered_small = phenotypes_meta_filtered[
-            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]]
+            [(i in phenotypes_filtered.columns) for i in phenotypes_meta_filtered.index]].copy()
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_meta_filtered_small['num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
+        phenotypes_meta_filtered_small.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
-        phenotypes_meta_filtered_small['group'] = phenotypes_meta_filtered_small[['type', 'num_cat']].apply(makeGroup,
+        phenotypes_meta_filtered_small.loc[:,'group'] = phenotypes_meta_filtered_small.loc[:, ['type', 'num_cat']].apply(makeGroup,
                                                                                                             axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
-        phenotypes_meta_filtered_small['identifier'] = (
-                phenotypes_meta_filtered_small['description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
+        phenotypes_meta_filtered_small.loc[:,'identifier'] = (
+                phenotypes_meta_filtered_small.loc[:,'description'] + ' (' + phenotypes_meta_filtered_small.index + ')')
         # create output dict and return it
         values_dict = phenotypes_meta_filtered_small.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
@@ -260,13 +261,13 @@ class GetDataView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
-            colormap = sns.color_palette("tab10")
+            #colormap = sns.color_palette("tab10")
             # convert colors to hexcolors for compatibility with vue-chartjs plotting
-            color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
+            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": group_name,
-                    "backgroundColor": color_pal[color],
+                    "backgroundColor": colormap[color],
                     "data": group_data.apply(lambda row: {'x': row[x_idx], 'y': row[y_idx]}, axis=1).tolist()
                 })
                 color += 1
@@ -356,14 +357,14 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
-            colormap = sns.color_palette("tab10")
+            #colormap = sns.color_palette("tab10")
             # convert colors to hexcolors for compatibility with vue-chartjs plotting
-            color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
+            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
             for group_name, group_data in df.groupby(c_idx):
                 dataset = {
                     'label': group_name,
-                    'backgroundColor': color_pal[color],
+                    'backgroundColor': colormap[color],
                     'borderColor': bordercolor_pal[color],
                     'padding': 10,
                     'itemRadius': 0,
@@ -465,7 +466,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
         contingency_tab = pd.crosstab(df[x_idx], df[y_idx])
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = contingency_tab.columns.tolist()
-        req_data_dict["yCategories"] = contingency_tab.index.tolist()
+        req_data_dict["xCategories"] = contingency_tab.columns.astype(str).tolist()
+        req_data_dict["yCategories"] = contingency_tab.index.astype(str).tolist()
         req_data_dict["datasets"] = contingency_tab.values.tolist()
         return JsonResponse(req_data_dict, safe=True)
