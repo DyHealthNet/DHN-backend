@@ -85,6 +85,60 @@ def network_query(query_id, type, limit):
     ]
     return edges, nodes, mapped_externals
 
+
+def external_query(query_id):
+    external_ids = set()
+    ref_ids = set()
+
+    # Query external edges
+    # Retrieve all references from the query node to external nodes
+    ref_model = apps.get_model('network', 'ViewReferencesEdges')
+    refs = ref_model.objects.filter(cohort_id=query_id).values() # Evtl weglassen
+    ref_ids.update(*zip(*refs.values_list('reference_id')))
+    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
+
+    # Retrieve all edges from referenced external nodes
+    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
+    externals = external_edges_model.objects.filter(Q(source_id__in=ref_ids) | Q(target_id__in=ref_ids)).values()
+    external_ids.update(*zip(*externals.values_list('source_id')))
+    external_ids.update(*zip(*externals.values_list('target_id')))
+
+    # Map externals back to cohort nodes if available, otherwise retrieve external node
+    cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
+    external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
+    cohort_nodes = []
+    external_nodes = []
+
+    for ext_id in external_ids:
+        #print(ext_id)
+        ext_id = ext_id.split(".")[1] # delete later
+        mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
+
+        if not mapped_nodes:
+            #print(ext_id)
+            type = external_nodes_model.objects.filter(Q(node_id__icontains=ext_id)).values()[0]['source_table']
+            type_model = apps.get_model('network', type.capitalize())
+            unknown_nodes = type_model.objects.filter(Q(pk__icontains=ext_id)).values()
+            external_nodes.append(unknown_nodes)
+            id_mapping.update({ext_id: ext_id})
+
+        else:
+            cohort_nodes.append(mapped_nodes)
+            id_mapping.update({ext_id: node_id[0] for node_id in mapped_nodes.values_list('id')})
+    #print(id_mapping)
+    mapped_externals = [
+        {
+            'source_id': external['source_id'],
+            'target_id': external['target_id'],
+            'mapping_source_id': id_mapping.get(external['source_id']),
+            'mapping_target_id': id_mapping.get(external['target_id'])
+        }
+        for external in externals
+    ]
+
+    return mapped_externals, cohort_nodes, external_nodes
+
+
 if __name__ == '__main__':
     start = timeit.default_timer()
     edges, nodes, externals = network_query('x0rd09', 'phenotype', 10)
@@ -108,3 +162,27 @@ if __name__ == '__main__':
         num_externals += 1
 
     print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
+    print("")
+
+    start = timeit.default_timer()
+    externals, cohort_nodes, external_nodes = external_query('x0rd09')
+    time = timeit.default_timer() - start
+
+    num_edges = 0
+    for results in externals:
+        print(results)
+        num_edges += 1
+
+    num_nodes = 0
+    for results in cohort_nodes:
+        for entry in results:
+            print(entry)
+            num_nodes += 1
+
+    num_external_nodes = 0
+    for results in external_nodes:
+        for entry in results:
+            print(entry)
+            num_external_nodes += 1
+
+    print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_external_nodes} external nodes.")

@@ -318,3 +318,11 @@ class ViewReferencesEdges(models.Model):
     class Meta:
         managed = False
         db_table = 'view_references_edges'
+
+class ViewExternalNodes(models.Model):
+    node_id = models.CharField(primary_key=True, blank=True, max_length=200, db_column='node_id')
+    source_table = models.TextField(blank=True, null=True, db_column='source_table')
+
+    class Meta:
+        managed = False
+        db_table = 'external_node_ids'
