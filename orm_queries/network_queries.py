@@ -110,12 +110,12 @@ def external_query(query_id):
     external_nodes = []
 
     for ext_id in external_ids:
-        print(ext_id)
+        #print(ext_id)
         ext_id = ext_id.split(".")[1] # delete later
         mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
 
         if not mapped_nodes:
-            print(ext_id)
+            #print(ext_id)
             type = external_nodes_model.objects.filter(Q(node_id__icontains=ext_id)).values()[0]['source_table']
             type_model = apps.get_model('network', type.capitalize())
             unknown_nodes = type_model.objects.filter(Q(pk__icontains=ext_id)).values()
@@ -125,7 +125,7 @@ def external_query(query_id):
         else:
             cohort_nodes.append(mapped_nodes)
             id_mapping.update({ext_id: node_id[0] for node_id in mapped_nodes.values_list('id')})
-    print(id_mapping)
+    #print(id_mapping)
     mapped_externals = [
         {
             'source_id': external['source_id'],
@@ -162,6 +162,7 @@ if __name__ == '__main__':
         num_externals += 1
 
     print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
+    print("")
 
     start = timeit.default_timer()
     externals, cohort_nodes, external_nodes = external_query('x0rd09')
@@ -178,4 +179,10 @@ if __name__ == '__main__':
             print(entry)
             num_nodes += 1
 
-    print(f"Took {time} seconds to get {num_edges} edges, and {num_nodes} nodes.")
+    num_external_nodes = 0
+    for results in external_nodes:
+        for entry in results:
+            print(entry)
+            num_external_nodes += 1
+
+    print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_external_nodes} external nodes.")

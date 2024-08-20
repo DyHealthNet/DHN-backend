@@ -98,7 +98,7 @@ def external_query(query_id):
 
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
-    #external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
+    external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
     cohort_nodes = []
     external_nodes = []
 
@@ -107,15 +107,15 @@ def external_query(query_id):
         mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
 
         if not mapped_nodes:
-            #TODO: test as soon as view is ready
-            print("I am here.")
-            #type = external_nodes_model.objects.filter(Q(id=ext_id)).values_list('source_table')
-            #type_model = apps.get_model('network', type)
-            #external_nodes.append(type_model.objects.filter(Q(pk=ext_id)).values())
+            type = external_nodes_model.objects.filter(Q(node_id__icontains=ext_id)).values()[0]['source_table']
+            type_model = apps.get_model('network', type.capitalize())
+            unknown_nodes = type_model.objects.filter(Q(pk__icontains=ext_id)).values()
+            external_nodes.append(unknown_nodes)
+            id_mapping.update({ext_id: ext_id})
 
         else:
             cohort_nodes.append(mapped_nodes)
-            id_mapping.update({ext_id: node_id for node_id in mapped_nodes.values_list('id')})
+            id_mapping.update({ext_id: node_id[0] for node_id in mapped_nodes.values_list('id')})
 
     mapped_externals = [
         {
