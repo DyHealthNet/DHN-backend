@@ -105,25 +105,27 @@ def external_query(query_id):
 
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
-    #external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
+    external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
     cohort_nodes = []
     external_nodes = []
 
     for ext_id in external_ids:
+        print(ext_id)
         ext_id = ext_id.split(".")[1] # delete later
         mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
 
         if not mapped_nodes:
-            #TODO: test as soon as view is ready
-            print("I am here.")
-            #type = external_nodes_model.objects.filter(Q(id=ext_id)).values_list('source_table')
-            #type_model = apps.get_model('network', type)
-            #external_nodes.append(type_model.objects.filter(Q(pk=ext_id)).values())
+            print(ext_id)
+            type = external_nodes_model.objects.filter(Q(node_id__icontains=ext_id)).values()[0]['source_table']
+            type_model = apps.get_model('network', type.capitalize())
+            unknown_nodes = type_model.objects.filter(Q(pk__icontains=ext_id)).values()
+            external_nodes.append(unknown_nodes)
+            id_mapping.update({ext_id: ext_id})
 
         else:
             cohort_nodes.append(mapped_nodes)
-            id_mapping.update({ext_id: node_id for node_id in mapped_nodes.values_list('id')})
-
+            id_mapping.update({ext_id: node_id[0] for node_id in mapped_nodes.values_list('id')})
+    print(id_mapping)
     mapped_externals = [
         {
             'source_id': external['source_id'],
@@ -162,7 +164,7 @@ if __name__ == '__main__':
     print(f"Took {time} seconds to get {num_edges} edges, {num_nodes} nodes and {num_externals} externals.")
 
     start = timeit.default_timer()
-    externals, cohort_nodes, external_nodes = external_query('x0so4919')
+    externals, cohort_nodes, external_nodes = external_query('x0rd09')
     time = timeit.default_timer() - start
 
     num_edges = 0
