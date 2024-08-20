@@ -5,6 +5,8 @@ app_name = "network"
 urlpatterns = [
     # ex: /network/api/variables
     path("api/variables/", views.GetVariablesView.as_view(), name="get_variables"),
+    # ex: /network/api/table
+    path("api/table/", views.GetTableView.as_view(), name="get_table"),
     # ex: /network/api/plotDataBoxPlot/?x=Pacemaker/implantable%20defibrillator%20(x0af11)&y=Sniffin%20Stick%20%231%20(Orange)%20(x0ol01)&c=Sex%20(x0_sex)
     path("api/plotData/", views.GetDataView.as_view(), name="get_plot_data"),
     # ex: /network/api/plotDataBarCount/?x=Food%20frequency:%20Sausages/ham%20(x0fd02)&c=Sex%20(x0_sex)
