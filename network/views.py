@@ -26,6 +26,7 @@ types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 
 # This is wrapped in try-except to be ignored before healthcheck
 try:
+    # TODO check here for necessary columns in the files (change into env variables?)
     phenotypes_filtered = pd.read_csv(
                 env("PHENOTYPE_PATH"),
                 sep=',', header=0)
@@ -36,10 +37,11 @@ try:
                 env("PROTEIN_PATH"),
                 sep=',', header=0, index_col=0)
     proteins_meta = pd.read_csv(
-                env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0)
+                env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0, usecols=['protein_id','EntrezGeneSymbol'])
     metabolites = pd.read_csv(
                 env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
-    all_data = pd.concat([metabolites.reset_index(drop=True),proteins.reset_index(drop=True), phenotypes_filtered],axis=1)
+    # TODO change this when all files have the same index & indexname
+    all_data = pd.concat([metabolites.reset_index(drop=True),proteins.reset_index(drop=True), phenotypes_filtered], axis=1)
 except FileNotFoundError:
     pass
 
@@ -54,6 +56,9 @@ def darken_hex(hex_color, factor=0.2):
     b = int(b * (1 - factor))
     # Convert back to hex
     return f'#{r:02x}{g:02x}{b:02x}'
+
+def extract_var_id(var):
+    return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
 
 # Colormaps for overview page plots
 colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
@@ -192,7 +197,7 @@ class GetVariablesView(generics.GenericAPIView):
                                              [(i in phenotypes_filtered.columns) for i in
                                               phenotypes_meta_filtered.index]][['type','description']].copy())
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
+        phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.nunique())
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
         phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, ['type', 'num_cat']].apply(makeGroup,axis=1)
@@ -202,7 +207,7 @@ class GetVariablesView(generics.GenericAPIView):
         del phenotypes_values['num_cat']
         del phenotypes_values['type']
         ## get Protein variables
-        protein_values = proteins_meta[['EntrezGeneSymbol']].copy()
+        protein_values = proteins_meta.copy()
         protein_values.loc[:, 'identifier'] = (
                     protein_values.loc[:, 'EntrezGeneSymbol'] + ' (' + protein_values.index + ')')
         del protein_values['EntrezGeneSymbol']
@@ -217,47 +222,47 @@ class GetVariablesView(generics.GenericAPIView):
         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
 
-# @extend_schema_view(
-#     get=extend_schema(
-#         summary="Returns data statistics to be plotted in the overview table",
-#         description='Returns data statistics (of phenotype, metabolite and protein data) to be plotted in the overview '
-#                     'table in JSON format.'
-#                     'e.g. '
-#     )
-# )
-# class GetTableView(generics.GenericAPIView):
-#     def get(self, request):
-#         def makeGroup(cols):
-#             ctype = cols['type']
-#             cnumcat = cols['num_cat']
-#             if ctype == 'integer' or ctype == 'float' or ctype == 'time':
-#                 return 'continuous'
-#             elif cnumcat == 2:
-#                 return 'binaryCategorical'
-#             else:
-#                 return 'nonbinaryCategorical'
-#         ## get Phenotype variables
-#         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
-#         phenotypes_values = pd.DataFrame(phenotypes_meta_filtered[
-#                                              [(i in phenotypes_filtered.columns) for i in
-#                                               phenotypes_meta_filtered.index]][['type','description']].copy())
-#         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-#         phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.apply(np.unique, axis=0).apply(len))
-#         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
-#         # based on the type variable in the data and the calculated number of categories
-#         phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, ['type', 'num_cat']].apply(makeGroup,axis=1)
-#         # create identifier annotation which combines the user friendly description with the chris id in brackets
-#
-#         ## get Protein variables
-#         protein_values = proteins_meta[['EntrezGeneSymbol']].copy()
-#         ## get Metabolite variables
-#         metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns})
-#
-#         ## combine all data
-#         combined_vals = pd.concat([phenotypes_values,protein_values,metabolite_values],axis=0)
-#         # create output dict and return it
-#         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
-#         return JsonResponse(values_dict, safe=True)
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns data statistics to be plotted in the overview table",
+        description='Returns data statistics (of phenotype, metabolite and protein data) to be plotted in the overview '
+                    'table in JSON format.'
+                    'e.g. '
+    )
+)
+class GetTableView(generics.GenericAPIView):
+    def get(self, request):
+        def makeGroup(cols):
+            ctype = cols['type']
+            cnumcat = cols['num_cat']
+            if ctype == 'integer' or ctype == 'float' or ctype == 'time':
+                return 'continuous'
+            elif cnumcat == 2:
+                return 'binaryCategorical'
+            else:
+                return 'nonbinaryCategorical'
+        ## get Phenotype variables
+        # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
+        phenotypes_values = pd.DataFrame(phenotypes_meta_filtered[
+                                             [(i in phenotypes_filtered.columns) for i in
+                                              phenotypes_meta_filtered.index]][['type','description']].copy())
+        # calculate the number of categories to differentiate the binary and nonbinary categorical type
+        phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.nunique())
+        # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
+        # based on the type variable in the data and the calculated number of categories
+        phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, ['type', 'num_cat']].apply(makeGroup,axis=1)
+        # create identifier annotation which combines the user friendly description with the chris id in brackets
+
+        ## get Protein variables
+        protein_values = proteins_meta[['EntrezGeneSymbol']].copy()
+        ## get Metabolite variables
+        metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns})
+
+        ## combine all data
+        combined_vals = pd.concat([phenotypes_values,protein_values,metabolite_values],axis=0)
+        # create output dict and return it
+        values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+        return JsonResponse(values_dict, safe=True)
 
 # TODO assess if we want a limit for number of categories that color variable c has?
 @extend_schema_view(
@@ -303,21 +308,21 @@ class GetDataView(generics.GenericAPIView):
         # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
         show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
-        if x is None or x == "" or y is None and y == "":
+        if not x or not y:
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
         # from description + (var_id))
-        x_idx = (re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','') if re.search(r'\(.*?\)', x) != None else x)
-        y_idx = (re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','') if re.search(r'\(.*?\)', y) != None else y)
+        x_idx = extract_var_id(x)
+        y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
         temp = []
         # Check if c var is given and if so split data by it
-        if c is not None and c != "":
+        if c:
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
             # from description + (var_id)
-            c_idx = (re.findall(r'\(.*?\)',c)[-1].replace('(','').replace(')','')  if re.search(r'\(.*?\)', c) != None else c)
+            c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
                 return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the g data', status=405)
@@ -338,7 +343,7 @@ class GetDataView(generics.GenericAPIView):
                 temp.append({
                     "label": group_name,
                     "backgroundColor": colormap[color],
-                    "data": group_data.apply(lambda row: {'x': row[x_idx], 'y': row[y_idx]}, axis=1).tolist()
+                    "data": [{'x': x, 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
         # if no color var c is given simply return all data in one group
@@ -396,27 +401,28 @@ class GetDataBarCountView(generics.GenericAPIView):
         # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
         show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
-        if x is None or x == "":
+        if not x:
             return HttpResponseBadRequest('Variable x must be declared.', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
         # from description + (var_id))
-        x_idx = (re.findall(r'\(.*?\)', x)[-1].replace('(', '').replace(')', '') if re.search(r'\(.*?\)', x) != None else x)
+        x_idx = extract_var_id(x)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data',
                                           status=405)
         temp = []
         # Check if c var is given and if so split data by it
-        if c is not None and c != "":
+        if c :
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
             # from description + (var_id)
-            c_idx = (re.findall(r'\(.*?\)', c)[-1].replace('(', '').replace(')', '') if re.search(r'\(.*?\)', c) != None else c)
+            c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the data', status=405)
             # Make df subset with x, c var and a count value for each pair of group
-            df_count = all_data.groupby([x_idx, c_idx]).size().reset_index(name='counts')
+            # TODO ! Group combinations where c_idx is NaN will not be returned -> return 0?
+            df_count = all_data[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
@@ -425,13 +431,13 @@ class GetDataBarCountView(generics.GenericAPIView):
                 temp.append({
                     "label": group_name,
                     "backgroundColor": colormap[color],
-                    "data": group_data.apply(lambda row: {'x': int(row[x_idx]), 'y': int(row['counts'])}, axis=1).tolist()
+                    "data": [{'x': x, 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
         # if no color var c is given simply return all data in one group
         else:
             # Make df subset with x var and a count variable
-            df_count = all_data.groupby([x_idx]).size().reset_index(name='counts')
+            df_count = all_data[x_idx].groupby([x_idx]).size().reset_index(name='counts')
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population",  # TODO rather empty label?
@@ -485,22 +491,22 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # build result dict in right format
         req_data_dict = {}
         # Check if x and y var are given -> else throw HttpResponseBadRequest
-        if x is None or x == "" or y is None and y == "":
+        if not x or not y:
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requents var which is built
         # from description + (var_id)
-        x_idx = (re.findall(r'\(.*?\)', x)[-1].replace('(', '').replace(')', '') if re.search(r'\(.*?\)', x) != None else x)
-        y_idx = (re.findall(r'\(.*?\)', y)[-1].replace('(', '').replace(')', '') if re.search(r'\(.*?\)', y) != None else y)
+        x_idx = extract_var_id(x)
+        y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data',
                                           status=405)
         temp = []
         # Check if c var is given and if so split data by it
-        if c is not None and c != "":
+        if c:
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
             # from description + (var_id)
-            c_idx = (re.findall(r'\(.*?\)', c)[-1].replace('(', '').replace(')', '') if re.search(r'\(.*?\)', c) != None else c)
+            c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
                 return HttpResponseBadRequest(
@@ -604,12 +610,12 @@ class GetDataHeatmapView(generics.GenericAPIView):
         # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
         show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
-        if x is None or x == "" or y is None and y == "":
+        if not x or not y:
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
         # from description + (var_id))
-        x_idx = (re.findall(r'\(.*?\)',x)[-1].replace('(','').replace(')','') if re.search(r'\(.*?\)', x) != None else x)
-        y_idx = (re.findall(r'\(.*?\)',y)[-1].replace('(','').replace(')','') if re.search(r'\(.*?\)', y) != None else y)
+        x_idx = extract_var_id(x)
+        y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
