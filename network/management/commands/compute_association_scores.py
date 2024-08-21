@@ -23,17 +23,17 @@ class Command(BaseCommand):
         id_column = env("PATIENT_ID_COLUMN")
         # The following will likely raise an error for our data, since the phenotypes table does not have the 'Patient ID' column!
         # TODO: Add the Patient ID column to our toy dataset
-        phenotypes = utils.check_files(env("PHENOTYPE_PATH"), check_id=True, id_column=id_column)
-        phenotypes_meta = utils.check_files(env("PHENOTYPE_META_PATH"), check_id=False)
+        phenotypes = utils.check_files_and_return(env("PHENOTYPE_PATH"), id_column=id_column)
+        phenotypes_meta = utils.check_files_and_return(env("PHENOTYPE_META_PATH"))
 
         if env("METABOLITE_PATH") is not None:
-            metabolites = utils.check_files(env("METABOLITE_PATH"), check_id=True, id_column=id_column)
+            metabolites = utils.check_files_and_return(env("METABOLITE_PATH"), id_column=id_column)
         else:
             metabolites = None
             print("No metabolite file was provided.")
 
         if env("PROTEIN_PATH") is not None:
-            proteins = utils.check_files(env("PROTEIN_PATH"), check_id=True, id_column=id_column)
+            proteins = utils.check_files_and_return(env("PROTEIN_PATH"), id_column=id_column)
         else:
             proteins = None
             print("No protein file was provided.")
