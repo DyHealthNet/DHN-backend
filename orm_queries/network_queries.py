@@ -95,6 +95,7 @@ def external_query(query_id):
     ref_model = apps.get_model('network', 'ViewReferencesEdges')
     refs = ref_model.objects.filter(cohort_id=query_id).values() # Evtl weglassen
     ref_ids.update(*zip(*refs.values_list('reference_id')))
+    print(f'refids: {ref_ids}')
     id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
 
     # Retrieve all edges from referenced external nodes
@@ -102,6 +103,7 @@ def external_query(query_id):
     externals = external_edges_model.objects.filter(Q(source_id__in=ref_ids) | Q(target_id__in=ref_ids)).values()
     external_ids.update(*zip(*externals.values_list('source_id')))
     external_ids.update(*zip(*externals.values_list('target_id')))
+    print(f'external_ids: {external_ids}')
 
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
@@ -111,20 +113,28 @@ def external_query(query_id):
 
     for ext_id in external_ids:
         #print(ext_id)
+        print(f'ext_id: {ext_id}')
         ext_id = ext_id.split(".")[1] # delete later
+        print(f'ext_id: {ext_id}')
         mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
+        print(f'mapped_nodes: {mapped_nodes}')
 
         if not mapped_nodes:
             #print(ext_id)
             type = external_nodes_model.objects.filter(Q(node_id__icontains=ext_id)).values()[0]['source_table']
             type_model = apps.get_model('network', type.capitalize())
+            # TODO check stimmt das so dass es auch 'entrez.407018' rausholen soll wenn nach entrez.7018 bzw nur 7018 gesucht
+            # ansonsten vllt einfach mit punkt vorne suchen?
+            # TODO? add table to each node dict for different visualization of external node types
             unknown_nodes = type_model.objects.filter(Q(pk__icontains=ext_id)).values()
             external_nodes.append(unknown_nodes)
+            print(f'external_node: {unknown_nodes}')
             id_mapping.update({ext_id: ext_id})
 
         else:
             cohort_nodes.append(mapped_nodes)
             id_mapping.update({ext_id: node_id[0] for node_id in mapped_nodes.values_list('id')})
+        print(f'id_mapping: {id_mapping}')
     #print(id_mapping)
     mapped_externals = [
         {
@@ -169,17 +179,23 @@ if __name__ == '__main__':
     time = timeit.default_timer() - start
 
     num_edges = 0
+    print("externals:")
+    print(externals)
     for results in externals:
         print(results)
         num_edges += 1
 
     num_nodes = 0
+    print("cohort_nodes:")
+    print(cohort_nodes)
     for results in cohort_nodes:
         for entry in results:
             print(entry)
             num_nodes += 1
 
     num_external_nodes = 0
+    print("external_nodes:")
+    print(external_nodes)
     for results in external_nodes:
         for entry in results:
             print(entry)

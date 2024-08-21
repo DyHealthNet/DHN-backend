@@ -17,6 +17,8 @@ urlpatterns = [
     path("api/plotDataHeatmap/", views.GetDataHeatmapView.as_view(), name="get_heatmap_data"),
     # ex: /network/api/getNetwork/?q=x0rd09&t=phenotype&l=10
     path("api/getNetwork/", views.GetNetworkView.as_view(), name="get_network"),
+    # ex: /network/api/getAllExternals/?q=x0rd09
+    path("api/getAllExternals/", views.GetAllExternalsView.as_view(), name="get_all_externals"),
     # ex: /network/api/getTypeaheadResults/?s=Bec
     path("api/getTypeaheadResults/", views.TypeaheadView.as_view(), name="get_typeahead"),
 ]
