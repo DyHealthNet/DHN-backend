@@ -2,11 +2,6 @@ import pandas as pd
 import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
-from .models import *
-from .models import Disorder, CohortProtein, CohortMetabolite, CohortPhenotype, Gene
-from .models import (EffectsProteinProtein, EffectsProteinPhenotype,
-                     EffectsProteinMetabolite, EffectsPhenotypePhenotype,
-                     EffectsMetabolitePhenotype, EffectsMetaboliteMetabolite)
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from network.queries import *
@@ -15,13 +10,13 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
-Edges = {'EffectsProteinProtein':EffectsProteinProtein,
-         'EffectsProteinPhenotype':EffectsProteinPhenotype,
-         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
-         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
-         'EffectsProteinMetabolite':EffectsProteinMetabolite,
-         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
+#Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
+#Edges = {'EffectsProteinProtein':EffectsProteinProtein,
+#         'EffectsProteinPhenotype':EffectsProteinPhenotype,
+#         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
+#         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
+#         'EffectsProteinMetabolite':EffectsProteinMetabolite,
+#         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 
 ## TODO deal wit same variable selection

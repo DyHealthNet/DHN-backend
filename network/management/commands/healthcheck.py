@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
 from django.apps import apps
+from network.utils import check_files_and_return
 
 import environ
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -52,6 +53,8 @@ class Command(BaseCommand):
         for file_path in required_files:
             if not os.path.isfile(file_path):
                 raise FileNotFoundError(f"Required file not found: {file_path}")
+            else:
+                check_files_and_return(file_path, return_dataset=False)
         print("✅  All required files are present.")
         return True
 

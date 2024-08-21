@@ -200,19 +200,39 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     return scores
 
 
-def check_files(path, check_id=False, id_column=None):
+# Check file for correct format and return the dataset if needed
+def check_files_and_return(path, id_column=None, column_list=None, return_dataset=True):
     # Check that provided pathways are leading to a csv or tsv file
     ending = os.path.splitext(path)[1].lower()
     if ending not in ['.csv', '.tsv']:
         raise ValueError(f"Unsupported file format: {ending}. Only CSV and TSV files are supported.")
-
+    # Set correct seperator according to ending
     sep = ',' if ending == '.csv' else '\t'
-    dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
 
-    # Check that id_column exists if necessary
-    if check_id:
+    # Check that id_column exists if provided
+    if id_column:
+        dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
         if id_column not in dataset.columns:
             raise KeyError(
-                f"{path} does not have the correct ID column {id_column}. Please make sure that all files have the same ID column.")
+                f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the same ID column.")
+        else:
+            dataset.set_index(id_column) # set ID column
+            # Check that columns in column_list exists if provided
+            if column_list:
+                for column in column_list:
+                    if column not in dataset.columns:
+                        raise KeyError(f"{path} is missing the column: '{column}'.")
 
-    return dataset
+    # Check that columns in column_list exists if provided
+    elif column_list:
+        dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
+        for column in column_list:
+            if column not in dataset.columns:
+                raise KeyError(f"{path} is missing the column: '{column}'.")
+
+    # Only return dataset if specified
+    if return_dataset:
+        return dataset
+
+    else:
+        return True
