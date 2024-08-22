@@ -21,8 +21,7 @@ class Command(BaseCommand):
 
     def compute_association_scores(self):
         id_column = env("PATIENT_ID_COLUMN")
-        # The following will likely raise an error for our data, since the phenotypes table does not have the 'Patient ID' column!
-        # TODO: Add the Patient ID column to our toy dataset
+
         phenotypes = utils.check_files_and_return(env("PHENOTYPE_PATH"), id_column=id_column)
         phenotypes_meta = utils.check_files_and_return(env("PHENOTYPE_META_PATH"))
 
@@ -37,8 +36,6 @@ class Command(BaseCommand):
         else:
             proteins = None
             print("No protein file was provided.")
-
-        # phenotypes['Patient ID'] = metabolites['Patient ID']  Remove this later!
 
         if not isinstance(env("NUMBER_OF_WORKERS"), int):
             number_of_workers = 16
