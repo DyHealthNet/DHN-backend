@@ -89,7 +89,7 @@ def external_query(query_id, cohort_node=True):
     if cohort_node is True:
         refs = ref_model.objects.filter(cohort_id=query_id).values()
         ref_ids.update(*zip(*refs.values_list('reference_id')))
-        id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
+        id_mapping = {ref['reference_id']: [ref['cohort_id']] for ref in refs}
 
     else:
         ref_ids.update(query_id)
@@ -124,8 +124,6 @@ def external_query(query_id, cohort_node=True):
                 node["source_table"] = "external_" + type
             external_nodes.append(unknown_nodes)
             id_mapping.update({ext_id: [ext_id]}) # map the external id to itself (since no mapping to cohort is possible)
-
-
         else:
             mapped_nodes = cohort_nodes_model.objects.filter(Q(id__in=ref_ids)).values()
             cohort_nodes.append(mapped_nodes)
