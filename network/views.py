@@ -5,6 +5,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from network.queries import *
+from network.models import CohortVariant
 import json
 import seaborn as sns
 from network.utils import check_files_and_return
@@ -40,23 +41,27 @@ def join_dataframes(df1, df2=None, df3=None):
 try:
     phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
     #phenotypes_filtered = pd.read_csv(env("PHENOTYPE_PATH"),sep=',', header=0, index_col=0)
-    phenotypes_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"), id_column=None, column_list=['label', 'type', 'description'], return_dataset=True)
+    phenotypes_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"),
+            id_column=env("PHENOTYPE_LABEL_COLUMN"),
+            column_list=[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")])
     #phenotypes_meta_filtered = pd.read_csv(env("PHENOTYPE_META_PATH"),
      #           sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
     proteins = check_files_and_return(env("PROTEIN_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
     #proteins = pd.read_csv(env("PROTEIN_PATH"),sep=',', header=0, index_col=0)
-    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column='protein_id', column_list=['EntrezGeneSymbol'], return_dataset=True)
+    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column=env("PROTEIN_LABEL_COLUMN"), column_list=[env("PROTEIN_DESCRIPTION_COLUMN")], return_dataset=True)
     #proteins_meta = pd.read_csv(env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0, usecols=['protein_id','EntrezGeneSymbol'])
     #metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
     #metabolites = pd.read_csv(env("METABOLITE_PATH"), sep=',', header=0, index_col=0)
-    metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=None, return_dataset=True)
+    metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
     # TODO change .reset_index(drop=True) when all files have the same index & indexname
     # Merge the data to get all values by id without knowing the type (phenotype, proteins, metabolites)
     # of the data in the query
-    #all_data = join_dataframes(phenotypes_filtered, proteins, metabolites)
+    #print(f'proteins : {proteins}')
+    #print(f'metabolites : {metabolites}')
+    all_data = join_dataframes(phenotypes_filtered, proteins, metabolites)
     #print(f'all_data : {all_data}')
-    dfs_to_concat = [df for df in [phenotypes_filtered.reset_index(drop=True), proteins.reset_index(drop=True), metabolites.reset_index(drop=True)] if df is not None]
-    all_data = pd.concat(dfs_to_concat, axis=1)
+    #dfs_to_concat = [df for df in [phenotypes_filtered.reset_index(drop=True), proteins.reset_index(drop=True), metabolites.reset_index(drop=True)] if df is not None]
+    #all_data = pd.concat(dfs_to_concat, axis=1)
     # If file exists open the file and load the JSON data
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
     var_label_map_dict = None
@@ -114,15 +119,11 @@ def darken_hex(hex_color, factor=0.2):
 def rgb_to_hex(rgb):
     return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
 def darken_rgb(rgb, factor=0.2):
-    print(rgb)
-    for c in rgb:
-        print(c)
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
     return tuple(darkened_rgb)
 
 
 def enlarge_palette(color_palette, n_colors):
-    print("More colors!")
     enlarged_palette = color_palette * (n_colors // len(color_palette)) + color_palette[
                                                                                 :n_colors % len(color_palette)]
     return enlarged_palette
@@ -318,33 +319,33 @@ class GetVariablesView(generics.GenericAPIView):
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_values = pd.DataFrame(phenotypes_meta_filtered[
                                              [(i in phenotypes_filtered.columns) for i in
-                                              phenotypes_meta_filtered.index]][['type','description']].copy())
+                                              phenotypes_meta_filtered.index]][[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")]].copy())
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
         phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.nunique())
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
-        phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, ['type', 'num_cat']].apply(makeGroup,axis=1)
+        phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, [env("PHENOTYPE_TYPE_COLUMN"), 'num_cat']].apply(makeGroup,axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
         phenotypes_values.loc[:,'identifier'] = np.where(
-            phenotypes_values['description'].isna(),
+            phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")].isna(),
             phenotypes_values.index,
-            phenotypes_values.loc[:,'description'] + ' (' + phenotypes_values.index + ')')
-        del phenotypes_values['description']
+            phenotypes_values.loc[:,env("PHENOTYPE_DESCRIPTION_COLUMN")] + ' (' + phenotypes_values.index + ')')
+        del phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")]
         del phenotypes_values['num_cat']
-        del phenotypes_values['type']
+        del phenotypes_values[env("PHENOTYPE_TYPE_COLUMN")]
         ## get Protein variables
         protein_values = pd.DataFrame(proteins_meta[
                                           [(i in proteins.columns) for i in
-                                           proteins_meta.index]]['EntrezGeneSymbol'].copy())
+                                           proteins_meta.index]][env("PROTEIN_DESCRIPTION_COLUMN")].copy())
         #print(proteins_meta)
         #print(protein_values)
         # Create 'identifier' column based on conditions
         protein_values['identifier'] = np.where(
-            protein_values['EntrezGeneSymbol'].isna(),
+            protein_values[env("PROTEIN_DESCRIPTION_COLUMN")].isna(),
             protein_values.index,
-            protein_values['EntrezGeneSymbol'] + ' / Protein' + ' (' + protein_values.index + ')'
+            protein_values[env("PROTEIN_DESCRIPTION_COLUMN")] + ' / Protein' + ' (' + protein_values.index + ')'
         )
-        del protein_values['EntrezGeneSymbol']
+        del protein_values[env("PROTEIN_DESCRIPTION_COLUMN")]
         protein_values.loc[:, 'group'] = 'continuous'
         ## get Metabolite variables
         metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
@@ -373,10 +374,10 @@ class GetTableView(generics.GenericAPIView):
         # TODO adapt when file not present
         req_data_dict['Participants'] = len(all_data)
         req_data_dict['Phenotypes'] = len(phenotypes_filtered.columns)
-        req_data_dict['Proteins'] = len(proteins.columns)
-        req_data_dict['Metabolites'] = len(metabolites.columns)
-        #req_data_dict['Gene Variants'] = len(all_data)
-        df = pd.DataFrame(phenotypes_meta_filtered['type'][
+        req_data_dict['Proteins'] = len(proteins.columns) if proteins is not None else 0
+        req_data_dict['Metabolites'] = len(metabolites.columns) if proteins is not None else 0
+        req_data_dict['Genetic Variants'] = CohortVariant.objects.count()
+        df = pd.DataFrame(phenotypes_meta_filtered[env("PHENOTYPE_TYPE_COLUMN")][
                                              [(i in phenotypes_filtered.columns) for i in
                                               phenotypes_meta_filtered.index]].copy()).value_counts()
         req_data_dict['Phenotype-Boolean'] = int(df['boolean']) if 'boolean' in df.index else 0
@@ -900,13 +901,15 @@ class GetDataView2(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
-            #colormap = sns.color_palette("tab10")
-            # convert colors to hexcolors for compatibility with vue-chartjs plotting
-            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
+            colormap_local = color_palette
+            num_colors = len(all_data[c_idx].unique())
+            if num_colors > len(colormap_local):
+                colormap_local = enlarge_palette(color_palette, num_colors)
+            colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
                 temp.append({
                     "label": var_label_mapping(c_idx,group_name),
-                    "backgroundColor": colormap[color],
+                    "backgroundColor": colormap_local[color],
                     "data": grouped[group_name].tolist(),
                 })
                 color += 1
