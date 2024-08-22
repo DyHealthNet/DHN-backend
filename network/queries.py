@@ -106,7 +106,7 @@ def external_query(query_id, cohort_node=True):
     for entry in ref_ids:
         if entry in external_ids:
             external_ids.remove(entry)
-            
+
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
     external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
