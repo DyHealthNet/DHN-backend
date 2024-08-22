@@ -90,10 +90,10 @@ def external_query(query_id, cohort_node=True):
     id_mapping = {} # Dictionary to map the external nodes back to cohort nodes if available for the frontend
     external_ids = set()
     ref_ids = set()
+    ref_model = apps.get_model('network', 'ViewReferencesEdges')
 
     # If the query node is a cohort node, we need to first retrieve all references to external nodes
     if cohort_node is True:
-        ref_model = apps.get_model('network', 'ViewReferencesEdges')
         refs = ref_model.objects.filter(cohort_id=query_id).values()
         ref_ids.update(*zip(*refs.values_list('reference_id')))
         id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
@@ -107,7 +107,8 @@ def external_query(query_id, cohort_node=True):
     # Collect all source and target ids of the external_edges
     external_ids.update(*zip(*external_edges.values_list('source_id')))
     external_ids.update(*zip(*external_edges.values_list('target_id')))
-
+    for entry in ref_ids:
+        external_ids.remove(entry)
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
     external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
@@ -115,20 +116,24 @@ def external_query(query_id, cohort_node=True):
     external_nodes = []
 
     for ext_id in external_ids:
-        mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
+        ref_ids = set()
+        refs = ref_model.objects.filter(reference_id=ext_id).values()
+        ref_ids.update(*zip(*refs.values_list('cohort_id')))
 
-        if not mapped_nodes:
+        if not ref_ids:
             # If no cohort node can be mapped, it must be a purely external node
-            # The following icontains should maybe be changed to equal as soon as the new database is ready
             # Get the node type of the external node
             type = external_nodes_model.objects.filter(Q(node_id=ext_id)).values()[0]['source_table']
             type_model = apps.get_model('network', type.capitalize())
             # Retrieve the external node using the primary key
             unknown_nodes = type_model.objects.filter(Q(pk=ext_id)).values()
+            for node in unknown_nodes:
+                node["source_table"] = "external_" + type
             external_nodes.append(unknown_nodes)
             id_mapping.update({ext_id: ext_id}) # map the external id to itself (since no mapping to cohort is possible)
 
         else:
+            mapped_nodes = cohort_nodes_model.objects.filter(Q(id__in=ref_ids)).values()
             cohort_nodes.append(mapped_nodes)
             # Mapping to cohort nodes is not unambiguous => mapped_nodes might have more than one entry
             cohort_ids = [node_id[0] for node_id in mapped_nodes.values_list('id')]
@@ -174,7 +179,7 @@ if __name__ == '__main__':
     print("")
 
     start = timeit.default_timer()
-    externals, cohort_nodes, external_nodes = external_query('x0rd09', True)
+    externals, cohort_nodes, external_nodes = external_query('x0ne04', True)
     time = timeit.default_timer() - start
 
     num_edges = 0
