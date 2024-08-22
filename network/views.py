@@ -5,6 +5,8 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from network.queries import *
+import json
+import seaborn as sns
 
 import environ
 env = environ.Env()
@@ -19,8 +21,7 @@ environ.Env.read_env()
 #         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
 
-## TODO deal wit same variable selection
-
+## TODO deal deal with time var selection
 # This is wrapped in try-except to be ignored before healthcheck
 try:
     # TODO check here for necessary columns in the files (change into env variables?)
@@ -39,9 +40,33 @@ try:
                 env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
     # TODO change this when all files have the same index & indexname
     all_data = pd.concat([metabolites.reset_index(drop=True),proteins.reset_index(drop=True), phenotypes_filtered], axis=1)
+    # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
+    # Open the file and load the JSON data
+    with open(env("VAR_LABEL_MAPPING"), 'r') as file:
+        var_label_map_dict = json.load(file)
 
 except FileNotFoundError:
     pass
+
+# Function to extract the variable Id from the user friendly input
+# (id is either in brackets at the end or simply the input)
+def extract_var_id(var):
+    var = var.replace(' / Metabolite', '')
+    return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
+
+# Function to convert the numerical values of (most) phenotypical variables into more representative labels
+# (e.g. 0:female, 1:male)
+def var_label_mapping(var_id,label):
+    if var_id not in var_label_map_dict:
+        return label
+    curr_var_label_dict = var_label_map_dict[var_id]
+    # convert list of labels or one label using the var label mapping dictionary
+    # -> when the label is not contained in the dict (e.g. for proteins, metabolites and some phenotypes)
+    # the original label is returned
+    if isinstance(label, list):
+        return [curr_var_label_dict.get(str(l), str(l)) for l in label]
+    else:
+        return curr_var_label_dict.get(str(label), str(label))
 
 # functions to get appropriate background colors for plotting
 def darken_hex(hex_color, factor=0.2):
@@ -54,13 +79,17 @@ def darken_hex(hex_color, factor=0.2):
     b = int(b * (1 - factor))
     # Convert back to hex
     return f'#{r:02x}{g:02x}{b:02x}'
-
-def extract_var_id(var):
-    return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
-
+# functions to get appropriate colors for plotting
+def rgb_to_hex(rgb):
+    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+def darken_rgb(rgb, factor=0.2):
+    darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
+    return tuple(darkened_rgb)
 # Colormaps for overview page plots
-colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
-bordercolor_map = [darken_hex(i) for i in colormap]
+#colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
+color_palette = sns.color_palette("muted")
+colormap = [rgb_to_hex(rgb) for rgb in color_palette]
+bordercolor_map = [rgb_to_hex(darken_rgb(rgb)) for rgb in color_palette]
 
 @extend_schema_view(
     get=extend_schema(
@@ -126,7 +155,7 @@ class GetNetworkView(generics.GenericAPIView):
             Edges[table] = list(results)
         Nodes = {}
         for results in nodes:
-            # Add reference id(s) (if present) to a nodes description dict using the node_reference_dict
+            # group by source_table
             if results['source_table'] in Nodes:
                 Nodes[results['source_table']].append(results)
             else:
@@ -135,6 +164,47 @@ class GetNetworkView(generics.GenericAPIView):
             'Nodes': Nodes,
             'Edges': Edges,
             'External Edges': list(externals)
+        }
+        return JsonResponse(combined_query, safe=False, status=200)
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns all external edges and their nodes for a query node q",
+        description="""Returns all external edges and their nodes for a query node q. Maps external edges where 
+            the partner node exists as a chris node back otherwise returns external node.
+            e.g. input: q="x0rd09"
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='q',
+                description='query id/ node id',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
+    )
+)
+class GetAllExternalsView(generics.GenericAPIView):
+    def get(self, request):
+        # Get request vars
+        query_id = request.GET.get("q")
+        if query_id is None or query_id == "":
+            return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
+        # retrieve chris nodes & edges + external edges using orm_queries/external_query function
+        externals, cohort_nodes, external_nodes = external_query(query_id)
+        # reformat CHRIS and External Nodes and return as json
+        Nodes = {}
+        for results in cohort_nodes:
+            # group by source_table
+            if results['source_table'] in Nodes:
+                Nodes[results['source_table']].append(results)
+            else:
+                Nodes[results['source_table']] = [results]
+        combined_query = {
+            'External Edges': list(externals),
+            'Chris Nodes': Nodes,
+            'External Nodes': list(external_nodes)
         }
         return JsonResponse(combined_query, safe=False, status=200)
 
@@ -215,12 +285,12 @@ class GetVariablesView(generics.GenericAPIView):
         protein_values['identifier'] = np.where(
             protein_values['EntrezGeneSymbol'].isna(),
             protein_values.index,
-            protein_values['EntrezGeneSymbol'] + ' (' + protein_values.index + ')'
+            protein_values['EntrezGeneSymbol'] + ' / Protein' + ' (' + protein_values.index + ')'
         )
         del protein_values['EntrezGeneSymbol']
         protein_values.loc[:, 'group'] = 'continuous'
         ## get Metabolite variables
-        metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns})
+        metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
         metabolite_values.loc[:, 'group'] = 'continuous'
 
         ## combine all data
@@ -243,6 +313,7 @@ class GetTableView(generics.GenericAPIView):
     def get(self, request):
         # build result dict in right format
         req_data_dict = {}
+        # TODO adapt when file not present
         req_data_dict['Participants'] = len(all_data)
         req_data_dict['Phenotypes'] = len(phenotypes_filtered.columns)
         req_data_dict['Proteins'] = len(proteins.columns)
@@ -305,6 +376,9 @@ class GetDataView(generics.GenericAPIView):
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        if x == y:
+            return HttpResponseBadRequest(
+                'Variable x and y must be different', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
         # from description + (var_id))
         x_idx = extract_var_id(x)
@@ -312,6 +386,11 @@ class GetDataView(generics.GenericAPIView):
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+        if pd.api.types.is_string_dtype(all_data[y_idx]):
+            return HttpResponseBadRequest(
+                'y Variable is not numerical and can not be visualized in this plot.', status=405)
+        # Make df subset with x and y var
+        df = pd.DataFrame(all_data[[x_idx, y_idx]])
         temp = []
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
@@ -320,13 +399,18 @@ class GetDataView(generics.GenericAPIView):
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
-                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the g data', status=405)
-            # Make df subset with x, y and c var
-            df = pd.DataFrame(all_data[[x_idx, y_idx, c_idx]])
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data', status=405)
+            # Check if variables are equal because this will not return meaningful results and can throw an error later
+            if c == x or c == y:
+                return HttpResponseBadRequest(
+                    'Variable x and y must be different from c', status=405)
+            # Add var c column to subset df
+            df[c_idx] = all_data[c_idx]
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
-            aggregated_df_mean = df.groupby([x_idx, c_idx]).filter(lambda x:
-                x[y_idx].notna().sum() >= 5).groupby([x_idx, c_idx])[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            aggregated_df_mean = (df.groupby([x_idx, c_idx]).filter(lambda x:
+                x[y_idx].notna().sum() >= 5).groupby([x_idx, c_idx])[y_idx].mean().reset_index().
+                                  sort_values(x_idx, ascending=True))
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
@@ -336,15 +420,13 @@ class GetDataView(generics.GenericAPIView):
             #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
-                    "label": group_name,
+                    "label": var_label_mapping(c_idx,group_name),
                     "backgroundColor": colormap[color],
-                    "data": [{'x': x, 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
+                    "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
         # if no color var c is given simply return all data in one group
         else:
-            # Make df subset with x and y var
-            df = pd.DataFrame(all_data[[x_idx, y_idx]])
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return something when there are 5 or more values =! NaN (opposite is very unlikely) # TODO cover and test this corner case (show var?)
             aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
@@ -356,7 +438,7 @@ class GetDataView(generics.GenericAPIView):
                 "data": aggregated_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = aggregated_df_mean[x_idx].unique().tolist()
+        req_data_dict["labels"] = var_label_mapping(x_idx,aggregated_df_mean[x_idx].unique().tolist())
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
@@ -415,6 +497,9 @@ class GetDataBarCountView(generics.GenericAPIView):
             if c_idx not in all_data.columns:
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the data', status=405)
+            # Check if variables are equal because this will not return meaningful results and can throw an error later
+            if c == x:
+                return HttpResponseBadRequest('Variable x and c must be different', status=405)
             # Make df subset with x, c var and a count value for each pair of group
             # TODO ! Group combinations where c_idx is NaN will not be returned -> return 0?
             df_count = all_data[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
@@ -424,9 +509,9 @@ class GetDataBarCountView(generics.GenericAPIView):
             color = 0
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
-                    "label": group_name,
+                    "label": var_label_mapping(c_idx,group_name),
                     "backgroundColor": colormap[color],
-                    "data": [{'x': x, 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
+                    "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
         # if no color var c is given simply return all data in one group
@@ -440,7 +525,7 @@ class GetDataBarCountView(generics.GenericAPIView):
                 "data": df_count['counts'].tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = df_count[x_idx].unique().tolist()
+        req_data_dict["labels"] = var_label_mapping(x_idx,df_count[x_idx].unique().tolist())
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
@@ -497,6 +582,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Check if variables are equal because this will not return meaningful results and can throw an error later
+        if x == y:
+            return HttpResponseBadRequest('Variable x and y must be different.', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requents var which is built
         # from description + (var_id)
         x_idx = extract_var_id(x)
@@ -505,6 +593,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data',
                                           status=405)
+        if pd.api.types.is_string_dtype(all_data[y_idx]):
+            return HttpResponseBadRequest(
+                'y Variable is not numerical and can not be visualized in this plot.', status=405)
         def boxplot_stats(group):
             if group[y_idx].notna().sum() >= 5:
                 return {
@@ -518,6 +609,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             else:
                 return nan_boxplot
         temp = []
+        grouped = pd.DataFrame()
+        # Make df subset with x and y var
+        df = pd.DataFrame(all_data[[x_idx, y_idx]])
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
@@ -527,8 +621,14 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             if c_idx not in all_data.columns:
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the data', status=405)
+            # Check if variables are equal because this will not return meaningful results and can throw an error later
+            if c == x or c == y:
+                return HttpResponseBadRequest(
+                    'Variable x and y must be different from c', status=405)
+            # Add var c column to subset df
+            df[c_idx] = all_data[c_idx]
             # Make df subset with x, y and c var
-            grouped = all_data[[x_idx, y_idx, c_idx]].groupby([x_idx, c_idx]).apply(boxplot_stats).unstack()
+            grouped = df.groupby([x_idx, c_idx]).apply(boxplot_stats).unstack()
             grouped = grouped.applymap(lambda x: nan_boxplot if pd.isna(x) else x)
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
@@ -539,7 +639,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             #bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
             for group_name in grouped.columns:
                 dataset = {
-                    'label': group_name,
+                    'label': var_label_mapping(c_idx,group_name),
                     'backgroundColor': colormap[color],
                     'borderColor': bordercolor_map[color],
                     'padding': 10,
@@ -555,7 +655,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # if no color var c is only group by x var
         else:
             # Make df subset with x and y var
-            grouped = all_data[[x_idx, y_idx]].groupby(x_idx).apply(boxplot_stats)
+            grouped = df.groupby(x_idx).apply(boxplot_stats)
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
             temp_style = {
@@ -569,7 +669,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             print(f'group without c: {len(grouped.tolist())}')
             temp.append(temp_style)
         # Store unique x_var values
-        req_data_dict["labels"] = grouped.index.tolist()
+        req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
         print(f'labels: {len(req_data_dict["labels"])}')
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
@@ -609,6 +709,11 @@ class GetDataHeatmapView(generics.GenericAPIView):
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Check if variables are equal because this will not return meaningful results and can throw an error later
+        # -> not necessary here since it works but for consistency can be included
+        #if x == y:
+        #    return HttpResponseBadRequest(
+        #        'Variable x and y must be different', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
         # from description + (var_id))
         x_idx = extract_var_id(x)
@@ -620,8 +725,128 @@ class GetDataHeatmapView(generics.GenericAPIView):
         contingency_tab = pd.crosstab(all_data[x_idx], all_data[y_idx])
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = contingency_tab.index.astype(str).tolist()
-        req_data_dict["yCategories"] = contingency_tab.columns.astype(str).tolist()
+        req_data_dict["xCategories"] = var_label_mapping(x_idx,contingency_tab.index.astype(str).tolist())
+        req_data_dict["yCategories"] = var_label_mapping(y_idx,contingency_tab.columns.astype(str).tolist())
         contingency_tab_inverse = np.array(contingency_tab.values)
         req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
+        return JsonResponse(req_data_dict, safe=True)
+
+
+
+# privacy popup for line plot -> return -100 when data not avaiable because there are only 0-4 values != NaN
+
+# TODO assess if we want a limit for number of categories that color variable c has?
+@extend_schema_view(
+    get=extend_schema(
+        summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
+        description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format.
+            The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='y',
+                description='variable y',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='c',
+                description='colour variable',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ],
+    )
+)
+class GetDataView2(generics.GenericAPIView):
+    def get(self, request):
+        # Get request vars
+        x = request.GET.get("x")
+        y = request.GET.get("y")
+        c = request.GET.get("c")
+
+        # build result dict in right format
+        req_data_dict = {}
+        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
+        show = False
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "" or y is None or y == "":
+            return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        if x == y:
+            return HttpResponseBadRequest(
+                'Variable x and y must be different', status=405)
+        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
+        # from description + (var_id))
+        x_idx = extract_var_id(x)
+        y_idx = extract_var_id(y)
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        if x_idx not in all_data.columns or y_idx not in all_data.columns:
+            return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+
+        # def privacy_sensitive_mean(group):
+        #     if group[y_idx].notna().sum() >= 5:
+        #         return {'x': group[x_idx], 'y': group[y_idx].mean()}  # group[y_idx].mean()
+        #     else:
+        #         return {'x': group[x_idx], 'y': -100}
+        def privacy_sensitive_mean(group):
+            if group[y_idx].notna().sum() >= 5:
+                return group[y_idx].mean()
+            else:
+                return -100
+        temp = []
+        grouped = pd.DataFrame()
+        # Check if c var is given and if so split data by it
+        if c is not None and c != "":
+            # Get var_id from request var (stored in brackets at the end of the requents var which is built
+            # from description + (var_id)
+            c_idx = extract_var_id(c)
+            # Check if c var is present in our data -> else throw HttpResponseBadRequest
+            if c_idx not in all_data.columns:
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data', status=405)
+            # Check if variables are equal because this will not return meaningful results and can throw an error later
+            if c == x or c == y:
+                return HttpResponseBadRequest(
+                    'Variable x and y must be different from c', status=405)
+            # Make df subset with x, y and c var
+            grouped = all_data[[x_idx, y_idx, c_idx]].groupby([x_idx, c_idx]).apply(privacy_sensitive_mean).unstack()
+            #grouped = grouped.apply(lambda col: col.apply(lambda x: {'x': col.name, 'y': -100} if pd.isna(x) else x))
+            #grouped = grouped.applymap(lambda x: .100 if pd.isna(x) else x)
+            grouped.fillna(-100, inplace=True)
+            # Add for each color var its own dict containing its label, a color from the color palette and a dict that
+            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
+            # values for x positions with no aggregated value present)
+            color = 0
+            #colormap = sns.color_palette("tab10")
+            # convert colors to hexcolors for compatibility with vue-chartjs plotting
+            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
+            for group_name in grouped.columns:
+                temp.append({
+                    "label": var_label_mapping(c_idx,group_name),
+                    "backgroundColor": colormap[color],
+                    "data": grouped[group_name].tolist(),
+                })
+                color += 1
+        # if no color var c is given simply return all data in one group
+        else:
+            # Make df subset with x and y var
+            grouped = all_data[[x_idx, y_idx]].groupby(x_idx).apply(privacy_sensitive_mean)
+            # Add dict for y axis containing the y label, black as the color and the aggregated values
+            temp.append({
+                "label": "Whole Population",  #TODO rather empty label?
+                "backgroundColor": "black",   #TODO change default color?
+                "data": grouped.tolist()
+            })
+        # Store unique x_var values
+        req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
+        # Store the y dict/ dicts (if color var was given)
+        req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)

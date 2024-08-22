@@ -115,9 +115,7 @@ def external_query(query_id, cohort_node=True):
     external_nodes = []
 
     for ext_id in external_ids:
-        print(ext_id)
         mapped_nodes = cohort_nodes_model.objects.filter(Q(xrefs__icontains=ext_id)).values()
-        print(mapped_nodes)
 
         if not mapped_nodes:
             # If no cohort node can be mapped, it must be a purely external node
