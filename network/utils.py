@@ -210,14 +210,7 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
     sep = ',' if ending == '.csv' else '\t'
 
     dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
-    print(dataset.columns)
-    # Check that columns in column_list exists if provided
-    if column_list:
-        for column in column_list:
-            if column not in dataset.columns:
-                raise KeyError(f"{path} is missing the column: '{column}'.")
-        dataset = dataset[column_list]
-    print(dataset.columns)
+
     # Check that id_column exists if provided
     if id_column:
         if id_column not in dataset.columns:
@@ -225,11 +218,12 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
                 f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the same ID column.")
         else:
             dataset.set_index(id_column) # set ID column
-            # Check that columns in column_list exists if provided
+            # Check that columns in column_list exist if provided
             if column_list:
                 for column in column_list:
                     if column not in dataset.columns:
                         raise KeyError(f"{path} is missing the column: '{column}'.")
+                dataset = dataset[column_list]
 
     # Only return dataset if specified
     if return_dataset:
