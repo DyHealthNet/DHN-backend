@@ -40,7 +40,7 @@ if __name__ == '__main__':
     print("")
 
     start = timeit.default_timer()
-    externals, cohort_nodes, external_nodes = queries.external_query('x0ne04', True)
+    externals, cohort_nodes, external_nodes = queries.external_query('PC ae C34:1', True)
     time = timeit.default_timer() - start
 
     num_edges = 0
