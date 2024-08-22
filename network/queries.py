@@ -100,9 +100,13 @@ def external_query(query_id, cohort_node=True):
     # Collect all source and target ids of the external_edges
     external_ids.update(*zip(*external_edges.values_list('source_id')))
     external_ids.update(*zip(*external_edges.values_list('target_id')))
+
+    # Remove ref_ids that are associated with the query node
+    # This avoids that extra cohort nodes are returned mapping to the same external references
     for entry in ref_ids:
         if entry in external_ids:
             external_ids.remove(entry)
+            
     # Map externals back to cohort nodes if available, otherwise retrieve external node
     cohort_nodes_model = apps.get_model('network', 'ViewDescriptionFTS')
     external_nodes_model = apps.get_model('network', 'ViewExternalNodes')
