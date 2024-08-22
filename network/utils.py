@@ -217,7 +217,7 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
             raise KeyError(
                 f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the same ID column.")
         else:
-            dataset.set_index(id_column) # set ID column
+            dataset.set_index(id_column, inplace=True) # set ID column
             # Check that columns in column_list exist if provided
             if column_list:
                 for column in column_list:
