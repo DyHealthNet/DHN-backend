@@ -144,9 +144,9 @@ def external_query(query_id, cohort_node=True):
 
 
 # Search for 'query' in all fields of all cohort node tables
-def typeahead_query(query):
+def typeahead_query(query, limit=20):
     model = apps.get_model('network', 'ViewDescriptionFTS')
     return model.objects.filter(Q(description__icontains=query) |
                                 Q(display_name__icontains=query) |
                                 Q(id__icontains=query) |
-                                Q(xrefs__icontains=query)).values()
+                                Q(xrefs__icontains=query))[:limit].values()
