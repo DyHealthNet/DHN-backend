@@ -116,6 +116,8 @@ def external_query(query_id, cohort_node=True):
             type_model = apps.get_model('network', type.capitalize())
             # Retrieve the external node using the primary key
             unknown_nodes = type_model.objects.filter(Q(pk=ext_id)).values()
+            for node in unknown_nodes:
+                node["source_table"] = "external_" + type
             external_nodes.append(unknown_nodes)
             id_mapping.update({ext_id: ext_id}) # map the external id to itself (since no mapping to cohort is possible)
 
