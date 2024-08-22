@@ -123,7 +123,7 @@ def external_query(query_id, cohort_node=True):
             for node in unknown_nodes:
                 node["source_table"] = "external_" + type
             external_nodes.append(unknown_nodes)
-            id_mapping.update({ext_id: ext_id}) # map the external id to itself (since no mapping to cohort is possible)
+            id_mapping.update({ext_id: [ext_id]}) # map the external id to itself (since no mapping to cohort is possible)
 
 
         else:

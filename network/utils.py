@@ -209,9 +209,17 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
     # Set correct seperator according to ending
     sep = ',' if ending == '.csv' else '\t'
 
+    dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
+    print(dataset.columns)
+    # Check that columns in column_list exists if provided
+    if column_list:
+        for column in column_list:
+            if column not in dataset.columns:
+                raise KeyError(f"{path} is missing the column: '{column}'.")
+        dataset = dataset[column_list]
+    print(dataset.columns)
     # Check that id_column exists if provided
     if id_column:
-        dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
         if id_column not in dataset.columns:
             raise KeyError(
                 f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the same ID column.")
@@ -222,13 +230,6 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
                 for column in column_list:
                     if column not in dataset.columns:
                         raise KeyError(f"{path} is missing the column: '{column}'.")
-
-    # Check that columns in column_list exists if provided
-    elif column_list:
-        dataset = pd.read_csv(path, header=0, sep=sep, index_col=None).copy()
-        for column in column_list:
-            if column not in dataset.columns:
-                raise KeyError(f"{path} is missing the column: '{column}'.")
 
     # Only return dataset if specified
     if return_dataset:

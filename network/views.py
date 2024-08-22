@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from network.queries import *
 import json
 import seaborn as sns
+from network.utils import check_files_and_return
 
 import environ
 env = environ.Env()
@@ -19,25 +20,22 @@ environ.Env.read_env()
 #         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
 #         'EffectsProteinMetabolite':EffectsProteinMetabolite,
 #         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
-types = ["protein", "metabolite", "phenotype"] # "disorders", "genes"
+types = ["protein", "metabolite", "phenotype", "variant"] # "disorders", "genes"
 
-## TODO deal deal with time var selection
 # This is wrapped in try-except to be ignored before healthcheck
 try:
     # TODO check here for necessary columns in the files (change into env variables?)
-    phenotypes_filtered = pd.read_csv(
-                env("PHENOTYPE_PATH"),
-                sep=',', header=0)
-    phenotypes_meta_filtered = pd.read_csv(
-                env("PHENOTYPE_META_PATH"),
+    #phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"), id_column=None, return_dataset=True)
+    phenotypes_filtered = pd.read_csv(env("PHENOTYPE_PATH"),sep=',', header=0)
+    #phenotypes_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"), id_column=None, column_list=['label', 'type', 'description'], return_dataset=True)
+    phenotypes_meta_filtered = pd.read_csv(env("PHENOTYPE_META_PATH"),
                 sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
-    proteins = pd.read_csv(
-                env("PROTEIN_PATH"),
-                sep=',', header=0, index_col=0)
-    proteins_meta = pd.read_csv(
-                env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0, usecols=['protein_id','EntrezGeneSymbol'])
-    metabolites = pd.read_csv(
-                env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
+    #proteins = check_files_and_return(env("PROTEIN_PATH"), id_column="Patient ID", return_dataset=True)
+    proteins = pd.read_csv(env("PROTEIN_PATH"),sep=',', header=0, index_col=0)
+    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column='protein_id', column_list=['EntrezGeneSymbol'], return_dataset=True)
+    #proteins_meta = pd.read_csv(env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0, usecols=['protein_id','EntrezGeneSymbol'])
+    metabolites = pd.read_csv(env("METABOLITE_PATH"),sep=',', header=0, index_col=0)
+    #metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=None, return_dataset=True)
     # TODO change this when all files have the same index & indexname
     all_data = pd.concat([metabolites.reset_index(drop=True),proteins.reset_index(drop=True), phenotypes_filtered], axis=1)
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
@@ -53,6 +51,16 @@ except FileNotFoundError:
 def extract_var_id(var):
     var = var.replace(' / Metabolite', '')
     return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
+
+def strip_db_name(nodes_refs):
+    def strip_string(s):
+        return s.split('.', 1)[-1] if '.' in s else s
+    if not nodes_refs:
+        return ""
+    # Split the input string by "|", process each part, and join them back together
+    parts = nodes_refs.split('|')
+    stripped_parts = [strip_string(part) for part in parts]
+    return '|'.join(stripped_parts)
 
 # Function to convert the numerical values of (most) phenotypical variables into more representative labels
 # (e.g. 0:female, 1:male)
@@ -85,6 +93,12 @@ def rgb_to_hex(rgb):
 def darken_rgb(rgb, factor=0.2):
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
     return tuple(darkened_rgb)
+
+
+def enlarge_palette(color_palette, n_colors):
+    enlarged_palette = color_palette * (n_colors // len(color_palette)) + color_palette[
+                                                                                :n_colors % len(color_palette)]
+    return enlarged_palette
 # Colormaps for overview page plots
 #colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
 color_palette = sns.color_palette("muted")
@@ -134,7 +148,7 @@ class GetNetworkView(generics.GenericAPIView):
         if query_id is None or query_id == "":
             return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
         if type is None or type not in types:
-            return HttpResponseBadRequest('Query type t must be declared and either protein, metabolite and phenotype', status=405)
+            return HttpResponseBadRequest('Query type t must be declared and either protein, metabolite, phenotype and variant', status=405)
         if limit is None or limit == "":
             limit = 10
         else:
@@ -149,12 +163,14 @@ class GetNetworkView(generics.GenericAPIView):
                 f'Limit l takes a maximal value of 50, not {limit}', status=405)
         # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
         edges, nodes, externals = network_query(query_id, type, limit)
+        #print(nodes)
         # reformat Edges and Nodes and return as json
         Edges = {}
         for table, results in edges.items():
             Edges[table] = list(results)
         Nodes = {}
         for results in nodes:
+            results["xrefs"] = strip_db_name(results["xrefs"])
             # group by source_table
             if results['source_table'] in Nodes:
                 Nodes[results['source_table']].append(results)
@@ -196,15 +212,28 @@ class GetAllExternalsView(generics.GenericAPIView):
         # reformat CHRIS and External Nodes and return as json
         Nodes = {}
         for results in cohort_nodes:
-            # group by source_table
-            if results['source_table'] in Nodes:
-                Nodes[results['source_table']].append(results)
-            else:
-                Nodes[results['source_table']] = [results]
+            for result in results:
+                # Strip db name from xrefs (everything until first dot) if xrefs a key of the node (should always be there)
+                if "xrefs" in result:
+                    result["xrefs"] = strip_db_name(result["xrefs"])
+                if result['source_table'] in Nodes:
+                    Nodes[result['source_table']].append(result)
+                else:
+                    Nodes[result['source_table']] = [result]
+        External_Nodes = {}
+        for results in external_nodes:
+            for result in results:
+                if "xrefs" in result:
+                    result["xrefs"] = strip_db_name("|".join(result["xrefs"]))
+                # Strip db name from xrefs (everything until first dot) if xrefs a key of the node
+                if result['source_table'] in External_Nodes:
+                    External_Nodes[result['source_table']].append(result)
+                else:
+                    External_Nodes[result['source_table']] = [result]
         combined_query = {
             'External Edges': list(externals),
             'Chris Nodes': Nodes,
-            'External Nodes': list(external_nodes)
+            'External Nodes': External_Nodes
         }
         return JsonResponse(combined_query, safe=False, status=200)
 
@@ -287,7 +316,9 @@ class GetVariablesView(generics.GenericAPIView):
             protein_values.index,
             protein_values['EntrezGeneSymbol'] + ' / Protein' + ' (' + protein_values.index + ')'
         )
+        print(protein_values)
         del protein_values['EntrezGeneSymbol']
+        print(protein_values)
         protein_values.loc[:, 'group'] = 'continuous'
         ## get Metabolite variables
         metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
@@ -415,13 +446,17 @@ class GetDataView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
+            colormap_local = colormap
+            num_colors = len(df[c_idx].unique())
+            if num_colors > len(colormap_local):
+                colormap_local = enlarge_palette(color_palette, num_colors)
             #colormap = sns.color_palette("tab10")
             # convert colors to hexcolors for compatibility with vue-chartjs plotting
             #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": var_label_mapping(c_idx,group_name),
-                    "backgroundColor": colormap[color],
+                    "backgroundColor": colormap_local[color],
                     "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
@@ -507,10 +542,14 @@ class GetDataBarCountView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
+            colormap_local = colormap
+            num_colors = len(all_data[c_idx].unique())
+            if num_colors > len(colormap_local):
+                colormap_local = enlarge_palette(color_palette, num_colors)
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
                     "label": var_label_mapping(c_idx,group_name),
-                    "backgroundColor": colormap[color],
+                    "backgroundColor": colormap_local[color],
                     "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
@@ -633,6 +672,12 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
+            colormap_local = colormap
+            bordercolor_map_local = bordercolor_map
+            num_colors = len(all_data[c_idx].unique())
+            if num_colors > len(colormap_local):
+                colormap_local = enlarge_palette(color_palette, num_colors)
+                bordercolor_map_local = enlarge_palette(bordercolor_map, num_colors)
             #colormap = sns.color_palette("tab10")
             # convert colors to hexcolors for compatibility with vue-chartjs plotting
             #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
@@ -640,8 +685,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             for group_name in grouped.columns:
                 dataset = {
                     'label': var_label_mapping(c_idx,group_name),
-                    'backgroundColor': colormap[color],
-                    'borderColor': bordercolor_map[color],
+                    'backgroundColor': colormap_local[color],
+                    'borderColor': bordercolor_map_local[color],
                     'padding': 10,
                     'itemRadius': 0,
                     'borderWidth': 1,
@@ -650,7 +695,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'data': grouped[group_name].tolist(),
                 }
                 temp.append(dataset)
-                print(f'group {group_name}: {len(grouped[group_name].tolist())}')
+                #print(f'group {group_name}: {len(grouped[group_name].tolist())}')
                 color += 1
             # if no color var c is only group by x var
         else:
@@ -666,11 +711,11 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             'borderWidth': 1,
             'data': grouped.tolist(),
             }
-            print(f'group without c: {len(grouped.tolist())}')
+            #print(f'group without c: {len(grouped.tolist())}')
             temp.append(temp_style)
         # Store unique x_var values
         req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
-        print(f'labels: {len(req_data_dict["labels"])}')
+        #print(f'labels: {len(req_data_dict["labels"])}')
         # Store the y dict/ dicts (if color var was given)
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
