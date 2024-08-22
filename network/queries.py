@@ -3,7 +3,9 @@ from django.apps import apps
 
 CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
                'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',
-               'EffectsMetabolitePhenotype', 'EffectsPhenotypePhenotype'}
+               'EffectsMetabolitePhenotype', 'EffectsPhenotypePhenotype',
+               'EffectsVariantMetabolite', 'EffectsVariantPhenotype',
+               'EffectsVariantProtein'}
 
 
 def network_query(query_id, type, limit):
