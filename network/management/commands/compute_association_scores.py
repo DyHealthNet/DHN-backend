@@ -47,6 +47,20 @@ class Command(BaseCommand):
         test_type = env("TEST_TYPE")
         multiple_testing = env("MULTIPLE_TESTING")
 
-        results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
+        results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column,proteins,metabolites,
                                                      number_of_workers, test_type, multiple_testing)
         results.to_csv(env("CALCULATED_EDGES_PATH"))
+
+        # Subset the data to participents that are present in all provided data tables
+        # common_indices = set(phenotypes.index)
+        # if proteins is not None:
+        #     common_indices = common_indices.intersection(proteins.index)
+        # if metabolites is not None:
+        #     common_indices = common_indices.intersection(metabolites.index)
+        # common_indices = list(common_indices)
+        #
+        # results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column,
+        #                                              proteins.loc[common_indices] if proteins is not None else None,
+        #                                              metabolites.loc[common_indices] if metabolites is not None else None,
+        #                                              number_of_workers, test_type, multiple_testing)
+        # results.to_csv(env("CALCULATED_EDGES_PATH"))

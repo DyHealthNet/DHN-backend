@@ -16,13 +16,6 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-#Nodes = {'Disorders':Disorder, 'Proteins':Protein, 'Metabolites':Metabolite, 'Phenotypes': Phenotype, 'Genes':Gene}
-#Edges = {'EffectsProteinProtein':EffectsProteinProtein,
-#         'EffectsProteinPhenotype':EffectsProteinPhenotype,
-#         'EffectsPhenotypePhenotype':EffectsPhenotypePhenotype,
-#         'EffectsMetabolitePhenotype':EffectsMetabolitePhenotype,
-#         'EffectsProteinMetabolite':EffectsProteinMetabolite,
-#         'EffectsMetaboliteMetabolite':EffectsMetaboliteMetabolite}
 types = ["protein", "metabolite", "phenotype", "variant"] # "disorders", "genes"
 
 
@@ -40,28 +33,15 @@ def join_dataframes(df1, df2=None, df3=None):
 # This is wrapped in try-except to be ignored before healthcheck
 try:
     phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
-    #phenotypes_filtered = pd.read_csv(env("PHENOTYPE_PATH"),sep=',', header=0, index_col=0)
     phenotypes_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"),
             id_column=env("PHENOTYPE_LABEL_COLUMN"),
             column_list=[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")])
-    #phenotypes_meta_filtered = pd.read_csv(env("PHENOTYPE_META_PATH"),
-     #           sep='\t', header=0, index_col=0, usecols=['label', 'type', 'description'])
     proteins = check_files_and_return(env("PROTEIN_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
-    #proteins = pd.read_csv(env("PROTEIN_PATH"),sep=',', header=0, index_col=0)
     proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column=env("PROTEIN_LABEL_COLUMN"), column_list=[env("PROTEIN_DESCRIPTION_COLUMN")], return_dataset=True)
-    #proteins_meta = pd.read_csv(env("PROTEIN_META_PATH"), sep='\t', header=0, index_col=0, usecols=['protein_id','EntrezGeneSymbol'])
-    #metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
-    #metabolites = pd.read_csv(env("METABOLITE_PATH"), sep=',', header=0, index_col=0)
     metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
-    # TODO change .reset_index(drop=True) when all files have the same index & indexname
     # Merge the data to get all values by id without knowing the type (phenotype, proteins, metabolites)
     # of the data in the query
-    #print(f'proteins : {proteins}')
-    #print(f'metabolites : {metabolites}')
     all_data = join_dataframes(phenotypes_filtered, proteins, metabolites)
-    #print(f'all_data : {all_data}')
-    #dfs_to_concat = [df for df in [phenotypes_filtered.reset_index(drop=True), proteins.reset_index(drop=True), metabolites.reset_index(drop=True)] if df is not None]
-    #all_data = pd.concat(dfs_to_concat, axis=1)
     # If file exists open the file and load the JSON data
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
     var_label_map_dict = None
@@ -75,9 +55,13 @@ except FileNotFoundError:
 # Function to extract the variable Id from the user friendly input
 # (id is either in brackets at the end or simply the input)
 def extract_var_id(var):
+    # This is necessary because '/ Metabolite' & '/ Protein' is artificially added to the identifiers of
+    # metabolites or proteins to be more user friendly and for an easier search
     var = var.replace(' / Metabolite', '')
+    #var = var.replace(' / Protein', '') # -> not needed because id gets extracted from brackets at the end anyways
     return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
 
+# Stip xref string of db -> Not used currently
 def strip_db_name(nodes_refs):
     def strip_string(s):
         return s.split('.', 1)[-1] if '.' in s else s
@@ -91,6 +75,7 @@ def strip_db_name(nodes_refs):
 # Function to convert the numerical values of (most) phenotypical variables into more representative labels
 # (e.g. 0:female, 1:male)
 def var_label_mapping(var_id,label):
+    # When no var label mapping provided return original labels
     if var_label_map_dict is None:
         return label
     if var_id not in var_label_map_dict:
@@ -118,6 +103,7 @@ def darken_hex(hex_color, factor=0.2):
 # functions to get appropriate colors for plotting
 def rgb_to_hex(rgb):
     return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+# functions to darken rgb plotting for border colour of color palette
 def darken_rgb(rgb, factor=0.2):
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
     return tuple(darkened_rgb)
@@ -127,8 +113,8 @@ def enlarge_palette(color_palette, n_colors):
     enlarged_palette = color_palette * (n_colors // len(color_palette)) + color_palette[
                                                                                 :n_colors % len(color_palette)]
     return enlarged_palette
+
 # Colormaps for overview page plots
-#colormap = ['#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858'][::-1]
 color_palette = sns.color_palette("muted")
 
 @extend_schema_view(
@@ -167,7 +153,7 @@ color_palette = sns.color_palette("muted")
 )
 class GetNetworkView(generics.GenericAPIView):
     def get(self, request):
-        # Get request vars
+        # Get request vars and test valid input
         query_id = request.GET.get("q")
         type = request.GET.get("t")
         limit = request.GET.get("l")
@@ -187,15 +173,15 @@ class GetNetworkView(generics.GenericAPIView):
         if limit > 50:
             return HttpResponseBadRequest(
                 f'Limit l takes a maximal value of 50, not {limit}', status=405)
-        # retrieve chris nodes & edges + external edges using orm_queries/network_queries function
+        # retrieve chris nodes & edges + external edges using queries/network_queries function
         edges, nodes, externals = network_query(query_id, type, limit)
-        #print(nodes)
         # reformat Edges and Nodes and return as json
         Edges = {}
         for table, results in edges.items():
             Edges[table] = list(results)
         Nodes = {}
         for results in nodes:
+            # strip xrefs of db names -> currently not used
             #results["xrefs"] = strip_db_name(results["xrefs"])
             # group by source_table
             if results['source_table'] in Nodes:
@@ -209,6 +195,7 @@ class GetNetworkView(generics.GenericAPIView):
         }
         return JsonResponse(combined_query, safe=False, status=200)
 
+# TODO make this compatible for external nodes as input (use and set parameter cohort_node=False in external_query())
 @extend_schema_view(
     get=extend_schema(
         summary="Returns all external edges and their nodes for a query node q",
@@ -229,19 +216,20 @@ class GetNetworkView(generics.GenericAPIView):
 )
 class GetAllExternalsView(generics.GenericAPIView):
     def get(self, request):
-        # Get request vars
+        # Get request var and test valid input
         query_id = request.GET.get("q")
         if query_id is None or query_id == "":
             return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
-        # retrieve chris nodes & edges + external edges using orm_queries/external_query function
+        # retrieve external edges and their chris nodes (if available) or external nodes using queries/external_query function
         externals, cohort_nodes, external_nodes = external_query(query_id)
         # reformat CHRIS and External Nodes and return as json
         Nodes = {}
         for results in cohort_nodes:
             for result in results:
-                # Strip db name from xrefs (everything until first dot) if xrefs a key of the node (should always be there)
+                # Strip db name from xrefs (everything until first dot) if xrefs a key of the node -> currently not used
                 #if "xrefs" in result:
-                 #   result["xrefs"] = strip_db_name(result["xrefs"])
+                #    result["xrefs"] = strip_db_name(result["xrefs"])
+                # group by source_table
                 if result['source_table'] in Nodes:
                     Nodes[result['source_table']].append(result)
                 else:
@@ -250,9 +238,10 @@ class GetAllExternalsView(generics.GenericAPIView):
         for results in external_nodes:
             for result in results:
                 if "xrefs" in result:
+                    # Strip db name from xrefs (everything until first dot) if xrefs a key of the node -> currently not used
                     # result["xrefs"] = strip_db_name("|".join(result["xrefs"]))
                     result["xrefs"] = "|".join(result["xrefs"])
-                # Strip db name from xrefs (everything until first dot) if xrefs a key of the node
+                # group by source_table
                 if result['source_table'] in External_Nodes:
                     External_Nodes[result['source_table']].append(result)
                 else:
@@ -268,7 +257,7 @@ class GetAllExternalsView(generics.GenericAPIView):
     get=extend_schema(
         summary="Returns node id/name recommendations depending on the input request typed by the user",
         description="""Returns a dictionary of node id containing a display name, description, and source_table 
-            (/node_type) (as dictionary) depending on the input request typed by the user which is sent via string s. 
+            (/node_type) (as dictionary) depending on the input request typed by the user which is sent via (sub)string s. 
             (Referring to function orm_queries/typeahead_query)
             """,
         parameters=[
@@ -284,11 +273,11 @@ class GetAllExternalsView(generics.GenericAPIView):
 )
 class TypeaheadView(generics.GenericAPIView):
     def get(self, request):
-        # Get request vars
+        # Get request var and test valid input
         s = request.GET.get("s")
         if s is None or s == "":
             return HttpResponseBadRequest('Query string s must be declared and non empty.', status=405)
-        # retrieve recommendations using the orm_queries/typeahead_query function
+        # retrieve recommendations using the queries/typeahead_query function
         res = typeahead_query(s)
         # reformat and return as json
         res_filtered = res.values('id', 'description', 'display_name','source_table')
@@ -315,6 +304,7 @@ class GetVariablesView(generics.GenericAPIView):
                 return 'binaryCategorical'
             else:
                 return 'nonbinaryCategorical'
+        # Get all variables with their type and a suitable identifier and put them in the same format
         ## get Phenotype variables
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_values = pd.DataFrame(phenotypes_meta_filtered[
@@ -326,6 +316,7 @@ class GetVariablesView(generics.GenericAPIView):
         # based on the type variable in the data and the calculated number of categories
         phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, [env("PHENOTYPE_TYPE_COLUMN"), 'num_cat']].apply(makeGroup,axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
+        # (if description is NaN only return the index)
         phenotypes_values.loc[:,'identifier'] = np.where(
             phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")].isna(),
             phenotypes_values.index,
@@ -337,9 +328,8 @@ class GetVariablesView(generics.GenericAPIView):
         protein_values = pd.DataFrame(proteins_meta[
                                           [(i in proteins.columns) for i in
                                            proteins_meta.index]][env("PROTEIN_DESCRIPTION_COLUMN")].copy())
-        #print(proteins_meta)
-        #print(protein_values)
         # Create 'identifier' column based on conditions
+        # (if description is NaN only return the index)
         protein_values['identifier'] = np.where(
             protein_values[env("PROTEIN_DESCRIPTION_COLUMN")].isna(),
             protein_values.index,
@@ -353,9 +343,7 @@ class GetVariablesView(generics.GenericAPIView):
 
         ## combine all data
         combined_vals = pd.concat([phenotypes_values,protein_values,metabolite_values],axis=0)
-        #print(combined_vals)
-        #combined_vals.fillna('',inplace=True)
-        # create output dict and return it
+        # create output dict whit type as key and identifier as value and return it
         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
 
@@ -371,12 +359,12 @@ class GetTableView(generics.GenericAPIView):
     def get(self, request):
         # build result dict in right format
         req_data_dict = {}
-        # TODO adapt when file not present
         req_data_dict['Participants'] = len(all_data)
         req_data_dict['Phenotypes'] = len(phenotypes_filtered.columns)
         req_data_dict['Proteins'] = len(proteins.columns) if proteins is not None else 0
         req_data_dict['Metabolites'] = len(metabolites.columns) if proteins is not None else 0
         req_data_dict['Genetic Variants'] = CohortVariant.objects.count()
+        # Get Phenotype mera file to count the different data types (currently not used in frontend table)
         df = pd.DataFrame(phenotypes_meta_filtered[env("PHENOTYPE_TYPE_COLUMN")][
                                              [(i in phenotypes_filtered.columns) for i in
                                               phenotypes_meta_filtered.index]].copy()).value_counts()
@@ -387,8 +375,6 @@ class GetTableView(generics.GenericAPIView):
         req_data_dict['Phenotype-Time'] = int(df['time']) if 'time' in df.index else 0
         return JsonResponse(req_data_dict, safe=True)
 
-
-# TODO assess if we want a limit for number of categories that color variable c has?
 @extend_schema_view(
     get=extend_schema(
         summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
@@ -429,21 +415,22 @@ class GetDataView(generics.GenericAPIView):
 
         # build result dict in right format
         req_data_dict = {}
-        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
-        show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Check if variables are equal because this will not return meaningful results and can throw an error later
         if x == y:
             return HttpResponseBadRequest(
                 'Variable x and y must be different', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
-        # from description + (var_id))
+        # from description + (var_id) or (in case of metabolites) simply the request var)
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+        # Check if y var is a string (e.g. time variable) which would result in an error during aggregation
+        # -> else throw HttpResponseBadRequest
         if pd.api.types.is_string_dtype(all_data[y_idx]):
             return HttpResponseBadRequest(
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
@@ -452,8 +439,8 @@ class GetDataView(generics.GenericAPIView):
         temp = []
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
-            # Get var_id from request var (stored in brackets at the end of the requents var which is built
-            # from description + (var_id)
+            # Get var_id from request var (stored in brackets at the end of the request var which is built
+            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
@@ -475,12 +462,10 @@ class GetDataView(generics.GenericAPIView):
             color = 0
             colormap_local = color_palette
             num_colors = len(all_data[c_idx].unique())
+            # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(color_palette, num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
-            #colormap = sns.color_palette("tab10")
-            # convert colors to hexcolors for compatibility with vue-chartjs plotting
-            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
                     "label": var_label_mapping(c_idx,group_name),
@@ -488,21 +473,21 @@ class GetDataView(generics.GenericAPIView):
                     "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
-        # if no color var c is given simply return all data in one group
+        # if no color var c is given only group by x var
         else:
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
-            # privacy restriction: only return something when there are 5 or more values =! NaN (opposite is very unlikely) # TODO cover and test this corner case (show var?)
+            # privacy restriction: only return something when there are 5 or more values =! NaN (opposite is very unlikely)
             aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
                  x[y_idx].notna().sum() >= 5).groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": "Whole Population",  #TODO rather empty label?
-                "backgroundColor": "black",   #TODO change default color?
+                "label": "Whole Population",
+                "backgroundColor": "black",
                 "data": aggregated_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx,aggregated_df_mean[x_idx].unique().tolist())
-        # Store the y dict/ dicts (if color var was given)
+        req_data_dict["labels"] = var_label_mapping(x_idx, aggregated_df_mean[x_idx].unique().tolist())
+        # Store the aggregated data values
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
@@ -538,15 +523,13 @@ class GetDataBarCountView(generics.GenericAPIView):
 
         # build result dict in right format
         req_data_dict = {}
-        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
-        show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "":
             return HttpResponseBadRequest('Variable x must be declared.', status=405)
-        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
-        # from description + (var_id))
+        # Get var_id from request var (stored in brackets at the end of the request var which is built
+        # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
-        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        # Check if x var is present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data',
                                           status=405)
@@ -554,7 +537,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the requents var which is built
-            # from description + (var_id)
+            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
@@ -564,14 +547,14 @@ class GetDataBarCountView(generics.GenericAPIView):
             if c == x:
                 return HttpResponseBadRequest('Variable x and c must be different', status=405)
             # Make df subset with x, c var and a count value for each pair of group
-            # TODO ! Group combinations where c_idx is NaN will not be returned -> return 0?
+            # TODO Group combinations where c_idx is NaN will not be returned and therefore not appear -> return 0 instead?
             df_count = all_data[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
-            # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
-            # values for x positions with no aggregated value present)
+            # associates the count values with the corresponding x value
             color = 0
             colormap_local = color_palette
             num_colors = len(all_data[c_idx].unique())
+            # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(color_palette, num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
@@ -582,7 +565,7 @@ class GetDataBarCountView(generics.GenericAPIView):
                     "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
-        # if no color var c is given simply return all data in one group
+        # if no color var c is given only group by x var
         else:
             # Make df subset with x var and a count variable
             df_count = pd.DataFrame(all_data[x_idx]).groupby(x_idx).size().reset_index(name='counts')
@@ -594,7 +577,7 @@ class GetDataBarCountView(generics.GenericAPIView):
             })
         # Store unique x_var values
         req_data_dict["labels"] = var_label_mapping(x_idx,df_count[x_idx].unique().tolist())
-        # Store the y dict/ dicts (if color var was given)
+        # Store the count data values
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
@@ -653,17 +636,20 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # Check if variables are equal because this will not return meaningful results and can throw an error later
         if x == y:
             return HttpResponseBadRequest('Variable x and y must be different.', status=405)
-        # Get var_id from request vars (stored in brackets at the end of the requents var which is built
-        # from description + (var_id)
+        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
+        # from description + (var_id) or (in case of metabolites) simply the request var)
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in all_data.columns or y_idx not in all_data.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data',
                                           status=405)
+        # Check if y var is a string (e.g. time variable) which would result in an error during aggregation
+        # -> else throw HttpResponseBadRequest
         if pd.api.types.is_string_dtype(all_data[y_idx]):
             return HttpResponseBadRequest(
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
+        # helper function to calculate boxplot stats or return nan boxplot when privacy restrictions are violated
         def boxplot_stats(group):
             if group[y_idx].notna().sum() >= 5:
                 return {
@@ -682,8 +668,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         df = pd.DataFrame(all_data[[x_idx, y_idx]])
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
-            # Get var_id from request var (stored in brackets at the end of the requents var which is built
-            # from description + (var_id)
+            # Get var_id from request var (stored in brackets at the end of the requests var which is built
+            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
@@ -695,24 +681,20 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'Variable x and y must be different from c', status=405)
             # Add var c column to subset df
             df[c_idx] = all_data[c_idx]
-            # Make df subset with x, y and c var
+            # Group and reformat data by calculating box plot statistics for each x_idx, c_idx group
             grouped = df.groupby([x_idx, c_idx]).apply(boxplot_stats).unstack()
+            # x_idx, c_idx groups with no values are returned as NaNs and need to be converted to the nan_boxplot representation
             grouped = grouped.applymap(lambda x: nan_boxplot if pd.isna(x) else x)
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
             colormap_local = color_palette
             num_colors = len(all_data[c_idx].unique())
-            #print(colormap_local)
+            # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(color_palette, num_colors)
-            #print(colormap_local)
             bordercolor_map_local = [rgb_to_hex(darken_rgb(rgb)) for rgb in colormap_local]
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
-            #colormap = sns.color_palette("tab10")
-            # convert colors to hexcolors for compatibility with vue-chartjs plotting
-            #color_pal = [mcolors.to_hex(colormap[i]) for i in range(len(colormap))]
-            #bordercolor_pal = [mcolors.to_hex(darken_rgb(colormap[i])) for i in range(len(colormap))]
             for group_name in grouped.columns:
                 dataset = {
                     'label': var_label_mapping(c_idx,group_name),
@@ -726,28 +708,25 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'data': grouped[group_name].tolist(),
                 }
                 temp.append(dataset)
-                #print(f'group {group_name}: {len(grouped[group_name].tolist())}')
                 color += 1
-            # if no color var c is only group by x var
+        # if no color var c is given only group by x var
         else:
-            # Make df subset with x and y var
+            # Group and reformat data by calculating box plot statistics for each x_idx group
             grouped = df.groupby(x_idx).apply(boxplot_stats)
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
             temp_style = {
-            "label": "Whole Population",  # TODO rather empty label?
-            "backgroundColor": "black",  # TODO change default color?
+            "label": "Whole Population",
+            "backgroundColor": "black",
             'padding': 10,
             'itemRadius': 0,
             'borderWidth': 1,
             'data': grouped.tolist(),
             }
-            #print(f'group without c: {len(grouped.tolist())}')
             temp.append(temp_style)
         # Store unique x_var values
         req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
-        #print(f'labels: {len(req_data_dict["labels"])}')
-        # Store the y dict/ dicts (if color var was given)
+        # Store box plot statistics
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
 
@@ -779,9 +758,6 @@ class GetDataHeatmapView(generics.GenericAPIView):
         # Get request vars
         x = request.GET.get("x")
         y = request.GET.get("y")
-
-        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
-        show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
@@ -790,8 +766,8 @@ class GetDataHeatmapView(generics.GenericAPIView):
         #if x == y:
         #    return HttpResponseBadRequest(
         #        'Variable x and y must be different', status=405)
-        # Get var_id from request vars (stored in brackets at the end of the requests var which is built
-        # from description + (var_id))
+        # Get var_id from request var (stored in brackets at the end of the requests var which is built
+        # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
@@ -809,9 +785,9 @@ class GetDataHeatmapView(generics.GenericAPIView):
 
 
 
-# privacy popup for line plot -> return -100 when data not avaiable because there are only 0-4 values != NaN
-
 # TODO assess if we want a limit for number of categories that color variable c has?
+# privacy popup for line plot -> return -100 when data not avaiable due to less than 5 values being != NaN
+#=> currenty not used and just an option to change GetDataView.
 @extend_schema_view(
     get=extend_schema(
         summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
@@ -852,16 +828,15 @@ class GetDataView2(generics.GenericAPIView):
 
         # build result dict in right format
         req_data_dict = {}
-        # Variable that checks if any data can be shown based on privacy restriction (more than 5 patients/ values per group)
-        show = False
         # Check if x and y var are given -> else throw HttpResponseBadRequest
         if x is None or x == "" or y is None or y == "":
             return HttpResponseBadRequest('Variable x and y must be declared.', status=405)
+        # Check if variables are equal because this will not return meaningful results and can throw an error later
         if x == y:
             return HttpResponseBadRequest(
                 'Variable x and y must be different', status=405)
         # Get var_id from request vars (stored in brackets at the end of the requests var which is built
-        # from description + (var_id))
+        # from description + (var_id) or (in case of metabolites) simply the request var)
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
@@ -882,8 +857,8 @@ class GetDataView2(generics.GenericAPIView):
         grouped = pd.DataFrame()
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
-            # Get var_id from request var (stored in brackets at the end of the requents var which is built
-            # from description + (var_id)
+            # Get var_id from request var (stored in brackets at the end of the request var which is built
+            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
@@ -892,10 +867,11 @@ class GetDataView2(generics.GenericAPIView):
             if c == x or c == y:
                 return HttpResponseBadRequest(
                     'Variable x and y must be different from c', status=405)
-            # Make df subset with x, y and c var
+            # Group and reformat data by calculating the mean for each x_idx, c_idx group
             grouped = all_data[[x_idx, y_idx, c_idx]].groupby([x_idx, c_idx]).apply(privacy_sensitive_mean).unstack()
             #grouped = grouped.apply(lambda col: col.apply(lambda x: {'x': col.name, 'y': -100} if pd.isna(x) else x))
             #grouped = grouped.applymap(lambda x: .100 if pd.isna(x) else x)
+            # x_idx, c_idx groups with no values are returned as NaNs and need to be converted to the nan representation (e.g. -100)
             grouped.fillna(-100, inplace=True)
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
@@ -903,6 +879,7 @@ class GetDataView2(generics.GenericAPIView):
             color = 0
             colormap_local = color_palette
             num_colors = len(all_data[c_idx].unique())
+            # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(color_palette, num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
@@ -913,18 +890,18 @@ class GetDataView2(generics.GenericAPIView):
                     "data": grouped[group_name].tolist(),
                 })
                 color += 1
-        # if no color var c is given simply return all data in one group
+        # if no color var c is given only group by x var
         else:
-            # Make df subset with x and y var
+            # Group and reformat data by calculating the mean for each x_idx  group
             grouped = all_data[[x_idx, y_idx]].groupby(x_idx).apply(privacy_sensitive_mean)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": "Whole Population",  #TODO rather empty label?
-                "backgroundColor": "black",   #TODO change default color?
+                "label": "Whole Population",
+                "backgroundColor": "black",
                 "data": grouped.tolist()
             })
         # Store unique x_var values
         req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
-        # Store the y dict/ dicts (if color var was given)
+        # Store the aggregated data
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
