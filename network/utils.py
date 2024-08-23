@@ -6,16 +6,11 @@ import pandas as pd
 import itertools
 from joblib import Parallel, delayed
 from functools import partial
-import environ
-
-env = environ.Env()
-environ.Env.read_env()
 
 # Parallel processing function
 def multiprocess(items, num_workers, function_call):
     results = Parallel(n_jobs=num_workers)(delayed(function_call)(i) for i in items)
     return list(results)
-
 
 # Categorical-Categorical association scores
 def cat_cat(pair, phenotypes_cat):
@@ -137,14 +132,14 @@ def cont_cont(pair, cont_data, test):
 
 
 # Multiprocessing of all provided pairs of variables according to function_call and multiple-testing correction
-def testing(pairs, function_call, num_workers):
+def testing(pairs, function_call, num_workers, method='bh'):
     results = pd.DataFrame(multiprocess(pairs, num_workers=num_workers, function_call=function_call))
-    results['adj_pval'] = si.stats.false_discovery_control(results['pval'], method='bh')
+    results['adj_pval'] = si.stats.false_discovery_control(results['pval'], method=method)
     return results
 
 
 def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
-                                 test='parametric'):
+                                 test='parametric', multiple_testing='bh'):
     # Data preprocessing
     allowed_types = ['boolean', 'categorical', 'float', 'integer'] # Eventually, add temporal data
     # Check if all types of phenotype variables are in the allowed list
@@ -185,15 +180,15 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
     # Categorical-Categorical association testing
     pairs = list(itertools.combinations(cat_data.columns, 2))
-    cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers)
+    cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers, method=multiple_testing)
 
     # Continuous-Continuous association testing
     pairs = list(itertools.combinations(cont_data.columns, 2))
-    cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers)
+    cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers, method=multiple_testing)
 
     # Continuous-Categorical association testing
     pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns))) # Use indices instead of labels
-    cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers)
+    cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers, method=multiple_testing)
 
     scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_results], ignore_index=True)
 

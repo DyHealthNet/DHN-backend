@@ -45,7 +45,8 @@ class Command(BaseCommand):
             number_of_workers = env("NUMBER_OF_WORKERS")
 
         test_type = env("TEST_TYPE")
+        multiple_testing = env("MULTIPLE_TESTING")
 
         results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
-                                                     number_of_workers, test_type)
+                                                     number_of_workers, test_type, multiple_testing)
         results.to_csv(env("CALCULATED_EDGES_PATH"))
