@@ -325,24 +325,30 @@ class GetVariablesView(generics.GenericAPIView):
         del phenotypes_values['num_cat']
         del phenotypes_values[env("PHENOTYPE_TYPE_COLUMN")]
         ## get Protein variables
-        protein_values = pd.DataFrame(proteins_meta[
-                                          [(i in proteins.columns) for i in
-                                           proteins_meta.index]][env("PROTEIN_DESCRIPTION_COLUMN")].copy())
-        # Create 'identifier' column based on conditions
-        # (if description is NaN only return the index)
-        protein_values['identifier'] = np.where(
-            protein_values[env("PROTEIN_DESCRIPTION_COLUMN")].isna(),
-            protein_values.index,
-            protein_values[env("PROTEIN_DESCRIPTION_COLUMN")] + ' / Protein' + ' (' + protein_values.index + ')'
-        )
-        del protein_values[env("PROTEIN_DESCRIPTION_COLUMN")]
-        protein_values.loc[:, 'group'] = 'continuous'
+        protein_values = None
+        if not isinstance(proteins, type(None)):
+            protein_values = pd.DataFrame(proteins_meta[
+                                              [(i in proteins.columns) for i in
+                                               proteins_meta.index]][env("PROTEIN_DESCRIPTION_COLUMN")].copy())
+            # Create 'identifier' column based on conditions
+            # (if description is NaN only return the index)
+            protein_values['identifier'] = np.where(
+                protein_values[env("PROTEIN_DESCRIPTION_COLUMN")].isna(),
+                protein_values.index,
+                protein_values[env("PROTEIN_DESCRIPTION_COLUMN")] + ' / Protein' + ' (' + protein_values.index + ')'
+            )
+            del protein_values[env("PROTEIN_DESCRIPTION_COLUMN")]
+            protein_values.loc[:, 'group'] = 'continuous'
+
         ## get Metabolite variables
-        metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
-        metabolite_values.loc[:, 'group'] = 'continuous'
+        metabolite_values = None
+        if not isinstance(metabolites, type(None)):
+            metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
+            metabolite_values.loc[:, 'group'] = 'continuous'
 
         ## combine all data
-        combined_vals = pd.concat([phenotypes_values,protein_values,metabolite_values],axis=0)
+        existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if not isinstance(x, type(None))]
+        combined_vals = pd.concat(existing_values,axis=0)
         # create output dict whit type as key and identifier as value and return it
         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
