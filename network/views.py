@@ -368,7 +368,7 @@ class GetTableView(generics.GenericAPIView):
         req_data_dict['Participants'] = len(all_data)
         req_data_dict['Phenotypes'] = len(phenotypes_filtered.columns)
         req_data_dict['Proteins'] = len(proteins.columns) if proteins is not None else 0
-        req_data_dict['Metabolites'] = len(metabolites.columns) if proteins is not None else 0
+        req_data_dict['Metabolites'] = len(metabolites.columns) if metabolites is not None else 0
         req_data_dict['Genetic Variants'] = CohortVariant.objects.count()
         # Get Phenotype mera file to count the different data types (currently not used in frontend table)
         df = pd.DataFrame(phenotypes_meta_filtered[env("PHENOTYPE_TYPE_COLUMN")][
