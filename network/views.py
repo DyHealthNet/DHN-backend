@@ -121,7 +121,7 @@ color_palette = sns.color_palette("muted")
     get=extend_schema(
         summary="Returns the top network edges and corresponding nodes that are connected to a query node q",
         description="""Returns for a query node q the top l (limit, default = 10) network edges and corresponding nodes 
-            for each type meaning protein, metabolite, phenotype (e.g. for limit 10 -> 30 edges). To efficiently query
+            for each type meaning protein, metabolite, phenotype (e.g. for limit 10 -> 30 edges) in JSON format. To efficiently query
             the correct tables the type of input node as a variable t is required. (Referring to function 
             orm_queries/network_query.)
             e.g. input: q="x0rd09",t="phenotype",limit = 10
@@ -199,7 +199,7 @@ class GetNetworkView(generics.GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Returns all external edges and their nodes for a query node q",
-        description="""Returns all external edges and their nodes for a query node q. Maps external edges where 
+        description="""Returns all external edges and their nodes for a query node q in JSON format. Maps external edges where 
             the partner node exists as a chris node back otherwise returns external node.
             e.g. input: q="x0rd09"
             """,
@@ -256,7 +256,7 @@ class GetAllExternalsView(generics.GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Returns node id/name recommendations depending on the input request typed by the user",
-        description="""Returns a dictionary of node id containing a display name, description, and source_table 
+        description="""Returns a dictionary of node ids in JSON format containing a display name, description, and source_table 
             (/node_type) (as dictionary) depending on the input request typed by the user which is sent via (sub)string s. 
             (Referring to function orm_queries/typeahead_query)
             """,
@@ -286,7 +286,8 @@ class TypeaheadView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns all possible phenotype variables grouped by their type in JSON format",
+        summary="Returns all possible phenotype variables (+ protein & metabolite variables if provided) grouped by "
+                "their type",
         description='Returns all possible phenotype variables grouped by their type in JSON format. '
                     'e.g. {"nonbinaryCategorical":["Happiness on Scale 1 to 10 (happiness_scale_id)"],'
                     '"binaryCategorical":["Disease XY (diseaseXY_id)"], '
@@ -355,9 +356,9 @@ class GetVariablesView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns data statistics to be plotted in the overview table",
-        description='Returns data statistics (of phenotype, metabolite and protein data) to be plotted in the overview '
-                    'table in JSON format.'
+        summary="Returns data statistics to be plotted in the Overview Table",
+        description='Returns data statistics (of phenotype, metabolite and protein data) to be plotted in the Overview '
+                    'Table in JSON format.'
                     'e.g. '
     )
 )
@@ -383,9 +384,10 @@ class GetTableView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
-        description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format.
-            The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
+        summary="Returns averaged data for the given variables x and y grouped by c (optional) to produce a Line Plot",
+        description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format 
+            to produce a Line Plot. The optional parameter c (e.g. sex) allows for comparisons between different groups 
+            such as males and females.
             """,
         parameters=[
             OpenApiParameter(
@@ -499,9 +501,11 @@ class GetDataView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns the count for the given variables x grouped by c in JSON format",
-        description="""Returns averaged data for the given variables x (e.g. time) in JSON format.
-            The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
+        summary="Returns the count for the given variables x grouped by c (optional) to produce a Variable Count "
+                "Bar Plot",
+        description="""Returns averaged data for the given variables x (e.g. time) in JSON format to produce a 
+            Variable Count Bar Plot. The optional parameter c (e.g. sex) allows for comparisons between different groups 
+            such as males and females.
             """,
         parameters=[
             OpenApiParameter(
@@ -589,9 +593,11 @@ class GetDataBarCountView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns boxplot data for the given variables x and y grouped by c in JSON format",
-        description="""Returns boxplot data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format.
-            The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
+        summary="Returns boxplot statistics for the given variables x and y grouped by c (optional) to produce a Box "
+                "Plot",
+        description="""Returns boxplot statistics for the given variables x (e.g. time) and y (e.g. dosage) in JSON 
+            format to produce a Box Plot. The optional parameter c (e.g. sex) allows for comparisons between different 
+            groups such as males and females.
             """,
         parameters=[
             OpenApiParameter(
@@ -738,9 +744,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns contingency table for the given variables x and y for plotting a heatmap in JSON format",
+        summary="Returns contingency table for the given variables x and y for plotting a Heatmap",
         description="""Returns contingency table for the given categorical variables x (e.g. sex) and y (e.g. desease 
-            stage) for plotting a heatmap in JSON format. """,
+            stage) for plotting a Heatmap in JSON format. """,
         parameters=[
             OpenApiParameter(
                 name='x',
@@ -796,7 +802,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
 #=> currenty not used and just an option to change GetDataView.
 @extend_schema_view(
     get=extend_schema(
-        summary="Returns averaged data for the given variables x and y grouped by c in JSON format",
+        summary="Returns averaged data for the given variables x and y grouped by c (optional)",
         description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format.
             The optional parameter c (e.g. sex) allows for comparisons between different groups such as males and females.
             """,
