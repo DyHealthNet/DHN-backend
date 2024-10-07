@@ -11,9 +11,6 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-#logger = logging.getLogger(__name__)
-
-
 class Command(BaseCommand):
     def handle(self, *args, **options):
         # Store the results of each check
@@ -52,7 +49,8 @@ class Command(BaseCommand):
         else:
             print("Health check successfully passed.")
 
-    def check_files(self):
+    @staticmethod
+    def check_files():
         required_files = [
             env("PHENOTYPE_PATH"),
             env("PHENOTYPE_META_PATH")
@@ -65,7 +63,8 @@ class Command(BaseCommand):
         print("✅  All required files are present.")
         return True
 
-    def check_columns(self):
+    @staticmethod
+    def check_columns():
         # read only the first line of the file and check if the PATIENT_ID_COLUMN is present
         files = [
             env('PHENOTYPE_PATH'),
@@ -82,7 +81,8 @@ class Command(BaseCommand):
         print("✅  Patient ID column is present everywhere.")
         return True
 
-    def check_database(self):
+    @staticmethod
+    def check_database():
         db_conn = connections['default']
         try:
             db_conn.cursor()
@@ -91,7 +91,8 @@ class Command(BaseCommand):
         print("✅  The database is successfully connected.")
         return True
 
-    def check_tables(self):
+    @staticmethod
+    def check_tables():
         db_conn = connections['default']
         with db_conn.cursor() as cursor:
             cursor.execute("""

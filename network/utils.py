@@ -7,10 +7,12 @@ import itertools
 from joblib import Parallel, delayed
 from functools import partial
 
+
 # Parallel processing function
 def multiprocess(items, num_workers, function_call):
     results = Parallel(n_jobs=num_workers)(delayed(function_call)(i) for i in items)
     return list(results)
+
 
 # Categorical-Categorical association scores
 def cat_cat(pair, phenotypes_cat):
@@ -55,7 +57,7 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
     temp_cat = np.array(phenotypes_cat.iloc[:, cat].unique())
     categ = len(temp_cat[~pd.isna(temp_cat)])
 
-    if (categ < 2): # No test will be performed if the phenotype has only a single possible value
+    if categ < 2:  # No test will be performed if the phenotype has only a single possible value
         return {
             'label1': cont_data.columns[cont],
             'label2': phenotypes_cat.columns[cat],
@@ -65,7 +67,7 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
             'test': None
         }
 
-    elif (categ == 2): # t-test (parametric) or Mann-Whitney U (non-parametric) if phenotype has exactly 2 categories
+    elif categ == 2:  # t-test (parametric) or Mann-Whitney U (non-parametric) if phenotype has exactly 2 categories
         temp = [*(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list))]
         if test == 'parametric':
             r = si.stats.ttest_ind(temp[0], temp[1], nan_policy='omit')
@@ -73,7 +75,8 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
         else:
             r = si.stats.mannwhitneyu(temp[0], temp[1], nan_policy='omit')
             test_performed = 'Mann–Whitney U test'
-        # calculate cohens d by substracting mean of group 1 by mean of group 2 and dividing by pooled standard deviation
+        # calculate cohens d by substracting mean of group 1 by mean of group 2 and dividing by
+        # pooled standard deviation
         cohens_d = abs(
             (np.mean(temp[0]) - np.mean(temp[1])) / (math.sqrt((np.std(temp[1]) ** 2 + np.std(temp[0]) ** 2) / 2)))
         return {
@@ -85,7 +88,7 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
             'test': test_performed
         }
 
-    else: # one-way ANOVA test (parametric) or Kruskal-Wallis (non-parametric) if phenotype has more than 2 categories
+    else:  # one-way ANOVA test (parametric) or Kruskal-Wallis (non-parametric) if phenotype has more than 2 categories
         if test == 'parametric':
             r = si.stats.f_oneway(
                 *(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list)),
@@ -94,8 +97,8 @@ def cat_cont(pair, phenotypes_cat, cont_data, test):
             eta_squared = (r.statistic * (categ - 1)) / ((r.statistic * (categ - 1)) + (len(cont_data) - categ))
             test_performed = 'one-way ANOVA test'
         else:
-            # calculate eta squared using H-statistic (formula from Tomczak, "The need to report effect size estimates revisited.
-            # An overview of some recommended measures of effect size."(2014).
+            # calculate eta squared using H-statistic (formula from Tomczak, "The need to report effect size estimates
+            # revisited. An overview of some recommended measures of effect size."(2014).
             r = si.stats.kruskal(*(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list)),
                                  nan_policy='omit')
             eta_squared = (r.statistic - categ + 1) / (len(cont_data) - categ)
@@ -141,7 +144,7 @@ def testing(pairs, function_call, num_workers, method='bh'):
 def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
                                  test='parametric', multiple_testing='bh'):
     # Data preprocessing
-    allowed_types = ['boolean', 'categorical', 'float', 'integer'] # Eventually, add temporal data
+    allowed_types = ['boolean', 'categorical', 'float', 'integer']
     # Check if all types of phenotype variables are in the allowed list
     invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
     if not invalid_types.empty:
@@ -180,15 +183,18 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
     # Categorical-Categorical association testing
     pairs = list(itertools.combinations(cat_data.columns, 2))
-    cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers, method=multiple_testing)
+    cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers,
+                              method=multiple_testing)
 
     # Continuous-Continuous association testing
     pairs = list(itertools.combinations(cont_data.columns, 2))
-    cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers, method=multiple_testing)
+    cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers,
+                                method=multiple_testing)
 
     # Continuous-Categorical association testing
-    pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns))) # Use indices instead of labels
-    cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers, method=multiple_testing)
+    pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns)))
+    cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers,
+                               method=multiple_testing)
 
     scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_results], ignore_index=True)
 
@@ -198,7 +204,7 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 # Check file for correct format and return the dataset if needed
 def check_files_and_return(path, id_column=None, column_list=None, return_dataset=True):
     # Check that provided pathways are leading to a csv or tsv file
-    if path == "None" or path == None or path == "":
+    if path == "None" or path is None or path == "":
         return None
 
     ending = os.path.splitext(path)[1].lower()
@@ -214,9 +220,10 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
     if id_column:
         if id_column not in dataset.columns:
             raise KeyError(
-                f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the same ID column.")
+                f"{path} does not have the correct ID column '{id_column}'. Please make sure that all files have the "
+                f"same ID column.")
         else:
-            dataset.set_index(id_column, inplace=True) # set ID column
+            dataset.set_index(id_column, inplace=True)  # set ID column
             # Check that columns in column_list exist if provided
             if column_list:
                 for column in column_list:

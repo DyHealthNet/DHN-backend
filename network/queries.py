@@ -63,7 +63,8 @@ def network_query(query_id, type, limit):
 
     # Retrieve all edges between those referenced external nodes
     external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
-    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) & Q(target_id__in=external_ids)).values()
+    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) &
+                                                    Q(target_id__in=external_ids)).values()
 
     # Map externals back to original nodes
     id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
@@ -80,7 +81,7 @@ def network_query(query_id, type, limit):
 
 
 def external_query(query_id, cohort_node=True):
-    id_mapping = {} # Dictionary to map the external nodes back to cohort nodes if available for the frontend
+    id_mapping = {}
     external_ids = set()
     ref_ids = set()
     ref_model = apps.get_model('network', 'ViewReferencesEdges')
@@ -128,13 +129,13 @@ def external_query(query_id, cohort_node=True):
             for node in unknown_nodes:
                 node["source_table"] = "external_" + type
             external_nodes.append(unknown_nodes)
-            id_mapping.update({ext_id: [ext_id]}) # map the external id to itself (since no mapping to cohort is possible)
+            id_mapping.update({ext_id: [ext_id]})  # map to itself if no cohort node is available
         else:
             mapped_nodes = cohort_nodes_model.objects.filter(Q(id__in=ref_ids)).values()
             cohort_nodes.append(mapped_nodes)
             # Mapping to cohort nodes is not unambiguous => mapped_nodes might have more than one entry
             cohort_ids = [node_id[0] for node_id in mapped_nodes.values_list('id')]
-            id_mapping.update({ext_id: cohort_ids}) # map the external id to a list of cohort ids
+            id_mapping.update({ext_id: cohort_ids})  # map the external id to a list of cohort ids
 
     # Map the external edges
     mapped_externals = [
