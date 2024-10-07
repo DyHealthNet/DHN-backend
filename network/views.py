@@ -1,3 +1,5 @@
+import sys
+
 import pandas as pd
 import re
 import numpy as np
@@ -31,8 +33,10 @@ def join_dataframes(df1, df2=None, df3=None):
     return result
 
 
+if len(sys.argv) > 1 and sys.argv[1] == 'healthcheck':
+    pass
 # This is wrapped in try-except to be ignored before healthcheck
-try:
+else:
     phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"),
                                                  id_column=env("PATIENT_ID_COLUMN"),
                                                  return_dataset=True)
@@ -61,11 +65,6 @@ try:
     if os.path.isfile(env("VAR_LABEL_MAPPING")):
         with open(env("VAR_LABEL_MAPPING"), 'r') as file:
             var_label_map_dict = json.load(file)
-
-except (FileNotFoundError, KeyError, ValueError) as e:
-    print(e)
-    print("Continuing without data")
-    pass
 
 
 # Function to extract the variable Id from the user-friendly input
