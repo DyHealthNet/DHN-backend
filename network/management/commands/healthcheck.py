@@ -19,6 +19,7 @@ class Command(BaseCommand):
         # Store the results of each check
         results = {
             "files": False,
+            "columns": False,
             "database": False,
             "tables": False
         }
@@ -28,6 +29,11 @@ class Command(BaseCommand):
             results["files"] = self.check_files()
         except Exception as e:
             print(f"❌  Files check failed: {e}")
+
+        try:
+            results["columns"] = self.check_columns()
+        except Exception as e:
+            print(f"❌  Columns check failed: {e}")
 
         try:
             results["database"] = self.check_database()
@@ -57,6 +63,23 @@ class Command(BaseCommand):
             else:
                 check_files_and_return(file_path, return_dataset=False)
         print("✅  All required files are present.")
+        return True
+
+    def check_columns(self):
+        # read only the first line of the file and check if the PATIENT_ID_COLUMN is present
+        files = [
+            env('PHENOTYPE_PATH'),
+            env('PROTEIN_PATH'),
+            env('METABOLITE_PATH')
+        ]
+        for file_path in files:
+            if not os.path.isfile(file_path):
+                continue
+            with open(file_path, 'r') as file:
+                columns = file.readline().strip()
+            if env("PATIENT_ID_COLUMN") not in columns:
+                raise Exception(f"Column {env('PATIENT_ID_COLUMN')} not found in {file_path}")
+        print("✅  Patient ID column is present everywhere.")
         return True
 
     def check_database(self):

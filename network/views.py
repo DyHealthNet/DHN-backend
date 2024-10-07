@@ -40,9 +40,12 @@ try:
                                                       id_column=env("PHENOTYPE_LABEL_COLUMN"),
                                                       column_list=[env("PHENOTYPE_TYPE_COLUMN"),
                                                                    env("PHENOTYPE_DESCRIPTION_COLUMN")])
+
     proteins = check_files_and_return(env("PROTEIN_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
+
     proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column=env("PROTEIN_LABEL_COLUMN"),
                                            column_list=[env("PROTEIN_DESCRIPTION_COLUMN")], return_dataset=True)
+
     metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"),
                                          return_dataset=True)
     # Merge the data to get all values by id without knowing the type (phenotype, proteins, metabolites)
@@ -55,7 +58,9 @@ try:
         with open(env("VAR_LABEL_MAPPING"), 'r') as file:
             var_label_map_dict = json.load(file)
 
-except FileNotFoundError:
+except (FileNotFoundError, KeyError, ValueError) as e:
+    print(e)
+    print("Continuing without data")
     pass
 
 
