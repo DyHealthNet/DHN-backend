@@ -68,11 +68,11 @@ except (FileNotFoundError, KeyError, ValueError) as e:
     pass
 
 
-# Function to extract the variable Id from the user friendly input
+# Function to extract the variable Id from the user-friendly input
 # (id is either in brackets at the end or simply the input)
 def extract_var_id(var):
     # This is necessary because '/ Metabolite' & '/ Protein' is artificially added to the identifiers of
-    # metabolites or proteins to be more user friendly and for an easier search
+    # metabolites or proteins to be more user-friendly and for an easier search
     var = var.replace(' / Metabolite', '')
     # var = var.replace(' / Protein', '') # -> not needed because id gets extracted from brackets at the end anyways
     return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
@@ -163,6 +163,7 @@ class GetNetworkView(generics.GenericAPIView):
         query_id = request.GET.get("q")
         node_type = request.GET.get("t")
         limit = request.GET.get("l")
+
         if query_id is None or query_id == "":
             return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
         if node_type is None or node_type not in types:
@@ -183,21 +184,21 @@ class GetNetworkView(generics.GenericAPIView):
         # retrieve chris nodes & edges + external edges using queries/network_queries function
         edges, nodes, externals = network_query(query_id, node_type, limit)
         # reformat Edges and Nodes and return as json
-        edges = {}
+        result_edges = {}
         for table, results in edges.items():
-            edges[table] = list(results)
-        nodes = {}
+            result_edges[table] = list(results)
+        result_nodes = {}
         for results in nodes:
             # strip xrefs of db names -> currently not used
             # results["xrefs"] = strip_db_name(results["xrefs"])
             # group by source_table
             if results['source_table'] in nodes:
-                nodes[results['source_table']].append(results)
+                result_nodes[results['source_table']].append(results)
             else:
-                nodes[results['source_table']] = [results]
+                result_nodes[results['source_table']] = [results]
         combined_query = {
-            'Nodes': nodes,
-            'Edges': edges,
+            'Nodes': result_nodes,
+            'Edges': result_edges,
             'External Edges': list(externals)
         }
         return JsonResponse(combined_query, safe=False, status=200)
