@@ -33,9 +33,9 @@ def join_dataframes(df1, df2=None, df3=None):
     return result
 
 
+# Don't try to load data if healthcheck is requested
 if len(sys.argv) > 1 and sys.argv[1] == 'healthcheck':
     pass
-# This is wrapped in try-except to be ignored before healthcheck
 else:
     phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"),
                                                  id_column=env("PATIENT_ID_COLUMN"),
@@ -698,8 +698,6 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         df = pd.DataFrame(all_data[[x_idx, y_idx]])
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
-            # Get var_id from request var (stored in brackets at the end of the requests var which is built
-            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
@@ -800,8 +798,6 @@ class GetDataHeatmapView(generics.GenericAPIView):
         # if x == y:
         #    return HttpResponseBadRequest(
         #        'Variable x and y must be different', status=405)
-        # Get var_id from request var (stored in brackets at the end of the requests var which is built
-        # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
@@ -883,8 +879,6 @@ class GetDataView2(generics.GenericAPIView):
         grouped = pd.DataFrame()
         # Check if c var is given and if so split data by it
         if c is not None and c != "":
-            # Get var_id from request var (stored in brackets at the end of the request var which is built
-            # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:

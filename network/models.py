@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 
@@ -51,7 +52,9 @@ class Disorder(models.Model):
     mondo_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    xrefs = models.TextField(blank=True, null=True)
+    xrefs = ArrayField(
+        models.CharField(max_length=50, blank=True, null=True),
+    )
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
@@ -63,7 +66,9 @@ class Gene(models.Model):
     entrez_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    synonyms = models.TextField(blank=True, null=True)
+    synonyms = ArrayField(
+        models.CharField(max_length=50, blank=True, null=True),
+    )
     chromosome = models.CharField(max_length=200, blank=True, null=True)
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
@@ -74,14 +79,16 @@ class Gene(models.Model):
 
 class GenomicVariant(models.Model):
     clinvar_id = models.CharField(primary_key=True, max_length=200, db_index=True)
-    alternative_sequence = models.CharField(db_column='alternative_sequence', max_length=200, blank=True, null=True)
+    alternative_sequence = models.CharField(max_length=200, blank=True, null=True)
     chromosome = models.CharField(max_length=200, blank=True, null=True)
-    data_sources = models.CharField(db_column='data_sources', max_length=200, blank=True, null=True)
-    xrefs = models.CharField(max_length=200, blank=True, null=True)
+    data_sources = models.CharField(max_length=200, blank=True, null=True)
+    xrefs = ArrayField(
+        models.CharField(max_length=50, blank=True, null=True),
+    )
     position = models.CharField(max_length=200, blank=True, null=True)
-    reference_sequence = models.CharField(db_column='reference_sequence', max_length=200, blank=True, null=True)
+    reference_sequence = models.CharField(max_length=200, blank=True, null=True)
     type = models.CharField(max_length=200, blank=True, null=True)
-    variant_type = models.CharField(db_column='variant_type', max_length=200, blank=True, null=True)
+    variant_type = models.CharField(max_length=200, blank=True, null=True)
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
@@ -94,7 +101,9 @@ class Metabolite(models.Model):
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     synonyms = models.CharField(max_length=200, blank=True, null=True)
-    xrefs = models.TextField(blank=True, null=True)
+    xrefs = ArrayField(
+        models.CharField(max_length=50, blank=True, null=True),
+    )
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
     class Meta:
@@ -106,7 +115,9 @@ class Phenotype(models.Model):
     hpo_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
-    xrefs = models.TextField(blank=True, null=True)
+    xrefs = ArrayField(
+        models.CharField(max_length=50, blank=True, null=True),
+    )
     synonyms = models.CharField(max_length=200, blank=True, null=True)
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
@@ -119,7 +130,6 @@ class Protein(models.Model):
     uniprot_id = models.CharField(primary_key=True, max_length=200, db_index=True)
     display_name = models.CharField(max_length=200, blank=True, null=True)
     sequence = models.CharField(max_length=200, blank=True, null=True)
-    gene_entrez_id = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     observation_source = models.CharField(max_length=200, blank=True, null=True)
 
@@ -183,6 +193,16 @@ class ProteinAssociatesProtein(models.Model):
     class Meta:
         managed = False
         db_table = 'protein_associates_protein'
+
+
+class ProteinAssociatesGene(models.Model):
+    id = models.IntegerField(null=False, blank=False, primary_key=True, db_index=True)
+    uniprot_id = models.ForeignKey('Protein', models.DO_NOTHING, blank=True, null=True)
+    entrez_id = models.ForeignKey('Gene', models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'protein_associates_gene'
 
 
 class VariantAssociatesGene(models.Model):
