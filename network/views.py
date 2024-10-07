@@ -13,10 +13,11 @@ from network.utils import check_files_and_return
 import os
 
 import environ
+
 env = environ.Env()
 environ.Env.read_env()
 
-types = ["protein", "metabolite", "phenotype", "variant"] # "disorders", "genes"
+types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
 
 
 def join_dataframes(df1, df2=None, df3=None):
@@ -30,15 +31,20 @@ def join_dataframes(df1, df2=None, df3=None):
         result = pd.merge(result, df3, left_index=True, right_index=True, how='inner')
     return result
 
+
 # This is wrapped in try-except to be ignored before healthcheck
 try:
-    phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
+    phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"), id_column=env("PATIENT_ID_COLUMN"),
+                                                 return_dataset=True)
     phenotypes_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"),
-            id_column=env("PHENOTYPE_LABEL_COLUMN"),
-            column_list=[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")])
+                                                      id_column=env("PHENOTYPE_LABEL_COLUMN"),
+                                                      column_list=[env("PHENOTYPE_TYPE_COLUMN"),
+                                                                   env("PHENOTYPE_DESCRIPTION_COLUMN")])
     proteins = check_files_and_return(env("PROTEIN_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
-    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column=env("PROTEIN_LABEL_COLUMN"), column_list=[env("PROTEIN_DESCRIPTION_COLUMN")], return_dataset=True)
-    metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"), return_dataset=True)
+    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"), id_column=env("PROTEIN_LABEL_COLUMN"),
+                                           column_list=[env("PROTEIN_DESCRIPTION_COLUMN")], return_dataset=True)
+    metabolites = check_files_and_return(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"),
+                                         return_dataset=True)
     # Merge the data to get all values by id without knowing the type (phenotype, proteins, metabolites)
     # of the data in the query
     all_data = join_dataframes(phenotypes_filtered, proteins, metabolites)
@@ -52,6 +58,7 @@ try:
 except FileNotFoundError:
     pass
 
+
 # Function to extract the variable Id from the user friendly input
 # (id is either in brackets at the end or simply the input)
 def extract_var_id(var):
@@ -61,10 +68,12 @@ def extract_var_id(var):
     #var = var.replace(' / Protein', '') # -> not needed because id gets extracted from brackets at the end anyways
     return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
 
+
 # Stip xref string of db -> Not used currently
 def strip_db_name(nodes_refs):
     def strip_string(s):
         return s.split('.', 1)[-1] if '.' in s else s
+
     if not nodes_refs:
         return ""
     # Split the input string by "|", process each part, and join them back together
@@ -72,9 +81,10 @@ def strip_db_name(nodes_refs):
     stripped_parts = [strip_string(part) for part in parts]
     return '|'.join(stripped_parts)
 
+
 # Function to convert the numerical values of (most) phenotypical variables into more representative labels
 # (e.g. 0:female, 1:male)
-def var_label_mapping(var_id,label):
+def var_label_mapping(var_id, label):
     # When no var label mapping provided return original labels
     if var_label_map_dict is None:
         return label
@@ -89,6 +99,7 @@ def var_label_mapping(var_id,label):
     else:
         return curr_var_label_dict.get(str(label), str(label))
 
+
 # functions to get appropriate background colors for plotting
 def darken_hex(hex_color, factor=0.2):
     # Convert the hex color to RGB
@@ -100,9 +111,13 @@ def darken_hex(hex_color, factor=0.2):
     b = int(b * (1 - factor))
     # Convert back to hex
     return f'#{r:02x}{g:02x}{b:02x}'
+
+
 # functions to get appropriate colors for plotting
 def rgb_to_hex(rgb):
-    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+    return '#{:02x}{:02x}{:02x}'.format(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
+
+
 # functions to darken rgb plotting for border colour of color palette
 def darken_rgb(rgb, factor=0.2):
     darkened_rgb = [max(0, min(1, c - factor)) for c in rgb]
@@ -111,11 +126,13 @@ def darken_rgb(rgb, factor=0.2):
 
 def enlarge_palette(color_palette, n_colors):
     enlarged_palette = color_palette * (n_colors // len(color_palette)) + color_palette[
-                                                                                :n_colors % len(color_palette)]
+                                                                          :n_colors % len(color_palette)]
     return enlarged_palette
+
 
 # Colormaps for overview page plots
 color_palette = sns.color_palette("muted")
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -160,7 +177,8 @@ class GetNetworkView(generics.GenericAPIView):
         if query_id is None or query_id == "":
             return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
         if type is None or type not in types:
-            return HttpResponseBadRequest('Query type t must be declared and either protein, metabolite, phenotype and variant', status=405)
+            return HttpResponseBadRequest(
+                'Query type t must be declared and either protein, metabolite, phenotype and variant', status=405)
         if limit is None or limit == "":
             limit = 10
         else:
@@ -194,6 +212,7 @@ class GetNetworkView(generics.GenericAPIView):
             'External Edges': list(externals)
         }
         return JsonResponse(combined_query, safe=False, status=200)
+
 
 # TODO make this compatible for external nodes as input (use and set parameter cohort_node=False in external_query())
 @extend_schema_view(
@@ -253,6 +272,7 @@ class GetAllExternalsView(generics.GenericAPIView):
         }
         return JsonResponse(combined_query, safe=False, status=200)
 
+
 @extend_schema_view(
     get=extend_schema(
         summary="Returns node id/name recommendations depending on the input request typed by the user",
@@ -280,9 +300,11 @@ class TypeaheadView(generics.GenericAPIView):
         # retrieve recommendations using the queries/typeahead_query function
         res = typeahead_query(s)
         # reformat and return as json
-        res_filtered = res.values('id', 'description', 'display_name','source_table')
-        dict_from_queryset = {item['id']: {'display_name':item['display_name'], 'description':item['description'], 'source_table':item['source_table']} for item in res_filtered}
+        res_filtered = res.values('id', 'description', 'display_name', 'source_table')
+        dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
+                                           'source_table': item['source_table']} for item in res_filtered}
         return JsonResponse(dict_from_queryset, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -305,23 +327,26 @@ class GetVariablesView(generics.GenericAPIView):
                 return 'binaryCategorical'
             else:
                 return 'nonbinaryCategorical'
+
         # Get all variables with their type and a suitable identifier and put them in the same format
         ## get Phenotype variables
         # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
         phenotypes_values = pd.DataFrame(phenotypes_meta_filtered[
                                              [(i in phenotypes_filtered.columns) for i in
-                                              phenotypes_meta_filtered.index]][[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")]].copy())
+                                              phenotypes_meta_filtered.index]][[env("PHENOTYPE_TYPE_COLUMN"),
+                                                                                env("PHENOTYPE_DESCRIPTION_COLUMN")]].copy())
         # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_values.loc[:,'num_cat'] = pd.Series(phenotypes_filtered.nunique())
+        phenotypes_values.loc[:, 'num_cat'] = pd.Series(phenotypes_filtered.nunique())
         # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
         # based on the type variable in the data and the calculated number of categories
-        phenotypes_values.loc[:,'group'] = phenotypes_values.loc[:, [env("PHENOTYPE_TYPE_COLUMN"), 'num_cat']].apply(makeGroup,axis=1)
+        phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [env("PHENOTYPE_TYPE_COLUMN"), 'num_cat']].apply(
+            makeGroup, axis=1)
         # create identifier annotation which combines the user friendly description with the chris id in brackets
         # (if description is NaN only return the index)
-        phenotypes_values.loc[:,'identifier'] = np.where(
+        phenotypes_values.loc[:, 'identifier'] = np.where(
             phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")].isna(),
             phenotypes_values.index,
-            phenotypes_values.loc[:,env("PHENOTYPE_DESCRIPTION_COLUMN")] + ' (' + phenotypes_values.index + ')')
+            phenotypes_values.loc[:, env("PHENOTYPE_DESCRIPTION_COLUMN")] + ' (' + phenotypes_values.index + ')')
         del phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")]
         del phenotypes_values['num_cat']
         del phenotypes_values[env("PHENOTYPE_TYPE_COLUMN")]
@@ -344,15 +369,18 @@ class GetVariablesView(generics.GenericAPIView):
         ## get Metabolite variables
         metabolite_values = None
         if not isinstance(metabolites, type(None)):
-            metabolite_values = pd.DataFrame(index=metabolites.columns, data={'identifier': metabolites.columns + ' / Metabolite'})
+            metabolite_values = pd.DataFrame(index=metabolites.columns,
+                                             data={'identifier': metabolites.columns + ' / Metabolite'})
             metabolite_values.loc[:, 'group'] = 'continuous'
 
         ## combine all data
-        existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if not isinstance(x, type(None))]
-        combined_vals = pd.concat(existing_values,axis=0)
+        existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if
+                           not isinstance(x, type(None))]
+        combined_vals = pd.concat(existing_values, axis=0)
         # create output dict whit type as key and identifier as value and return it
         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -373,14 +401,15 @@ class GetTableView(generics.GenericAPIView):
         req_data_dict['Genetic Variants'] = CohortVariant.objects.count()
         # Get Phenotype mera file to count the different data types (currently not used in frontend table)
         df = pd.DataFrame(phenotypes_meta_filtered[env("PHENOTYPE_TYPE_COLUMN")][
-                                             [(i in phenotypes_filtered.columns) for i in
-                                              phenotypes_meta_filtered.index]].copy()).value_counts()
+                              [(i in phenotypes_filtered.columns) for i in
+                               phenotypes_meta_filtered.index]].copy()).value_counts()
         req_data_dict['Phenotype-Boolean'] = int(df['boolean']) if 'boolean' in df.index else 0
         req_data_dict['Phenotype-Categorical'] = int(df['categorical']) if 'categorical' in df.index else 0
         req_data_dict['Phenotype-Float'] = int(df['float']) if 'float' in df.index else 0
         req_data_dict['Phenotype-Integer'] = int(df['integer']) if 'integer' in df.index else 0
         req_data_dict['Phenotype-Time'] = int(df['time']) if 'time' in df.index else 0
         return JsonResponse(req_data_dict, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -452,7 +481,8 @@ class GetDataView(generics.GenericAPIView):
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
-                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data', status=405)
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data',
+                                              status=405)
             # Check if variables are equal because this will not return meaningful results and can throw an error later
             if c == x or c == y:
                 return HttpResponseBadRequest(
@@ -462,7 +492,8 @@ class GetDataView(generics.GenericAPIView):
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
             aggregated_df_mean = (df.groupby([x_idx, c_idx]).filter(lambda x:
-                x[y_idx].notna().sum() >= 5).groupby([x_idx, c_idx])[y_idx].mean().reset_index().
+                                                                    x[y_idx].notna().sum() >= 5).groupby(
+                [x_idx, c_idx])[y_idx].mean().reset_index().
                                   sort_values(x_idx, ascending=True))
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
@@ -476,9 +507,10 @@ class GetDataView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
-                    "label": var_label_mapping(c_idx,group_name),
+                    "label": var_label_mapping(c_idx, group_name),
                     "backgroundColor": colormap_local[color],
-                    "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data[y_idx])]
+                    "data": [{'x': var_label_mapping(x_idx, x), 'y': y} for x, y in
+                             zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
         # if no color var c is given only group by x var
@@ -486,7 +518,8 @@ class GetDataView(generics.GenericAPIView):
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return something when there are 5 or more values =! NaN (opposite is very unlikely)
             aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
-                 x[y_idx].notna().sum() >= 5).groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+                                                          x[y_idx].notna().sum() >= 5).groupby(x_idx)[
+                y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population",
@@ -498,6 +531,7 @@ class GetDataView(generics.GenericAPIView):
         # Store the aggregated data values
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -570,9 +604,10 @@ class GetDataBarCountView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
-                    "label": var_label_mapping(c_idx,group_name),
+                    "label": var_label_mapping(c_idx, group_name),
                     "backgroundColor": colormap_local[color],
-                    "data": [{'x': var_label_mapping(x_idx,x), 'y': y} for x, y in zip(group_data[x_idx], group_data['counts'])]
+                    "data": [{'x': var_label_mapping(x_idx, x), 'y': y} for x, y in
+                             zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
         # if no color var c is given only group by x var
@@ -586,10 +621,11 @@ class GetDataBarCountView(generics.GenericAPIView):
                 "data": df_count['counts'].tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx,df_count[x_idx].unique().tolist())
+        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist())
         # Store the count data values
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -661,6 +697,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         if pd.api.types.is_string_dtype(all_data[y_idx]):
             return HttpResponseBadRequest(
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
+
         # helper function to calculate boxplot stats or return nan boxplot when privacy restrictions are violated
         def boxplot_stats(group):
             if group[y_idx].notna().sum() >= 5:
@@ -674,6 +711,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 }
             else:
                 return nan_boxplot
+
         temp = []
         grouped = pd.DataFrame()
         # Make df subset with x and y var
@@ -709,7 +747,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
                 dataset = {
-                    'label': var_label_mapping(c_idx,group_name),
+                    'label': var_label_mapping(c_idx, group_name),
                     'backgroundColor': colormap_local[color],
                     'borderColor': bordercolor_map_local[color],
                     'padding': 10,
@@ -728,19 +766,20 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
             temp_style = {
-            "label": "Whole Population",
-            "backgroundColor": "black",
-            'padding': 10,
-            'itemRadius': 0,
-            'borderWidth': 1,
-            'data': grouped.tolist(),
+                "label": "Whole Population",
+                "backgroundColor": "black",
+                'padding': 10,
+                'itemRadius': 0,
+                'borderWidth': 1,
+                'data': grouped.tolist(),
             }
             temp.append(temp_style)
         # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
+        req_data_dict["labels"] = var_label_mapping(x_idx, grouped.index.tolist())
         # Store box plot statistics
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -789,12 +828,11 @@ class GetDataHeatmapView(generics.GenericAPIView):
         contingency_tab = pd.crosstab(all_data[x_idx], all_data[y_idx])
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = var_label_mapping(x_idx,contingency_tab.index.astype(str).tolist())
-        req_data_dict["yCategories"] = var_label_mapping(y_idx,contingency_tab.columns.astype(str).tolist())
+        req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist())
+        req_data_dict["yCategories"] = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist())
         contingency_tab_inverse = np.array(contingency_tab.values)
         req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
         return JsonResponse(req_data_dict, safe=True)
-
 
 
 # TODO assess if we want a limit for number of categories that color variable c has?
@@ -865,6 +903,7 @@ class GetDataView2(generics.GenericAPIView):
                 return group[y_idx].mean()
             else:
                 return -100
+
         temp = []
         grouped = pd.DataFrame()
         # Check if c var is given and if so split data by it
@@ -874,7 +913,8 @@ class GetDataView2(generics.GenericAPIView):
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
             if c_idx not in all_data.columns:
-                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data', status=405)
+                return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data',
+                                              status=405)
             # Check if variables are equal because this will not return meaningful results and can throw an error later
             if c == x or c == y:
                 return HttpResponseBadRequest(
@@ -897,7 +937,7 @@ class GetDataView2(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
                 temp.append({
-                    "label": var_label_mapping(c_idx,group_name),
+                    "label": var_label_mapping(c_idx, group_name),
                     "backgroundColor": colormap_local[color],
                     "data": grouped[group_name].tolist(),
                 })
@@ -913,7 +953,7 @@ class GetDataView2(generics.GenericAPIView):
                 "data": grouped.tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx,grouped.index.tolist())
+        req_data_dict["labels"] = var_label_mapping(x_idx, grouped.index.tolist())
         # Store the aggregated data
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
