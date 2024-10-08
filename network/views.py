@@ -191,10 +191,11 @@ class GetNetworkView(generics.GenericAPIView):
             # strip xrefs of db names -> currently not used
             # results["xrefs"] = strip_db_name(results["xrefs"])
             # group by source_table
-            if results['source_table'] in nodes:
+            if results['source_table'] in result_nodes:
                 result_nodes[results['source_table']].append(results)
             else:
                 result_nodes[results['source_table']] = [results]
+
         combined_query = {
             'Nodes': result_nodes,
             'Edges': result_edges,
