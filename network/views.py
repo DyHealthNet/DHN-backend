@@ -6,12 +6,13 @@ import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
+from django.conf import settings
 from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
 import json
 import seaborn as sns
-from network.utils import check_files_and_return
+from network.utils import check_files_and_return, list_node_variables
 import os
 import environ
 
@@ -34,7 +35,7 @@ def join_dataframes(df1, df2=None, df3=None):
 
 
 # Don't try to load data if healthcheck is requested
-if len(sys.argv) > 1 and sys.argv[1] == 'healthcheck':
+if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
     pass
 else:
     phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"),
@@ -313,59 +314,17 @@ class TypeaheadView(generics.GenericAPIView):
 class GetVariablesView(generics.GenericAPIView):
     @staticmethod
     def get(request):
-        def make_group(cols):
-            ctype = cols['type']
-            cnumcat = cols['num_cat']
-            if ctype == 'integer' or ctype == 'float' or ctype == 'time':
-                return 'continuous'
-            elif cnumcat == 2:
-                return 'binaryCategorical'
-            else:
-                return 'nonbinaryCategorical'
+        phenotypes_values = list_node_variables(pheno_meta_filtered, phenotypes_filtered, type="phenotype")
 
-        # Get all variables with their type and a suitable identifier and put them in the same format
-        # get Phenotype variables
-        # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
-        phenotypes_values = pd.DataFrame(pheno_meta_filtered[[(i in phenotypes_filtered.columns)
-                                                              for i in pheno_meta_filtered.index]]
-                                         [[env("PHENOTYPE_TYPE_COLUMN"), env("PHENOTYPE_DESCRIPTION_COLUMN")]].copy())
-        # calculate the number of categories to differentiate the binary and nonbinary categorical type
-        phenotypes_values.loc[:, 'num_cat'] = pd.Series(phenotypes_filtered.nunique())
-        # annotate each variable with one of the types 'continuous', 'binaryCategorical' and 'nonbinaryCategorical'
-        # based on the type variable in the data and the calculated number of categories
-        phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [env("PHENOTYPE_TYPE_COLUMN"), 'num_cat']].apply(
-            make_group, axis=1)
-        # create identifier annotation which combines the user friendly description with the chris id in brackets
-        # (if description is NaN only return the index)
-        phenotypes_values.loc[:, 'identifier'] = np.where(
-            phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")].isna(),
-            phenotypes_values.index,
-            phenotypes_values.loc[:, env("PHENOTYPE_DESCRIPTION_COLUMN")] + ' (' + phenotypes_values.index + ')')
-        del phenotypes_values[env("PHENOTYPE_DESCRIPTION_COLUMN")]
-        del phenotypes_values['num_cat']
-        del phenotypes_values[env("PHENOTYPE_TYPE_COLUMN")]
         # get Protein variables
         protein_values = None
         if not isinstance(proteins, type(None)):
-            protein_values = pd.DataFrame(proteins_meta[
-                                              [(i in proteins.columns) for i in
-                                               proteins_meta.index]][env("PROTEIN_DESCRIPTION_COLUMN")].copy())
-            # Create 'identifier' column based on conditions
-            # (if description is NaN only return the index)
-            protein_values['identifier'] = np.where(
-                protein_values[env("PROTEIN_DESCRIPTION_COLUMN")].isna(),
-                protein_values.index,
-                protein_values[env("PROTEIN_DESCRIPTION_COLUMN")] + ' / Protein' + ' (' + protein_values.index + ')'
-            )
-            del protein_values[env("PROTEIN_DESCRIPTION_COLUMN")]
-            protein_values.loc[:, 'group'] = 'continuous'
+            protein_values = list_node_variables(proteins_meta, proteins, type="protein")
 
         # get Metabolite variables
         metabolite_values = None
         if not isinstance(metabolites, type(None)):
-            metabolite_values = pd.DataFrame(index=metabolites.columns,
-                                             data={'identifier': metabolites.columns + ' / Metabolite'})
-            metabolite_values.loc[:, 'group'] = 'continuous'
+            metabolite_values = list_node_variables(metabolites, type="metabolite")
 
         # combine all data
         existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if

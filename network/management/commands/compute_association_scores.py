@@ -1,7 +1,9 @@
 from django.core.management.base import BaseCommand
 import sys
 import network.utils as utils
+from network.score_calculation import calculate_association_scores
 import environ
+import traceback
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 env = environ.Env()
@@ -16,10 +18,13 @@ class Command(BaseCommand):
             print(
                 f'Finished association score testing successfully. The results were saved in {env("CALCULATED_EDGES_PATH")}')
         except Exception as e:
+            # print stack trace
+            traceback.print_exc()
             print(f"Association score testing failed: {e}")
             sys.exit(1)
 
-    def compute_association_scores(self):
+    @staticmethod
+    def compute_association_scores():
         id_column = env("PATIENT_ID_COLUMN")
 
         phenotypes = utils.check_files_and_return(env("PHENOTYPE_PATH"), id_column=id_column)
@@ -37,18 +42,18 @@ class Command(BaseCommand):
             proteins = None
             print("No protein file was provided.")
 
-        if not isinstance(env("NUMBER_OF_WORKERS"), int):
+        try:
+            number_of_workers = int(env("NUMBER_OF_WORKERS"))
+        except ValueError:
             number_of_workers = 16
             print(f"{env('NUMBER_OF_WORKERS')} is not an integer. 16 workers will be used per default now.",
                   "You might want to adjust this next time according to your resources.")
-        else:
-            number_of_workers = env("NUMBER_OF_WORKERS")
 
         test_type = env("TEST_TYPE")
         multiple_testing = env("MULTIPLE_TESTING")
 
-        results = utils.calculate_association_scores(phenotypes, phenotypes_meta, id_column,proteins,metabolites,
-                                                     number_of_workers, test_type, multiple_testing)
+        results = calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
+                                               number_of_workers, test_type, multiple_testing)
         results.to_csv(env("CALCULATED_EDGES_PATH"))
 
         # Subset the data to participents that are present in all provided data tables

@@ -11,6 +11,7 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
+
 class Command(BaseCommand):
     def handle(self, *args, **options):
         # Store the results of each check
