@@ -7,7 +7,9 @@ import traceback
 import logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-env = environ.Env()
+env = environ.Env(
+    NUMBER_OF_WORKERS=(int, 16)
+)
 environ.Env.read_env()
 
 logger = logging.getLogger("django")
@@ -32,6 +34,8 @@ class Command(BaseCommand):
 
         phenotypes = utils.check_files_and_return(env("PHENOTYPE_PATH"), id_column=id_column)
         phenotypes_meta = utils.check_files_and_return(env("PHENOTYPE_META_PATH"))
+        # rename the column PHENOTYPE_TYPE_COLUMN to "type" to work with the calculate_association_scores function
+        phenotypes_meta = phenotypes_meta.rename(columns={env("PHENOTYPE_TYPE_COLUMN"): "type"})
 
         if env("METABOLITE_PATH") is not None:
             metabolites = utils.check_files_and_return(env("METABOLITE_PATH"), id_column=id_column)
@@ -45,12 +49,8 @@ class Command(BaseCommand):
             proteins = None
             logger.warning("No protein file was provided.")
 
-        try:
-            number_of_workers = int(env("NUMBER_OF_WORKERS"))
-        except ValueError:
-            number_of_workers = 16
-            logger.warning(f"{env('NUMBER_OF_WORKERS')} is not an integer. 16 workers will be used per default now. "
-                           f"You might want to adjust this next time according to your resources.")
+        number_of_workers = env("NUMBER_OF_WORKERS")
+        logger.debug(f"Using {number_of_workers} workers for the calculation.")
 
         test_type = env("TEST_TYPE")
         multiple_testing = env("MULTIPLE_TESTING")
