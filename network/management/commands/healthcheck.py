@@ -1,15 +1,18 @@
 import os
 import sys
+import logging
 from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
 from django.apps import apps
 from network.utils import check_files_and_return
-
 import environ
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 env = environ.Env()
 environ.Env.read_env()
+
+logger = logging.getLogger('django')
 
 
 class Command(BaseCommand):
@@ -22,33 +25,33 @@ class Command(BaseCommand):
             "tables": False
         }
 
-        print("Start Health checks:")
+        logger.info("Start Health checks:")
         try:
             results["files"] = self.check_files()
         except Exception as e:
-            print(f"❌  Files check failed: {e}")
+            logger.error(f"❌  Files check failed: {e}")
 
         try:
             results["columns"] = self.check_columns()
         except Exception as e:
-            print(f"❌  Columns check failed: {e}")
+            logger.error(f"❌  Columns check failed: {e}")
 
         try:
             results["database"] = self.check_database()
         except Exception as e:
-            print(f"❌  Database check failed: {e}")
+            logger.error(f"❌  Database check failed: {e}")
 
         try:
             results["tables"] = self.check_tables()
         except Exception as e:
-            print(f"❌  Tables check failed: {e}")
+            logger.error(f"❌  Tables check failed: {e}")
 
         # Exit with a non-zero code if any check failed
         if not all(results.values()):
-            print("Health check failed.")
+            logger.error("Health check failed.")
             sys.exit(1)
         else:
-            print("Health check successfully passed.")
+            logger.info("Health check successfully passed.")
 
     @staticmethod
     def check_files():
@@ -61,7 +64,7 @@ class Command(BaseCommand):
                 raise FileNotFoundError(f"Required file not found: {file_path}")
             else:
                 check_files_and_return(file_path, return_dataset=False)
-        print("✅  All required files are present.")
+        logger.info("✅  All required files are present.")
         return True
 
     @staticmethod
@@ -79,7 +82,7 @@ class Command(BaseCommand):
                 columns = file.readline().strip()
             if env("PATIENT_ID_COLUMN") not in columns:
                 raise Exception(f"Column {env('PATIENT_ID_COLUMN')} not found in {file_path}")
-        print("✅  Patient ID column is present everywhere.")
+        logger.info("✅  Patient ID column is present everywhere.")
         return True
 
     @staticmethod
@@ -89,7 +92,7 @@ class Command(BaseCommand):
             db_conn.cursor()
         except OperationalError:
             raise OperationalError("Database connection failed.")
-        print("✅  The database is successfully connected.")
+        logger.info("✅  The database is successfully connected.")
         return True
 
     @staticmethod
@@ -124,5 +127,5 @@ class Command(BaseCommand):
 
         if missing_tables:
             raise Exception(f"Missing database tables/views/materialized views: {', '.join(missing_tables)}")
-        print("✅  All necessary database tables, views, and materialized views are present.")
+        logger.info("✅  All necessary database tables, views, and materialized views are present.")
         return True

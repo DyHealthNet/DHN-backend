@@ -5,20 +5,23 @@ import network.utils as utils
 import environ
 import subprocess
 import traceback
+import logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 env = environ.Env()
 environ.Env.read_env()
 
+logger = logging.getLogger('django')
+
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
-            print("Initializing the database. This will probably take multiple hours.")
+            logger.info("Initializing the database. This will probably take multiple hours.")
             self.init_db()
 
         except Exception as e:
-            print(f"Database initialization failed: {e}")
+            logger.error(f"Database initialization failed: {e}")
             traceback.print_exc()
             sys.exit(1)
 

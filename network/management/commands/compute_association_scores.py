@@ -4,23 +4,26 @@ import network.utils as utils
 from network.score_calculation import calculate_association_scores
 import environ
 import traceback
+import logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 env = environ.Env()
 environ.Env.read_env()
 
+logger = logging.getLogger("django")
+
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
-            print("Starting association score testing.")
+            logger.info("Starting association score testing.")
             self.compute_association_scores()
-            print(
-                f'Finished association score testing successfully. The results were saved in {env("CALCULATED_EDGES_PATH")}')
+            logger.info(f'Finished association score testing successfully. '
+                        f'The results were saved in {env("CALCULATED_EDGES_PATH")}')
         except Exception as e:
             # print stack trace
             traceback.print_exc()
-            print(f"Association score testing failed: {e}")
+            logger.error("Association score testing failed: {e}")
             sys.exit(1)
 
     @staticmethod
@@ -34,20 +37,20 @@ class Command(BaseCommand):
             metabolites = utils.check_files_and_return(env("METABOLITE_PATH"), id_column=id_column)
         else:
             metabolites = None
-            print("No metabolite file was provided.")
+            logger.warning("No metabolite file was provided.")
 
         if env("PROTEIN_PATH") is not None:
             proteins = utils.check_files_and_return(env("PROTEIN_PATH"), id_column=id_column)
         else:
             proteins = None
-            print("No protein file was provided.")
+            logger.warning("No protein file was provided.")
 
         try:
             number_of_workers = int(env("NUMBER_OF_WORKERS"))
         except ValueError:
             number_of_workers = 16
-            print(f"{env('NUMBER_OF_WORKERS')} is not an integer. 16 workers will be used per default now.",
-                  "You might want to adjust this next time according to your resources.")
+            logger.warning(f"{env('NUMBER_OF_WORKERS')} is not an integer. 16 workers will be used per default now. "
+                           f"You might want to adjust this next time according to your resources.")
 
         test_type = env("TEST_TYPE")
         multiple_testing = env("MULTIPLE_TESTING")

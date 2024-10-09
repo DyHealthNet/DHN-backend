@@ -15,11 +15,14 @@ import seaborn as sns
 from network.utils import check_files_and_return, list_node_variables
 import os
 import environ
+import logging
 
 env = environ.Env()
 environ.Env.read_env()
 
 types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
+
+logger = logging.getLogger('django')
 
 
 def join_dataframes(df1, df2=None, df3=None):
@@ -64,6 +67,7 @@ else:
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
     var_label_map_dict = None
     if os.path.isfile(env("VAR_LABEL_MAPPING")):
+        logger.debug("Loading variable label mapping from file")
         with open(env("VAR_LABEL_MAPPING"), 'r') as file:
             var_label_map_dict = json.load(file)
 
@@ -520,8 +524,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
 
         if x_idx not in all_data.columns:
-            return HttpResponseBadRequest('Variable x must be a valid variable of the data',
-                                          status=405)
+            return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
         temp = []
 
         if c is not None and c != "":

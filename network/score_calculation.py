@@ -6,6 +6,9 @@ import itertools
 from joblib import Parallel, delayed
 from functools import partial
 from django.conf import settings
+import logging
+
+logger = logging.getLogger("django")
 
 
 # Parallel processing function
@@ -148,7 +151,8 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     # Check if all types of phenotype variables are in the allowed list
     invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
     if not invalid_types.empty:
-        print(f"Invalid variable types were found: {invalid_types.type.unique()}. These variables will be ignored.")
+        logger.warning(f"Invalid variable types were found: {invalid_types.type.unique()}. "
+                       f"These variables will be ignored.")
 
     # Extract categorical phenotypes
     phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
@@ -173,15 +177,15 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
     # subsample data for testing (only keep first 500 columns)
     if settings.DEBUG:
-        print("Subsampling data for testing")
+        logger.debug("Subsampling data for testing")
         cont_data = cont_data.iloc[:, :500]
         cat_data = cat_data.iloc[:, :500]
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
 
-    print("Continous data shape: ", cont_data.shape)
-    print("Categorical data shape: ", cat_data.shape)
+    logger.debug(f"Continous data shape: {cont_data.shape}")
+    logger.debug(f"Categorical data shape: {cat_data.shape}")
 
     # Create partial functions with the necessary additional arguments
     cat_cat_partial = partial(cat_cat, phenotypes_cat=cat_data)
@@ -190,24 +194,24 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
     # Categorical-Categorical association testing
     pairs = list(itertools.combinations(cat_data.columns, 2))
-    print(f"Made {len(pairs):,} cat-cat pairs")
+    logger.debug(f"Made {len(pairs):,} cat-cat pairs")
     cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers,
                               method=multiple_testing)
-    print("Finished cat-cat score creation")
+    logger.info("Finished categorical-categorical score creation")
 
     # Continuous-Continuous association testing
     pairs = list(itertools.combinations(cont_data.columns, 2))
-    print(f"Made {len(pairs):,} cont-cont pairs")
+    logger.debug(f"Made {len(pairs):,} cont-cont pairs")
     cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers,
                                 method=multiple_testing)
-    print("Finished cont-cont")
+    logger.info("Finished continuous-continuous score creation")
 
     # Continuous-Categorical association testing
     pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns)))
-    print("Made cont-cat pairs")
+    logger.debug("Made cont-cat pairs")
     cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers,
                                method=multiple_testing)
-    print("Finished cont-cat")
+    logger.info("Finished continuous-categorical score creation")
 
     scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_results], ignore_index=True)
 

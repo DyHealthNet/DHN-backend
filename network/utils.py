@@ -2,6 +2,9 @@ import os
 import pandas as pd
 import numpy as np
 from django.conf import settings
+import logging
+
+logger = logging.getLogger('django')
 
 
 # Check file for correct format and return the dataset if needed
@@ -16,7 +19,7 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
     # Set correct seperator according to ending
     sep = ',' if ending == '.csv' else '\t'
 
-    print(f"Reading file {path}")
+    logger.debug(f"Reading file {path}")
     dataset = pd.read_csv(path, header=0, sep=sep, index_col=None, low_memory=False).copy()
 
     # Check that id_column exists if provided

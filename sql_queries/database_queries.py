@@ -1,6 +1,7 @@
 import json
 import os
 import timeit
+import logging
 # we were using the sqlalchemy library to connect to the database, but you should probably change it to
 # the django ORM
 from sqlalchemy import select, func, text
