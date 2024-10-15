@@ -25,7 +25,7 @@ class Command(BaseCommand):
         except Exception as e:
             # print stack trace
             traceback.print_exc()
-            logger.error("Association score testing failed: {e}")
+            logger.error(f"Association score testing failed: {e}")
             sys.exit(1)
 
     @staticmethod

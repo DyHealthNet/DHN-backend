@@ -1,147 +1,106 @@
-import math
 import numpy as np
-import scipy as si
 import pandas as pd
-import itertools
-from joblib import Parallel, delayed
-from functools import partial
 from django.conf import settings
 import logging
+import nanpy
+import timeit
 
 logger = logging.getLogger("django")
 
 
-# Parallel processing function
-def multiprocess(items, num_workers, function_call):
-    results = Parallel(n_jobs=num_workers)(delayed(function_call)(i) for i in items)
-    return list(results)
+def df_to_numpy(df: pd.DataFrame):
+    cols = df.columns
+    df = df.fillna(settings.NAN_VALUE)
+    return df.to_numpy(), cols
 
 
-# Categorical-Categorical association scores
-def cat_cat(pair, phenotypes_cat):
-    label1, label2 = pair
+def nanpy_formating(r2: np.array, pvalues: np.array, labels: list, effsize_type: str, test: str, file_name: str = None):
+    start = timeit.default_timer()
+    rows_idx, cols_idx = np.tril_indices(r2.shape[0], k=-1)
 
-    # Determine number of categories per phenotype
-    temp_cat1 = np.array(phenotypes_cat[label1].unique())
-    temp_cat2 = np.array(phenotypes_cat[label2].unique())
-    categ1 = len(temp_cat1[~pd.isna(temp_cat1)])
-    categ2 = len(temp_cat2[~pd.isna(temp_cat2)])
+    # Pre-format labels and values
+    label1 = np.array(labels)[rows_idx]
+    label2 = np.array(labels)[cols_idx]
+    pval = [r'"{\"full\": %s}"' % val for val in pvalues[rows_idx, cols_idx]]
+    effsize = [r'"{\"full\": %s}"' % val for val in r2[rows_idx, cols_idx]]
 
-    if (categ1 < 2) or (categ2 < 2):  # No test will be performed if a phenotype has only a single possible value
-        return {
-            'label1': label1,
-            'label2': label2,
-            'pval': 1,
-            'effsize': 0,
-            'effsize_type': None,
-            'test': None
-        }
-
-    else:  # Chi-squared test
-        contingency_table = pd.crosstab(phenotypes_cat[label1], phenotypes_cat[label2])
-        pval = si.stats.chi2_contingency(contingency_table, correction=True)[1]
-        effsize = si.stats.contingency.association(contingency_table, correction=True, method='cramer')
-
-        return {
-            'label1': label1,
-            'label2': label2,
-            'pval': pval,
-            'effsize': effsize,
-            'effsize_type': 'Cramer´s v',
-            'test': 'Chi-squared test'
-        }
-
-
-# Continuous-Categorical association scores
-def cat_cont(pair, phenotypes_cat, cont_data, test):
-    cont, cat = pair
-
-    # Determine number of categories per phenotype
-    temp_cat = np.array(phenotypes_cat.iloc[:, cat].unique())
-    categ = len(temp_cat[~pd.isna(temp_cat)])
-
-    if categ < 2:  # No test will be performed if the phenotype has only a single possible value
-        return {
-            'label1': cont_data.columns[cont],
-            'label2': phenotypes_cat.columns[cat],
-            'pval': 1,
-            'effsize': 0,
-            'effsize_type': None,
-            'test': None
-        }
-
-    elif categ == 2:  # t-test (parametric) or Mann-Whitney U (non-parametric) if phenotype has exactly 2 categories
-        temp = [*(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list))]
-        if test == 'parametric':
-            r = si.stats.ttest_ind(temp[0], temp[1], nan_policy='omit')
-            test_performed = 't-test'
-        else:
-            r = si.stats.mannwhitneyu(temp[0], temp[1], nan_policy='omit')
-            test_performed = 'Mann–Whitney U test'
-        # calculate cohens d by substracting mean of group 1 by mean of group 2 and dividing by
-        # pooled standard deviation
-        cohens_d = abs(
-            (np.mean(temp[0]) - np.mean(temp[1])) / (math.sqrt((np.std(temp[1]) ** 2 + np.std(temp[0]) ** 2) / 2)))
-        return {
-            'label1': cont_data.columns[cont],
-            'label2': phenotypes_cat.columns[cat],
-            'pval': r.pvalue,
-            'effsize': cohens_d,
-            'effsize_type': "Cohen's d",
-            'test': test_performed
-        }
-
-    else:  # one-way ANOVA test (parametric) or Kruskal-Wallis (non-parametric) if phenotype has more than 2 categories
-        if test == 'parametric':
-            r = si.stats.f_oneway(
-                *(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list)),
-                nan_policy='omit')
-            # calculate eta squared using f-statistic (formula from Richardson (2011, Educational Research Review))
-            eta_squared = (r.statistic * (categ - 1)) / ((r.statistic * (categ - 1)) + (len(cont_data) - categ))
-            test_performed = 'one-way ANOVA test'
-        else:
-            # calculate eta squared using H-statistic (formula from Tomczak, "The need to report effect size estimates
-            # revisited. An overview of some recommended measures of effect size."(2014).
-            r = si.stats.kruskal(*(cont_data.iloc[:, cont].groupby(phenotypes_cat.iloc[:, cat], dropna=True).agg(list)),
-                                 nan_policy='omit')
-            eta_squared = (r.statistic - categ + 1) / (len(cont_data) - categ)
-            test_performed = 'Kruskal–Wallis test'
-        return {
-            'label1': cont_data.columns[cont],
-            'label2': phenotypes_cat.columns[cat],
-            'pval': r.pvalue,
-            'effsize': eta_squared,
-            'effsize_type': "eta squared",
-            'test': test_performed
-        }
-
-
-# Continuous-Continuous association scores
-def cont_cont(pair, cont_data, test):
-    label1, label2 = pair
-    indices = np.isfinite(cont_data[label1]) * np.isfinite(cont_data[label2])
-    if test == 'parametric':
-        cor = si.stats.pearsonr(cont_data.loc[indices, label1], cont_data.loc[indices, label2])
-        test_performed = 'Pearson correlation'
-    else:
-        cor = si.stats.spearmanr(cont_data.loc[indices, label1], cont_data.loc[indices, label2])
-        test_performed = 'Spearman´s rank correlation'
-
-    return {
+    df = pd.DataFrame({
         'label1': label1,
         'label2': label2,
-        'pval': cor.pvalue,
-        'effsize': cor.statistic,
-        'effsize_type': 'correlation',
-        'test': test_performed
-    }
+        'pval': pval,
+        'effsize': effsize,
+        'effsize_type': effsize_type,
+        'test': test
+    })
+
+    if file_name:
+        df.to_csv(file_name, sep=',', index=True, header=False, quoting=3, lineterminator='\n')
+
+    logger.debug(f"Finished formatting of {test} in {timeit.default_timer() - start:2f} seconds")
+    return df
 
 
-# Multiprocessing of all provided pairs of variables according to function_call and multiple-testing correction
-def testing(pairs, function_call, num_workers, method='bh'):
-    results = pd.DataFrame(multiprocess(pairs, num_workers=num_workers, function_call=function_call))
-    results['adj_pval'] = si.stats.false_discovery_control(results['pval'], method=method)
-    return results
+def nanpy_cat_cat(cat_phenotypes: pd.DataFrame):
+    cat_phenotypes, cols = df_to_numpy(cat_phenotypes)
+    effsize, pval = nanpy.chi_squared(cat_phenotypes, axis=1, threads=settings.NUM_WORKERS, return_type='cramers_v',
+                                      nan_value=settings.NAN_VALUE)
+    return nanpy_formating(effsize, pval, cols, 'Cramer\'s v', 'Chi-squared test')
+
+
+def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, test: str):
+    # split cat_phenotypes into two dataframes, one with columns that contain only two unique values and one with more
+    # than two unique values
+    cat_phenotypes_two = cat_phenotypes.loc[:, cat_phenotypes.nunique() == 2]
+    cat_phenotypes_more = cat_phenotypes.loc[:, cat_phenotypes.nunique() > 2]
+
+    cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
+    cat_phenotypes_two, cat_cols_two = df_to_numpy(cat_phenotypes_two)
+    cat_phenotypes_more, cat_cols_more = df_to_numpy(cat_phenotypes_more)
+
+    if test == 'parametric':
+        logger.debug("Doing parametric tests with shape: %s", cat_phenotypes_two.shape)
+        cohens_d, pval = nanpy.ttest(cat_phenotypes_two, cont_phenotypes, axis=1,
+                                     threads=settings.NUM_WORKERS, return_type='cohens_d', check_data=True)
+        np2, pval_np2 = nanpy.anova(cat_phenotypes_more, cont_phenotypes, axis=1,
+                                    threads=settings.NUM_WORKERS, return_type='np2', check_data=True)
+        tests = (("ttest", "cohens_d"), ("anova", "np2"))
+    else:
+        logger.debug("Doing non-parametric tests with shape: %s", cat_phenotypes_two.shape)
+        cohens_d, pval = nanpy.mwu(cat_phenotypes_two, cont_phenotypes, axis=1,
+                                   threads=settings.NUM_WORKERS, mode='asymptotic')
+        np2, pval_np2 = nanpy.kruskal_wallis(cat_phenotypes_more, cont_phenotypes, axis=1,
+                                             threads=settings.NUM_WORKERS, return_type='eta2')
+        tests = (("mwu", "cohens_d"), ("kruskal_wallis", "eta2"))
+    # TODO: check if the columns are in the correct order for this type of test
+    return nanpy_formating(cohens_d, pval, cont_cols, tests[0][1], tests[0][0]), \
+        nanpy_formating(np2, pval_np2, cont_cols, tests[1][1], tests[1][0])
+
+
+def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
+    cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
+    if test == 'parametric':
+        logger.debug("Doing Pearson correlation with shape: %s", cont_phenotypes.shape)
+        r2, pval = nanpy.pearsonr(cont_phenotypes, nan_value=settings.NAN_VALUE, threads=settings.NUM_WORKERS,
+                                  axis=1, use_numba=False)
+        test = "Pearson correlation"
+    else:
+        logger.debug("Doing Spearman correlation with shape: %s", cont_phenotypes.shape)
+        r2, pval = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1, use_numba=False)
+        test = "Spearman's rank correlation"
+    return nanpy_formating(r2, pval, cont_cols, 'correlation', test)
+
+
+def order_categories(data: pd.DataFrame):
+    """
+    Order categories in a dataframe such that they start at 0 and are consecutive integers.
+    :param data: the dataframe to order
+    :return: the ordered dataframe
+    """
+    data = data.copy()
+    order_table = {col: {o: n for n, o in enumerate(sorted(data[col].unique()))} for col in data.columns}
+    for col, mapping in order_table.items():
+        data[col] = data[col].map(mapping).fillna(settings.NAN_VALUE).astype(int)
+    return data
 
 
 def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None, workers=16,
@@ -184,35 +143,22 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
 
+    cat_data = order_categories(cat_data)
+
     logger.debug(f"Continous data shape: {cont_data.shape}")
     logger.debug(f"Categorical data shape: {cat_data.shape}")
 
-    # Create partial functions with the necessary additional arguments
-    cat_cat_partial = partial(cat_cat, phenotypes_cat=cat_data)
-    cat_cont_partial = partial(cat_cont, phenotypes_cat=cat_data, cont_data=cont_data, test=test)
-    cont_cont_partial = partial(cont_cont, cont_data=cont_data, test=test)
-
-    # Categorical-Categorical association testing
-    pairs = list(itertools.combinations(cat_data.columns, 2))
-    logger.debug(f"Made {len(pairs):,} cat-cat pairs")
-    cat_cat_results = testing(pairs=pairs, function_call=cat_cat_partial, num_workers=workers,
-                              method=multiple_testing)
+    cat_cat_results = nanpy_cat_cat(cat_data)
     logger.info("Finished categorical-categorical score creation")
 
     # Continuous-Continuous association testing
-    pairs = list(itertools.combinations(cont_data.columns, 2))
-    logger.debug(f"Made {len(pairs):,} cont-cont pairs")
-    cont_cont_results = testing(pairs=pairs, function_call=cont_cont_partial, num_workers=workers,
-                                method=multiple_testing)
+    cont_cont_results = nanpy_cont_cont(cont_data, test)
     logger.info("Finished continuous-continuous score creation")
 
     # Continuous-Categorical association testing
-    pairs = ((a, b) for a in range(len(cont_data.columns)) for b in range(len(cat_data.columns)))
-    logger.debug("Made cont-cat pairs")
-    cat_cont_results = testing(pairs=pairs, function_call=cat_cont_partial, num_workers=workers,
-                               method=multiple_testing)
+    cat_cont_two, cat_cont_more = nanpy_cat_cont(cont_data, cat_data, test)
     logger.info("Finished continuous-categorical score creation")
 
-    scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_results], ignore_index=True)
+    scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_two, cat_cont_more], ignore_index=True)
 
     return scores

@@ -14,7 +14,8 @@ from pathlib import Path
 
 import environ
 env = environ.Env(
-    DEBUG=(bool, False)
+    DEBUG=(bool, False),
+    NUM_WORKERS=(int, 1)
 )
 environ.Env.read_env()
 
@@ -188,6 +189,8 @@ LOGGING = {
 
 # Custom DyHealthNet settings
 
+NAN_VALUE = -999.0
+
 PHENOTYPE_DESCRIPTION_COLUMN = env("PHENOTYPE_DESCRIPTION_COLUMN")
 PHENOTYPE_TYPE_COLUMN = env("PHENOTYPE_TYPE_COLUMN")
 PHENOTYPE_LABEL_COLUMN = env("PHENOTYPE_LABEL_COLUMN")
@@ -196,3 +199,5 @@ PROTEIN_DESCRIPTION_COLUMN = env("PROTEIN_DESCRIPTION_COLUMN")
 PROTEIN_LABEL_COLUMN = env("PROTEIN_LABEL_COLUMN")
 
 CALCULATED_EDGES_PATH = env("CALCULATED_EDGES_PATH")
+
+NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
