@@ -57,7 +57,7 @@ class Command(BaseCommand):
 
         results = calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
                                                number_of_workers, test_type, multiple_testing)
-        results.to_csv(env("CALCULATED_EDGES_PATH"))
+        results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, header=False, quoting=3, lineterminator='\n')
 
         # Subset the data to participents that are present in all provided data tables
         # common_indices = set(phenotypes.index)
