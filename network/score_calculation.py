@@ -14,24 +14,35 @@ def df_to_numpy(df: pd.DataFrame):
     return df.to_numpy(), cols
 
 
-def nanpy_formating(r2: np.array, pvalues: np.array, labels: list, effsize_type: str, test: str, file_name: str = None):
+def nanpy_formatting(effect: np.array, pvalues: np.array, labels: list, effsize_type: str,
+                     test: str, file_name: str = None):
     start = timeit.default_timer()
-    rows_idx, cols_idx = np.tril_indices(r2.shape[0], k=-1)
 
-    # Pre-format labels and values
-    label1 = np.array(labels)[rows_idx]
-    label2 = np.array(labels)[cols_idx]
-    pval = [r'"{\"full\": %s}"' % val for val in pvalues[rows_idx, cols_idx]]
-    effsize = [r'"{\"full\": %s}"' % val for val in r2[rows_idx, cols_idx]]
+    if len(labels) == 1:
+        logger.debug("Expected combinations: %s", len(labels[0]) * (len(labels[0]) - 1) / 2)
+        rows_idx, cols_idx = np.tril_indices(effect.shape[0], k=-1)
+        # Pre-format labels and values
+        label1 = np.array(labels[0])[rows_idx]
+        label2 = np.array(labels[0])[cols_idx]
+    else:
+        logger.debug("Expected combinations: %s", len(labels[0]) * len(labels[1]))
+        rows_idx, cols_idx = np.indices(effect.shape)
+        label1 = np.array(labels[0])[rows_idx.ravel()]
+        label2 = np.array(labels[1])[cols_idx.ravel()]
+
+    pval = [r'"{\"full\": %s}"' % val for val in pvalues[rows_idx, cols_idx].ravel()]
+    effsize = [r'"{\"full\": %s}"' % val for val in effect[rows_idx, cols_idx].ravel()]
 
     df = pd.DataFrame({
         'label1': label1,
         'label2': label2,
         'pval': pval,
+        'adj_pval': 1,
         'effsize': effsize,
         'effsize_type': effsize_type,
         'test': test
     })
+    logger.debug("Output shape of %s: %s", test, df.shape)
 
     if file_name:
         df.to_csv(file_name, sep=',', index=True, header=False, quoting=3, lineterminator='\n')
@@ -44,7 +55,7 @@ def nanpy_cat_cat(cat_phenotypes: pd.DataFrame):
     cat_phenotypes, cols = df_to_numpy(cat_phenotypes)
     effsize, pval = nanpy.chi_squared(cat_phenotypes, axis=1, threads=settings.NUM_WORKERS, return_type='cramers_v',
                                       nan_value=settings.NAN_VALUE)
-    return nanpy_formating(effsize, pval, cols, 'Cramer\'s v', 'Chi-squared test')
+    return nanpy_formatting(effsize, pval, [cols], 'Cramer\'s v', 'Chi-squared test')
 
 
 def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, test: str):
@@ -58,12 +69,14 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
     cat_phenotypes_more, cat_cols_more = df_to_numpy(cat_phenotypes_more)
 
     if test == 'parametric':
-        logger.debug("Doing parametric tests with shape: %s", cat_phenotypes_two.shape)
+        logger.info("Doing parametric tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         cohens_d, pval = nanpy.ttest(cat_phenotypes_two, cont_phenotypes, axis=1,
                                      threads=settings.NUM_WORKERS, return_type='cohens_d', check_data=True)
+        logger.debug("Output shape of ttest: %s", pval.shape)
         np2, pval_np2 = nanpy.anova(cat_phenotypes_more, cont_phenotypes, axis=1,
                                     threads=settings.NUM_WORKERS, return_type='np2', check_data=True)
         tests = (("ttest", "cohens_d"), ("anova", "np2"))
+
     else:
         logger.debug("Doing non-parametric tests with shape: %s", cat_phenotypes_two.shape)
         cohens_d, pval = nanpy.mwu(cat_phenotypes_two, cont_phenotypes, axis=1,
@@ -71,9 +84,9 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
         np2, pval_np2 = nanpy.kruskal_wallis(cat_phenotypes_more, cont_phenotypes, axis=1,
                                              threads=settings.NUM_WORKERS, return_type='eta2')
         tests = (("mwu", "cohens_d"), ("kruskal_wallis", "eta2"))
-    # TODO: check if the columns are in the correct order for this type of test
-    return nanpy_formating(cohens_d, pval, cont_cols, tests[0][1], tests[0][0]), \
-        nanpy_formating(np2, pval_np2, cont_cols, tests[1][1], tests[1][0])
+
+    return nanpy_formatting(cohens_d, pval, [cat_cols_two, cont_cols], tests[0][1], tests[0][0]), \
+        nanpy_formatting(np2, pval_np2, [cat_cols_more, cont_cols], tests[1][1], tests[1][0])
 
 
 def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
@@ -81,13 +94,13 @@ def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
     if test == 'parametric':
         logger.debug("Doing Pearson correlation with shape: %s", cont_phenotypes.shape)
         r2, pval = nanpy.pearsonr(cont_phenotypes, nan_value=settings.NAN_VALUE, threads=settings.NUM_WORKERS,
-                                  axis=1, use_numba=False)
+                                  axis=1, use_numba=True)
         test = "Pearson correlation"
     else:
         logger.debug("Doing Spearman correlation with shape: %s", cont_phenotypes.shape)
-        r2, pval = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1, use_numba=False)
+        r2, pval = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1, use_numba=True)
         test = "Spearman's rank correlation"
-    return nanpy_formating(r2, pval, cont_cols, 'correlation', test)
+    return nanpy_formatting(r2, pval, [cont_cols], 'correlation', test)
 
 
 def order_categories(data: pd.DataFrame):
@@ -135,10 +148,10 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     cont_data.set_index(id_column, inplace=True)
 
     # subsample data for testing (only keep first 500 columns)
-    if settings.DEBUG:
-        logger.debug("Subsampling data for testing")
-        cont_data = cont_data.iloc[:, :500]
-        cat_data = cat_data.iloc[:, :500]
+    # if settings.DEBUG:
+    #     logger.debug("Subsampling data for testing")
+    #     cont_data = cont_data.iloc[:, :500]
+    #     cat_data = cat_data.iloc[:, :500]
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
@@ -147,6 +160,8 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
 
     logger.debug(f"Continous data shape: {cont_data.shape}")
     logger.debug(f"Categorical data shape: {cat_data.shape}")
+
+    start = timeit.default_timer()
 
     cat_cat_results = nanpy_cat_cat(cat_data)
     logger.info("Finished categorical-categorical score creation")
@@ -160,5 +175,7 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     logger.info("Finished continuous-categorical score creation")
 
     scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_two, cat_cont_more], ignore_index=True)
+    logger.debug("%s pairwise association scores were calculated in %s seconds", scores.shape[0],
+                 int(timeit.default_timer() - start))
 
     return scores
