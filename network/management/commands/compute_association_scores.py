@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 import sys
+import pandas as pd
 import network.utils as utils
 from network.score_calculation import calculate_association_scores
 import environ
@@ -28,6 +29,38 @@ class Command(BaseCommand):
             logger.error(f"Association score testing failed: {e}")
             sys.exit(1)
 
+    def preprocess_data(self, phenotypes, phenotypes_meta, id_column, metabolites=None, proteins=None):
+        # Data preprocessing
+        allowed_types = ['boolean', 'categorical', 'float', 'integer']
+        # Check if all types of phenotype variables are in the allowed list
+        invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
+        if not invalid_types.empty:
+            logger.warning(f"Invalid variable types were found: {invalid_types.type.unique()}. "
+                           f"These variables will be ignored.")
+
+        # Extract categorical phenotypes
+        phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
+            phenotypes_meta[phenotypes_meta.type.str.lower().isin(["categorical", "boolean"])].label)].copy()
+        cat_data = phenotypes_cat.copy()
+
+        # Extract continuous phenotypes
+        phenotypes_cont = phenotypes.iloc[:, phenotypes.columns.isin(
+            phenotypes_meta[phenotypes_meta.type.str.lower().isin(["integer", "float"])].label)].copy()
+        phenotypes_cont = phenotypes_cont.reset_index()
+        phenotypes_cont[id_column] = phenotypes.index
+
+        # Merge metabolites and proteins to continuous phenotypes if provided
+        cont_data = phenotypes_cont
+        if metabolites is not None:
+            cont_data = pd.merge(metabolites, cont_data, on=id_column)
+        if proteins is not None:
+            cont_data = pd.merge(proteins, cont_data, on=id_column)
+
+        # make ID column the index
+        cont_data.set_index(id_column, inplace=True)
+        return cat_data, cont_data
+
+
     @staticmethod
     def compute_association_scores():
         id_column = env("PATIENT_ID_COLUMN")
@@ -49,15 +82,15 @@ class Command(BaseCommand):
             proteins = None
             logger.warning("No protein file was provided.")
 
-        number_of_workers = env("NUMBER_OF_WORKERS")
-        logger.debug(f"Using {number_of_workers} workers for the calculation.")
+        logger.debug(f"Using {env('NUMBER_OF_WORKERS')} workers for the calculation.")
 
         test_type = env("TEST_TYPE")
         multiple_testing = env("MULTIPLE_TESTING")
 
-        results = calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins, metabolites,
-                                               number_of_workers, test_type, multiple_testing)
-        results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, header=False, quoting=3, lineterminator='\n')
+        cat_data, cont_data = Command().preprocess_data(phenotypes, phenotypes_meta, id_column, metabolites, proteins)
+
+        results = calculate_association_scores(cat_data, cont_data, test_type, multiple_testing)
+        results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, header=False, lineterminator='\n')
 
         # Subset the data to participents that are present in all provided data tables
         # common_indices = set(phenotypes.index)

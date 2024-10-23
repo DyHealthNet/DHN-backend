@@ -13,7 +13,8 @@ logger = logging.getLogger("django")
 def df_to_numpy(df: pd.DataFrame):
     cols = df.columns
     df = df.fillna(settings.NAN_VALUE)
-    return df.to_numpy(), cols
+    df_np = df.to_numpy().astype(np.float64)
+    return df_np, cols
 
 
 def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_name: str = None):
@@ -37,7 +38,7 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
     p_keys = list(p_values_raw.keys())
     e_keys = list(effects_raw.keys())
 
-    # Pre-construct parts of the strings to avoid repeated operations in the loop
+    # Pre-construct string templates
     p_template = '{' + ', '.join([f'"{k}": %f' for k in p_keys]) + '}'
     e_template = '{' + ', '.join([f'"{k}": %f' for k in e_keys]) + '}'
 
@@ -66,6 +67,23 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
     return df
 
 
+def combine_np_p(np_results: pd.DataFrame | None, p_results: pd.DataFrame):
+    """
+    Combine the non-parametric tests with the parametric tests, giving the non-parametric tests the suffix '_np'.
+    If no non-parametric results are given, empty columns 'pval_np', 'effsize_np', 'test_np' are created.
+    :param np_results: the non-parametric results
+    :param p_results: the parametric results
+    :return: results with both tests combined
+    """
+    if isinstance(np_results, type(None)):
+        np_results = pd.DataFrame(columns=['label1', 'label2', 'pval_np', 'effsize_np', 'test_np'])
+
+    np_results = np_results.rename(columns={'pval': 'pval_np', 'effsize': 'effsize_np', 'test': 'test_np'})
+    out = pd.merge(np_results, p_results, on=['label1', 'label2'], how='inner')
+    print(out.head())
+    return out
+
+
 def nanpy_cat_cat(cat_phenotypes: pd.DataFrame):
     cat_phenotypes, cols = df_to_numpy(cat_phenotypes)
     output = nanpy.chi_squared(cat_phenotypes, axis=1, threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
@@ -85,10 +103,10 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
     if test == 'parametric':
         logger.info("Doing parametric tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         two_cont_out = nanpy.ttest(cat_phenotypes_two, cont_phenotypes, axis=1,
-                                   threads=settings.NUM_WORKERS, use_numba=True)
+                                   threads=settings.NUM_WORKERS, check_data=True)
         logger.debug("Ttest done")
         more_cont_out = nanpy.anova(cat_phenotypes_more, cont_phenotypes, axis=1,
-                                    threads=settings.NUM_WORKERS)
+                                    threads=settings.NUM_WORKERS, check_data=True)
         tests = ("ttest", "anova")
 
     else:
@@ -113,7 +131,7 @@ def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
 
     else:
         logger.debug("Doing Spearman correlation with shape: %s", cont_phenotypes.shape)
-        cont_out = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1, use_numba=True)
+        cont_out = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1, use_numba=False)
         test = "Spearman's rank correlation"
     return nanpy_formatting(cont_out, [cont_cols], test)
 
@@ -131,42 +149,12 @@ def order_categories(data: pd.DataFrame):
     return data
 
 
-def calculate_association_scores(phenotypes, phenotypes_meta, id_column, proteins=None, metabolites=None,
-                                 test='parametric', multiple_testing='bh'):
-    # Data preprocessing
-    allowed_types = ['boolean', 'categorical', 'float', 'integer']
-    # Check if all types of phenotype variables are in the allowed list
-    invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
-    if not invalid_types.empty:
-        logger.warning(f"Invalid variable types were found: {invalid_types.type.unique()}. "
-                       f"These variables will be ignored.")
-
-    # Extract categorical phenotypes
-    phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
-        phenotypes_meta[phenotypes_meta.type.str.lower().isin(["categorical", "boolean"])].label)].copy()
-    cat_data = phenotypes_cat.copy()
-
-    # Extract continuous phenotypes
-    phenotypes_cont = phenotypes.iloc[:, phenotypes.columns.isin(
-        phenotypes_meta[phenotypes_meta.type.str.lower().isin(["integer", "float"])].label)].copy()
-    phenotypes_cont = phenotypes_cont.reset_index()
-    phenotypes_cont[id_column] = phenotypes.index
-
-    # Merge metabolites and proteins to continuous phenotypes if provided
-    cont_data = phenotypes_cont
-    if metabolites is not None:
-        cont_data = pd.merge(metabolites, cont_data, on=id_column)
-    if proteins is not None:
-        cont_data = pd.merge(proteins, cont_data, on=id_column)
-
-    # make ID column the index
-    cont_data.set_index(id_column, inplace=True)
-
+def calculate_association_scores(cat_data, cont_data, test='parametric', multiple_testing='bh'):
     # subsample data for testing (only keep first 500 columns)
-    # if settings.DEBUG:
-    #     logger.debug("Subsampling data for testing")
-    #     cont_data = cont_data.iloc[:, :500]
-    #     cat_data = cat_data.iloc[:, :500]
+    if settings.DEBUG:
+        logger.debug("Subsampling data for testing")
+        cont_data = cont_data.iloc[:, :500]
+        cat_data = cat_data.iloc[:, :500]
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
@@ -179,14 +167,25 @@ def calculate_association_scores(phenotypes, phenotypes_meta, id_column, protein
     start = timeit.default_timer()
 
     cat_cat_results = nanpy_cat_cat(cat_data)
+    cat_cat_results = combine_np_p(None, cat_cat_results)
     logger.info("Finished categorical-categorical score creation")
 
     # Continuous-Continuous association testing
     cont_cont_results = nanpy_cont_cont(cont_data, test)
+    cont_cont_results_np = None
+    if test == 'both':
+        cont_cont_results_np = nanpy_cont_cont(cont_data, "parametric")
+    cont_cont_results = combine_np_p(cont_cont_results_np, cont_cont_results)
     logger.info("Finished continuous-continuous score creation")
 
+    # TODO: Reenable cat-cont testing
     # Continuous-Categorical association testing
     # cat_cont_two, cat_cont_more = nanpy_cat_cont(cont_data, cat_data, test)
+    # cat_cont_two_np, cat_cont_more_np = None, None
+    # if test == 'both':
+    #     cat_cont_two_np, cat_cont_more_np = nanpy_cat_cont(cont_data, cat_data, "parametric")
+    # cat_cont_two = combine_np_p(cat_cont_two_np, cat_cont_two)
+    # cat_cont_more = combine_np_p(cat_cont_more_np, cat_cont_more)
     logger.info("Finished continuous-categorical score creation")
 
     # scores = pd.concat([cat_cat_results, cont_cont_results, cat_cont_two, cat_cont_more], ignore_index=True)
