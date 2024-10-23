@@ -1,3 +1,5 @@
+import csv
+
 from django.core.management.base import BaseCommand
 import sys
 import pandas as pd
@@ -52,12 +54,15 @@ class Command(BaseCommand):
         # Merge metabolites and proteins to continuous phenotypes if provided
         cont_data = phenotypes_cont
         if metabolites is not None:
+            logger.debug(f"Metabolite data: {metabolites.shape[0]} samples, {metabolites.shape[1]} variables.")
             cont_data = pd.merge(metabolites, cont_data, on=id_column)
         if proteins is not None:
+            logger.debug(f"Protein data: {proteins.shape[0]} samples, {proteins.shape[1]} variables.")
             cont_data = pd.merge(proteins, cont_data, on=id_column)
 
         # make ID column the index
         cont_data.set_index(id_column, inplace=True)
+        logger.debug(f"Total data: {phenotypes.shape[0]} samples, {phenotypes.shape[1]} variables.")
         return cat_data, cont_data
 
 

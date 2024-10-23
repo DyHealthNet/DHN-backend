@@ -3,7 +3,7 @@ import sys
 import pandas as pd
 import re
 import numpy as np
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
 from rest_framework import generics
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.conf import settings
@@ -13,6 +13,7 @@ from network.color_utils import *
 import json
 import seaborn as sns
 from network.utils import check_files_and_return, list_node_variables
+from network.contexts import subset_patients
 import os
 import environ
 import logging
@@ -25,44 +26,44 @@ types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes
 logger = logging.getLogger('django')
 
 
-def join_dataframes(df1, df2=None, df3=None):
-    # Start with the first DataFrame
-    result = df1
-    # Merge with the second DataFrame if it exists
-    if df2 is not None:
-        result = pd.merge(result, df2, left_index=True, right_index=True, how='inner')
-    # Merge with the third DataFrame if it exists
-    if df3 is not None:
-        result = pd.merge(result, df3, left_index=True, right_index=True, how='inner')
+def join_dataframes(dataframes: list):
+    """
+    Joins together all dataframes in the list with an inner join on the index
+    :param dataframes: list of dataframes
+    :return: joined dataframe
+    """
+    result = dataframes[0]
+    for df in dataframes[1:]:
+        result = pd.merge(result, df, left_index=True, right_index=True, how='inner')
     return result
 
 
-# Don't try to load data if healthcheck is requested
+# Don't try to load data if runserver is not requested
 if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
     pass
 else:
-    phenotypes_filtered = check_files_and_return(env("PHENOTYPE_PATH"),
-                                                 id_column=env("PATIENT_ID_COLUMN"),
-                                                 return_dataset=True)
-    pheno_meta_filtered = check_files_and_return(env("PHENOTYPE_META_PATH"),
-                                                 id_column=env("PHENOTYPE_LABEL_COLUMN"),
-                                                 column_list=[env("PHENOTYPE_TYPE_COLUMN"),
-                                                              env("PHENOTYPE_DESCRIPTION_COLUMN")])
+    PHENOTYPES = check_files_and_return(env("PHENOTYPE_PATH"),
+                                        id_column=env("PATIENT_ID_COLUMN"),
+                                        return_dataset=True)
+    PHENO_META = check_files_and_return(env("PHENOTYPE_META_PATH"),
+                                        id_column=env("PHENOTYPE_LABEL_COLUMN"),
+                                        column_list=[env("PHENOTYPE_TYPE_COLUMN"),
+                                                     env("PHENOTYPE_DESCRIPTION_COLUMN")])
 
-    proteins = check_files_and_return(env("PROTEIN_PATH"),
+    PROTEINS = check_files_and_return(env("PROTEIN_PATH"),
                                       id_column=env("PATIENT_ID_COLUMN"),
                                       return_dataset=True)
 
-    proteins_meta = check_files_and_return(env("PROTEIN_META_PATH"),
+    PROTEINS_META = check_files_and_return(env("PROTEIN_META_PATH"),
                                            id_column=env("PROTEIN_LABEL_COLUMN"),
                                            column_list=[env("PROTEIN_DESCRIPTION_COLUMN")],
                                            return_dataset=True)
 
-    metabolites = check_files_and_return(env("METABOLITE_PATH"),
+    METABOLITES = check_files_and_return(env("METABOLITE_PATH"),
                                          id_column=env("PATIENT_ID_COLUMN"),
                                          return_dataset=True)
 
-    all_data = join_dataframes(phenotypes_filtered, proteins, metabolites)
+    all_data = join_dataframes([PHENOTYPES, PROTEINS, METABOLITES])
     # If file exists open the file and load the JSON data
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
     var_label_map_dict = None
@@ -318,17 +319,17 @@ class TypeaheadView(generics.GenericAPIView):
 class GetVariablesView(generics.GenericAPIView):
     @staticmethod
     def get(request):
-        phenotypes_values = list_node_variables(pheno_meta_filtered, phenotypes_filtered, type="phenotype")
+        phenotypes_values = list_node_variables(PHENO_META, PHENOTYPES, type="phenotype")
 
         # get Protein variables
         protein_values = None
-        if not isinstance(proteins, type(None)):
-            protein_values = list_node_variables(proteins_meta, proteins, type="protein")
+        if not isinstance(PROTEINS, type(None)):
+            protein_values = list_node_variables(PROTEINS_META, PROTEINS, type="protein")
 
         # get Metabolite variables
         metabolite_values = None
-        if not isinstance(metabolites, type(None)):
-            metabolite_values = list_node_variables(metabolites, type="metabolite")
+        if not isinstance(METABOLITES, type(None)):
+            metabolite_values = list_node_variables(METABOLITES, type="metabolite")
 
         # combine all data
         existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if
@@ -351,14 +352,14 @@ class GetTableView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         # build result dict in right format
-        req_data_dict = {'Participants': len(all_data), 'Phenotypes': len(phenotypes_filtered.columns),
-                         'Proteins': len(proteins.columns) if proteins is not None else 0,
-                         'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
+        req_data_dict = {'Participants': len(all_data), 'Phenotypes': len(PHENOTYPES.columns),
+                         'Proteins': len(PROTEINS.columns) if PROTEINS is not None else 0,
+                         'Metabolites': len(METABOLITES.columns) if METABOLITES is not None else 0,
                          'Genetic Variants': CohortVariant.objects.count()}
         # Get Phenotype mera file to count the different data types (currently not used in frontend table)
-        df = pd.DataFrame(pheno_meta_filtered[env("PHENOTYPE_TYPE_COLUMN")][
-                              [(i in phenotypes_filtered.columns) for i in
-                               pheno_meta_filtered.index]].copy()).value_counts()
+        df = pd.DataFrame(PHENO_META[env("PHENOTYPE_TYPE_COLUMN")][
+                              [(i in PHENOTYPES.columns) for i in
+                               PHENO_META.index]].copy()).value_counts()
         req_data_dict['Phenotype-Boolean'] = int(df['boolean']) if 'boolean' in df.index else 0
         req_data_dict['Phenotype-Categorical'] = int(df['categorical']) if 'categorical' in df.index else 0
         req_data_dict['Phenotype-Float'] = int(df['float']) if 'float' in df.index else 0
@@ -891,3 +892,104 @@ class GetDataView2(generics.GenericAPIView):
             'datasets': temp
         }
         return JsonResponse(req_data_dict, safe=True)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Provided a combination of parameters, lets a user create a context-specific network",
+        description="Provided a combination of parameters with which the patients are subsampled, this endpoint will "
+                    "start the calculation of a context-specific network.",
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='y',
+                description='variable y',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='c',
+                description='colour variable',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            )
+        ]
+    )
+)
+class CreateUserContext(generics.GenericAPIView):
+    @staticmethod
+    def post(request):
+        params = request.data
+
+        return JsonResponse({"message": "Hello, world!"})
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Provided a combination of parameters, returns a number with the remaining users after subsetting",
+        description="Provided a combination of parameters with which the patients are subsetted, this endpoint will "
+                    "return the number of patients, a context-specific network would include.",
+        parameters=[
+            OpenApiParameter(
+                name='subset_params',
+                description='Custom filtering parameters as a JSON string',
+                required=True,
+                location=OpenApiParameter.QUERY,
+                type=OpenApiTypes.STR,  # Represent as string for query parameters
+                examples=[
+                    OpenApiExample(
+                        name="Example of test_params_format",
+                        value={
+                            "connect": {
+                                "inside": "or",
+                                "outside": "and"
+                            },
+                            "conditions": {
+                                "0": [
+                                    {
+                                        "column": "x0so5385",
+                                        "operator": "less",
+                                        "value": 4000
+                                    },
+                                    {
+                                        "column": "x0_sex",
+                                        "operator": "equal",
+                                        "value": 1
+                                    }
+                                ],
+                                "1": [
+                                    {
+                                        "column": "x0so5385",
+                                        "operator": "more",
+                                        "value": 6000
+                                    }
+                                ]
+                            }
+                        },
+                        description="An example of the filtering parameters passed as a JSON string."
+                    )
+                ]
+            )
+        ]
+    )
+)
+class FilterUserContext(generics.GenericAPIView):
+    def post(self, request, *args, **kwargs):
+        params = request.data
+        if not params:
+            return HttpResponseBadRequest('No subset parameters provided.', status=405)
+        try:
+            out_df = subset_patients(all_data, params)
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
+        remaining_users = out_df.shape[0]
+        logger.info(f"Remaining users after subsetting: {remaining_users}")
+        return JsonResponse({'result': remaining_users})

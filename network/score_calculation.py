@@ -58,12 +58,11 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
         'effsize': effects,
         'test': test
     })
-    logger.debug("Output shape of %s: %s", test, df.shape)
 
     if file_name:
         df.to_csv(file_name, sep=',', index=True, header=False, lineterminator='\n')
 
-    logger.debug(f"Finished formatting of {test} in {timeit.default_timer() - start:2f} seconds")
+    logger.debug(f"Finished formatting of {test} with shape {df.shape} in {timeit.default_timer() - start:2f} seconds")
     return df
 
 
@@ -80,7 +79,6 @@ def combine_np_p(np_results: pd.DataFrame | None, p_results: pd.DataFrame):
 
     np_results = np_results.rename(columns={'pval': 'pval_np', 'effsize': 'effsize_np', 'test': 'test_np'})
     out = pd.merge(np_results, p_results, on=['label1', 'label2'], how='inner')
-    print(out.head())
     return out
 
 
@@ -151,10 +149,10 @@ def order_categories(data: pd.DataFrame):
 
 def calculate_association_scores(cat_data, cont_data, test='parametric', multiple_testing='bh'):
     # subsample data for testing (only keep first 500 columns)
-    if settings.DEBUG:
-        logger.debug("Subsampling data for testing")
-        cont_data = cont_data.iloc[:, :500]
-        cat_data = cat_data.iloc[:, :500]
+    # if settings.DEBUG:
+    #     logger.debug("Subsampling data for testing")
+    #     cont_data = cont_data.iloc[:, :500]
+    #     cat_data = cat_data.iloc[:, :500]
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
