@@ -2,8 +2,14 @@
 import io
 import json
 import hashlib
-
+from django.db.models import Q
+from django.apps import apps
+from django.conf import settings
+import logging
+from network.edge_sorting import process_file, add_edges
 import pandas as pd
+
+logger = logging.getLogger('django')
 
 operator_funcs = {
     'less': lambda df, col, val: df[col] < val,
@@ -11,6 +17,22 @@ operator_funcs = {
     'in': lambda df, col, val: df[col].isin(val),
     'equal': lambda df, col, val: df[col] == val
 }
+
+TABLE_STRUCTURE = """
+CREATE TABLE IF NOT EXISTS {table_name} (
+    id SERIAL PRIMARY KEY,
+    label1 TEXT FOREIGN KEY REFERENCES {label_table1}(cohort_id),
+    label2 TEXT FOREIGN KEY REFERENCES {label_table2}(cohort_id),
+    np_p_value JSON,
+    np_effect_size JSON,
+    np_test_statistic TEXT,
+    p_value JSON,
+    effect_size JSON,
+    test_statistic TEXT,
+)
+"""
+
+EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
 def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
@@ -64,7 +86,7 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
         elif outside_conn == 'or':
             overall_mask |= mask
 
-    return variables[overall_mask]
+    return variables[overall_mask].copy()
 
 
 def get_rows(conn, table_name):
@@ -106,6 +128,44 @@ def update_buffer(updates, conn, table_name: str = 'edges'):
     """)
 
     conn.commit()
+
+
+def create_context_tables(needed_tables: list[str], context_name: str, conn):
+    cursor = conn.cursor()
+    new_names = {}
+    for table_name in needed_tables:
+        first_table = table_name.split('_')[1]
+        second_table = table_name.split('_')[2]
+        if EDGE_ORDER[first_table] < EDGE_ORDER[second_table]:
+            first_table, second_table = second_table, first_table
+
+        cursor.execute(TABLE_STRUCTURE.format(
+            table_name=f"{table_name}_{context_name}",
+            label_table1=f"cohort_{first_table}",
+            label_table2=f"cohort_{second_table}"
+        ))
+        new_names[table_name] = f"{table_name}_{context_name}"
+    logger.debug(f"Created tables for context {context_name}")
+    conn.commit()
+    return new_names
+
+
+def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
+    all_scores = io.StringIO()
+    conn = settings.CONN_POOL.getconn()
+    scores.to_csv(all_scores, sep=',', index=True, header=False, lineterminator='\n')
+    all_scores.seek(0)
+
+    # sort the file buffer into individual edge tables
+    tables = process_file(all_scores, **kwargs)
+
+    # create all needed tables in the database
+    new_names = create_context_tables(list(tables.keys()), context_name, conn)
+    # change the names of tables based on new names
+    tables = {new_names[k]: v for k, v in tables.items()}
+
+    # insert the data into the database
+    add_edges(conn, tables)
 
 
 # Possible future implementation for updating multiple tables concurrently

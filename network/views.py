@@ -925,9 +925,20 @@ class GetDataView2(generics.GenericAPIView):
     )
 )
 class CreateUserContext(generics.GenericAPIView):
-    @staticmethod
-    def post(request):
+    def post(self, request, *args, **kwargs):
         params = request.data
+        if not params:
+            return HttpResponseBadRequest('No parameters provided.', status=405)
+
+        # first step: subset the data
+
+        # second step: get the context-name
+
+        # third step check if the context already exists
+
+        # fourth step: check the parameters wanted for the context
+
+        # fourth step b: create the context
 
         return JsonResponse({"message": "Hello, world!"})
 
