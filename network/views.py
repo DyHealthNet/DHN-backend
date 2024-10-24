@@ -5,15 +5,13 @@ import re
 import numpy as np
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
 from rest_framework import generics
-from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
-from django.conf import settings
+from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
 import json
-import seaborn as sns
 from network.utils import check_files_and_return, list_node_variables
-from network.contexts import subset_patients
+from network.contexts.contexts import subset_patients
 import os
 import environ
 import logging

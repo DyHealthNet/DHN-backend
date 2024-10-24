@@ -2,11 +2,9 @@
 import io
 import json
 import hashlib
-from django.db.models import Q
-from django.apps import apps
 from django.conf import settings
 import logging
-from network.edge_sorting import process_file, add_edges
+from network.contexts.edge_sorting import process_file, add_edges
 import pandas as pd
 
 logger = logging.getLogger('django')
