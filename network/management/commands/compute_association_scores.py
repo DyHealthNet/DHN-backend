@@ -15,7 +15,7 @@ env = environ.Env(
 )
 environ.Env.read_env()
 
-logger = logging.getLogger("django")
+logger = logging.getLogger("network")
 
 
 class Command(BaseCommand):
@@ -90,11 +90,10 @@ class Command(BaseCommand):
         logger.debug(f"Using {env('NUMBER_OF_WORKERS')} workers for the calculation.")
 
         test_type = env("TEST_TYPE")
-        multiple_testing = env("MULTIPLE_TESTING")
 
         cat_data, cont_data = Command().preprocess_data(phenotypes, phenotypes_meta, id_column, metabolites, proteins)
 
-        results = calculate_association_scores(cat_data, cont_data, test_type, multiple_testing)
+        results = calculate_association_scores(cat_data, cont_data, test_type)
         results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, header=False, lineterminator='\n')
 
         # Subset the data to participents that are present in all provided data tables

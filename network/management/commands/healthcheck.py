@@ -12,7 +12,7 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-logger = logging.getLogger('django')
+logger = logging.getLogger('network')
 
 
 class Command(BaseCommand):

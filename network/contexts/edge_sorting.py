@@ -5,7 +5,7 @@ import logging
 from django.conf import settings
 
 
-logger = logging.getLogger("django")
+logger = logging.getLogger("network")
 
 
 DB_EDGES = {
@@ -172,12 +172,13 @@ def add_edges(conn, edges: dict) -> bool:
     :param edges: dictionary containing the edge types and the corresponding file buffers
     :return: bool - True if the edges were added successfully, False otherwise
     """
-    cursor = conn.connection().connection.cursor()
+    cursor = conn.cursor()
     try:
         if settings.DEBUG:
+            pass
             # clear the tables
-            for edge_type in DB_EDGES.values():
-                cursor.execute(f"TRUNCATE TABLE {edge_type}")
+            # for edge_type in DB_EDGES.values():
+            #     cursor.execute(f"TRUNCATE TABLE {edge_type}")
         for edge_type, edge_file in edges.items():
             if edge_file is None:
                 continue
@@ -186,6 +187,8 @@ def add_edges(conn, edges: dict) -> bool:
             if edge_count > 0:
                 conn.commit()
                 logger.debug(f"Finished adding {edge_count} {edge_type} edges")
+            else:
+                logger.debug(f"No {edge_type} edges to add")
     except Exception as e:
         conn.rollback()
         logger.error(f"A problem occurred while adding edges: {e}")

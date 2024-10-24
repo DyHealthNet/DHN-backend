@@ -4,7 +4,7 @@ import numpy as np
 from django.conf import settings
 import logging
 
-logger = logging.getLogger('django')
+logger = logging.getLogger('network')
 
 
 # Check file for correct format and return the dataset if needed
