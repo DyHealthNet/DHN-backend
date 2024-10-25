@@ -131,37 +131,20 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
     return all_edge_types
 
 
-def format_edges(session, edges, protein_set: set, phenotype_set: set, metabolite_set: set,
-                 variant_set: set) -> None:
-    """
-    Format the edges and add them to the database in chunks. Deletes the formatted edges after adding them to the
-    database to save memory. The chunk size can be adjusted in the settings.
-    :param session: SQLAlchemy session
-    :param edges: Pandas DataFrame containing the edges
-    :param protein_set: set of unique protein IDs from the cohort data
-    :param phenotype_set: set of unique phenotype labels from the cohort data
-    :param metabolite_set: set of unique metabolite names from the cohort data
-    :param variant_set: set of unique variant IDs from the cohort data
-    :return: None
-    """
-    formatted_edges = process_file(edges, protein_set, phenotype_set, metabolite_set, variant_set)
-
-    add_success = add_edges(session, formatted_edges)
-    del formatted_edges
-    if not add_success:
-        logger.error("There was a problem adding the edges to the database, exiting...")
-        return
-    logger.info(f"File added successfully")
-
-    # for edge_type, count in num_edge_types.items():
-    #    logger.debug(f"Added {count} edges of type {edge_type.__name__}")
-    return
-
-
 def copy_from_buffer(cursor, edge_type, edge_file):
     edge_file.seek(0)
     copy_sql = f"COPY {edge_type} FROM STDIN WITH (FORMAT CSV, DELIMITER ',', QUOTE '\"')"
     cursor.copy_expert(copy_sql, edge_file)
+
+
+def copy_from_file(cursor, edge_type, name):
+    file = f"/tmp/{name}/{edge_type}.csv"
+    # check if the file is empty
+    with open(file, 'r') as f:
+        if f.readline() == '':
+            return
+    copy_sql = f"COPY {edge_type} FROM '{file}' WITH (FORMAT CSV, DELIMITER ',', QUOTE '\"')"
+    cursor.execute(copy_sql)
 
 
 def count_rows(buffer):
@@ -170,9 +153,10 @@ def count_rows(buffer):
     return row_count
 
 
-def add_edges(conn, edges: dict) -> bool:
+def add_edges(conn, context_name, edges: list) -> bool:
     """
     Add the given list of edges to the database in bulk
+    :param context_name:
     :param conn: Django database connection
     :param edges: dictionary containing the edge types and the corresponding file buffers
     :return: bool - True if the edges were added successfully, False otherwise
@@ -180,24 +164,22 @@ def add_edges(conn, edges: dict) -> bool:
     cursor = conn.cursor()
     try:
         if settings.DEBUG:
+            pass
             # clear the tables
-            for edge_type in edges.keys():
-                cursor.execute(f"TRUNCATE TABLE {edge_type};")
-            conn.commit()
+            # for edge_type in edges.keys():
+            #     cursor.execute(f"TRUNCATE TABLE {edge_type};")
+            # conn.commit()
 
-        edge_keys = list(edges.keys())
-        for edge_type in edge_keys:
+        for edge_type in edges:
             logger.debug(f"Adding {edge_type} edges to the database")
-            if edges[edge_type] is None:
-                logger.debug(f"No {edge_type} edges to add since it is empty")
-                continue
-            copy_from_buffer(cursor, edge_type, edges[edge_type])
-            edge_count = count_rows(edges[edge_type])
-            if edge_count > 0:
-                conn.commit()
-                logger.debug(f"Finished adding {edge_count} {edge_type} edges")
-            else:
-                logger.debug(f"No {edge_type} edges to add")
+            copy_from_file(cursor, edge_type, context_name)
+            logger.debug(f"Finished adding {edge_type} edges")
+            # edge_count = count_rows(edges[edge_type])
+            # if edge_count > 0:
+            #     conn.commit()
+            #     logger.debug(f"Finished adding {edge_count} {edge_type} edges")
+            # else:
+            #     logger.debug(f"No {edge_type} edges to add")
     except Exception as e:
         conn.rollback()
         logger.error(f"A problem occurred while adding edges: {e}")

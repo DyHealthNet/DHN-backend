@@ -2,6 +2,8 @@
 import io
 import json
 import hashlib
+import os.path
+
 from django.db import connection
 import logging
 from network.contexts.edge_sorting import process_file, add_edges
@@ -159,11 +161,17 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
 
     # create all needed tables in the database
     new_names = create_context_tables(list(tables.keys()), context_name, conn)
-    # change the names of tables based on new names
-    tables = {new_names[k]: v for k, v in tables.items()}
+
+    # save the tables to CSV files
+    for k, v in tables.items():
+        print(type(v))
+        if os.path.exists(f"/tmp/{context_name}/{new_names[k]}.csv"):
+            continue
+        with open(f"/tmp/{context_name}/{new_names[k]}.csv", 'w') as f:
+            f.write(v.getvalue())
 
     # insert the data into the database
-    add_success = add_edges(conn, tables)
+    add_success = add_edges(conn, context_name, list(new_names.values()))
     return add_success
 
 

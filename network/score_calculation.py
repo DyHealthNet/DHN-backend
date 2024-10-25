@@ -21,13 +21,11 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
     start = timeit.default_timer()
 
     if len(labels) == 1:
-        logger.debug("Expected combinations: %s", len(labels[0]) * (len(labels[0]) - 1) / 2)
         rows_idx, cols_idx = np.tril_indices(assoc_out['p_unadjusted'].shape[0], k=-1)
         # Pre-format labels and values
         label1 = np.array(labels[0])[rows_idx]
         label2 = np.array(labels[0])[cols_idx]
     else:
-        logger.debug("Expected combinations: %s", len(labels[0]) * len(labels[1]))
         rows_idx, cols_idx = np.indices(assoc_out['p_unadjusted'].shape)
         label1 = np.array(labels[0])[rows_idx.ravel()]
         label2 = np.array(labels[1])[cols_idx.ravel()]

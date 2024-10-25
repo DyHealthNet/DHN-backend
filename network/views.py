@@ -960,16 +960,20 @@ class CreateUserContext(generics.GenericAPIView):
         logger.info(f"Calculating association scores for context {context_name} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
-        cont_file_name = f"/tmp/{context_name}_cont.pkl"
-        cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{context_name}_cat.pkl"
-        cat_data.to_pickle(cat_file_name)
+        if not os.path.exists(f"/tmp/{context_name}"):
+            os.mkdir(f"/tmp/{context_name}")
+        cont_file_name = f"/tmp/{context_name}/cont.pkl"
+        if not os.path.exists(cont_file_name):
+            cont_data.to_pickle(cont_file_name)
+        cat_file_name = f"/tmp/{context_name}/cat.pkl"
+        if not os.path.exists(cat_file_name):
+            cat_data.to_pickle(cat_file_name)
 
         task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_name,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
-        logger.info(f"Context {context_name} successfully created: {task}")
+        logger.info(f"Context creation for {context_name} successfully started: {task}")
         return JsonResponse({"taskId": task.id})
 
 
@@ -988,7 +992,9 @@ class CreateUserContext(generics.GenericAPIView):
     )
 )
 class ContextStatusView(generics.GenericAPIView):
-    def get(self, request, task_id):
+    @staticmethod
+    def get(request):
+        task_id = request.GET.get("task_id")
         task = AsyncResult(task_id)
         return JsonResponse({'status': task.status, 'result': task.result})
 
