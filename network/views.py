@@ -10,18 +10,22 @@ from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
 import json
+
+from network.score_calculation import calculate_association_scores, separate_cat_cont
 from network.utils import check_files_and_return, list_node_variables
-from network.contexts.contexts import subset_patients
+from network.contexts.contexts import subset_patients, create_context_id
+from network.tasks import create_context_wrapper, test_task
 import os
 import environ
 import logging
+from celery.result import AsyncResult
 
 env = environ.Env()
 environ.Env.read_env()
 
 types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
 
-logger = logging.getLogger('django')
+logger = logging.getLogger('network')
 
 
 def join_dataframes(dataframes: list):
@@ -47,6 +51,11 @@ else:
                                         id_column=env("PHENOTYPE_LABEL_COLUMN"),
                                         column_list=[env("PHENOTYPE_TYPE_COLUMN"),
                                                      env("PHENOTYPE_DESCRIPTION_COLUMN")])
+    # ugly but it works
+    PHENO_META_LABEL = check_files_and_return(env("PHENOTYPE_META_PATH"),
+                                              id_column=env("PHENOTYPE_LABEL_COLUMN"),
+                                              column_list=["type"],)
+    PHENO_META_LABEL["label"] = PHENO_META_LABEL.index
 
     PROTEINS = check_files_and_return(env("PROTEIN_PATH"),
                                       id_column=env("PATIENT_ID_COLUMN"),
@@ -928,17 +937,60 @@ class CreateUserContext(generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
+        test = test_task.delay()
+
+        print(test)
+
         # first step: subset the data
+        partial_data = subset_patients(all_data, params)
 
         # second step: get the context-name
+        context_name = create_context_id(partial_data.index, partial_data.columns)
+        logger.info(f"Creating context called {context_name}")
 
         # third step check if the context already exists
+        # Skip this for now
 
         # fourth step: check the parameters wanted for the context
+        # Skip this for now
 
         # fourth step b: create the context
+        # calculate scores
+        cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL, id_column=env("PATIENT_ID_COLUMN"))
+        logger.info(f"Calculating association scores for context {context_name} with shapes {cat_data.shape} and "
+                    f"{cont_data.shape}")
 
-        return JsonResponse({"message": "Hello, world!"})
+        cont_file_name = f"/tmp/{context_name}_cont.pkl"
+        cont_data.to_pickle(cont_file_name)
+        cat_file_name = f"/tmp/{context_name}_cat.pkl"
+        cat_data.to_pickle(cat_file_name)
+
+        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_name,
+                                            protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
+                                            metabolite_set=list(METABOLITES.columns), variant_set=[])
+
+        logger.info(f"Context {context_name} successfully created: {task}")
+        return JsonResponse({"taskId": task.id})
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get the status of a context-specific network calculation",
+        description="Given a task_id, this endpoint will return the status of the context-specific network calculation.",
+        parameters=[
+            OpenApiParameter(
+                name='task_id',
+                description='task_id of the context-specific network calculation',
+                required=True,
+                type=OpenApiTypes.STR,
+            )
+        ]
+    )
+)
+class ContextStatusView(generics.GenericAPIView):
+    def get(self, request, task_id):
+        task = AsyncResult(task_id)
+        return JsonResponse({'status': task.status, 'result': task.result})
 
 
 @extend_schema_view(

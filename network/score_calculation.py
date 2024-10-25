@@ -7,7 +7,7 @@ import logging
 import nanpy
 import timeit
 
-logger = logging.getLogger("django")
+logger = logging.getLogger("network")
 
 
 def df_to_numpy(df: pd.DataFrame):
@@ -81,7 +81,7 @@ def combine_np_p(np_results: pd.DataFrame | None, p_results: pd.DataFrame | None
         p_results = pd.DataFrame(columns=['label1', 'label2', 'pval', 'effsize', 'test'])
 
     np_results = np_results.rename(columns={'pval': 'pval_np', 'effsize': 'effsize_np', 'test': 'test_np'})
-    out = pd.merge(np_results, p_results, on=['label1', 'label2'], how='inner')
+    out = pd.merge(np_results, p_results, on=['label1', 'label2'], how='outer')
     return out
 
 
@@ -158,6 +158,17 @@ def order_categories(data: pd.DataFrame):
     return data
 
 
+def separate_cat_cont(all_data, phenotypes_meta, id_column):
+    logger.debug("Separating categorical and continuous phenotypes")
+    cat_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
+                                                      .isin(["categorical", "boolean"])].label)].copy()
+
+    # Extract continuous phenotypes
+    cont_data = all_data.iloc[:, ~all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
+                                                        .isin(["categorical", "boolean", "time"])].label)].copy()
+    return cat_data, cont_data
+
+
 def calculate_association_scores(cat_data, cont_data, tests='parametric'):
     # subsample data for testing (only keep first 500 columns)
     # if settings.DEBUG:
@@ -199,6 +210,8 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
 
     if any(t in ['parametric', 'both', 'ttest', 'anova'] for t in tests):
         cat_cont_two, cat_cont_more = nanpy_cat_cont(cont_data, cat_data, tests)
+        # remove the tests that were already done
+        tests = [t for t in tests if t not in ['parametric', 'ttest', 'anova']]
     if any(t in ['non-parametric', 'both', 'mwu', 'kruskal_wallis'] for t in tests):
         cat_cont_two_np, cat_cont_more_np = nanpy_cat_cont(cont_data, cat_data, tests)
 

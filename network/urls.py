@@ -20,4 +20,5 @@ urlpatterns = [
     # ex: /network/api/getTypeaheadResults/?s=Bec
     path("api/getTypeaheadResults/", views.TypeaheadView.as_view(), name="get_typeahead"),
     path("api/filterContext", views.FilterUserContext.as_view(), name="filter_context"),
+    path("api/createContext", views.CreateUserContext.as_view(), name="create_context"),
 ]

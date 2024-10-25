@@ -11,8 +11,10 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
-
+import os
 import environ
+from celery import Celery
+
 env = environ.Env(
     DEBUG=(bool, False),
     NUM_WORKERS=(int, 1)
@@ -191,6 +193,10 @@ LOGGING = {
     },
 }
 
+# Redis settings
+
+CELERY_BROKER_URL = 'redis://localhost:6379'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379'
 
 # Custom DyHealthNet settings
 

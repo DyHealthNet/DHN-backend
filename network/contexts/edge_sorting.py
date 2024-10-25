@@ -102,9 +102,14 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
     :return: Tuple containing the list of formatted edges and the list of edge types
     """
     all_edge_types = {edge_type: StringIO() for edge_type in DB_EDGES.values()}
+    # ObJeCt oF TyPe SeT iS NoT JSON sErIaLiZaBlE
+    protein_cols = set(protein_set)
+    phenotype_cols = set(phenotype_set)
+    metabolite_cols = set(metabolite_set)
+    variant_cols = set(variant_set)
 
     def map_and_filter(edge: tuple) -> tuple[tuple[str, str], tuple[str, str], bool] | tuple[None, None, bool]:
-        mapped, types, swap = map_edge(edge, protein_set, phenotype_set, metabolite_set, variant_set)
+        mapped, types, swap = map_edge(edge, protein_cols, phenotype_cols, metabolite_cols, variant_cols)
         return mapped, types if types else None, swap
 
     edges.readline()
@@ -175,15 +180,19 @@ def add_edges(conn, edges: dict) -> bool:
     cursor = conn.cursor()
     try:
         if settings.DEBUG:
-            pass
             # clear the tables
-            # for edge_type in DB_EDGES.values():
-            #     cursor.execute(f"TRUNCATE TABLE {edge_type}")
-        for edge_type, edge_file in edges.items():
-            if edge_file is None:
+            for edge_type in edges.keys():
+                cursor.execute(f"TRUNCATE TABLE {edge_type};")
+            conn.commit()
+
+        edge_keys = list(edges.keys())
+        for edge_type in edge_keys:
+            logger.debug(f"Adding {edge_type} edges to the database")
+            if edges[edge_type] is None:
+                logger.debug(f"No {edge_type} edges to add since it is empty")
                 continue
-            copy_from_buffer(cursor, edge_type, edge_file)
-            edge_count = count_rows(edge_file)
+            copy_from_buffer(cursor, edge_type, edges[edge_type])
+            edge_count = count_rows(edges[edge_type])
             if edge_count > 0:
                 conn.commit()
                 logger.debug(f"Finished adding {edge_count} {edge_type} edges")

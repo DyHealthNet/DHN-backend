@@ -2,12 +2,12 @@
 import io
 import json
 import hashlib
-from django.conf import settings
+from django.db import connection
 import logging
 from network.contexts.edge_sorting import process_file, add_edges
 import pandas as pd
 
-logger = logging.getLogger('django')
+logger = logging.getLogger('network')
 
 operator_funcs = {
     'less': lambda df, col, val: df[col] < val,
@@ -17,17 +17,17 @@ operator_funcs = {
 }
 
 TABLE_STRUCTURE = """
-CREATE TABLE IF NOT EXISTS {table_name} (
-    id SERIAL PRIMARY KEY,
-    label1 TEXT FOREIGN KEY REFERENCES {label_table1}(cohort_id),
-    label2 TEXT FOREIGN KEY REFERENCES {label_table2}(cohort_id),
-    np_p_value JSON,
-    np_effect_size JSON,
-    np_test_statistic TEXT,
-    p_value JSON,
-    effect_size JSON,
-    test_statistic TEXT,
-)
+    CREATE TABLE IF NOT EXISTS {table_name} ( 
+    id SERIAL PRIMARY KEY, 
+    label1 VARCHAR REFERENCES {label_table1}(cohort_id), 
+    label2 VARCHAR REFERENCES {label_table2}(cohort_id), 
+    np_p_value JSON, 
+    np_effect_size JSON, 
+    np_test_statistic VARCHAR, 
+    p_value JSON, 
+    effect_size JSON, 
+    test_statistic VARCHAR
+);
 """
 
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
@@ -41,7 +41,7 @@ def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
     :param patient_list: List of patient IDs
     :return: Unique ID
     """
-    sorted_patients = sorted(patient_list + column_list)
+    sorted_patients = sorted(list(patient_list) + list(column_list))
     combined_patients = ''.join(sorted_patients)
     hash_object = hashlib.sha256(combined_patients.encode('utf-8'))
     unique_id = hash_object.hexdigest()[:10]
@@ -150,7 +150,7 @@ def create_context_tables(needed_tables: list[str], context_name: str, conn):
 
 def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     all_scores = io.StringIO()
-    conn = settings.CONN_POOL.getconn()
+    conn = connection
     scores.to_csv(all_scores, sep=',', index=True, header=False, lineterminator='\n')
     all_scores.seek(0)
 
@@ -163,7 +163,8 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     tables = {new_names[k]: v for k, v in tables.items()}
 
     # insert the data into the database
-    add_edges(conn, tables)
+    add_success = add_edges(conn, tables)
+    return add_success
 
 
 # Possible future implementation for updating multiple tables concurrently
