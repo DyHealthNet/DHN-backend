@@ -68,6 +68,7 @@ dependencies:
   - libcxxabi=16.0.6=ha770c72_0
   - libffi=3.4.4=h6a678d5_1
   - libgcc-ng=13.2.0=h77fa898_13
+  - libgfortran=3.0.0=1
   - libgfortran-ng=11.3.0=h69a702a_19
   - libgfortran5=11.3.0=h39d6296_19
   - libgomp=13.2.0=h77fa898_13
@@ -88,6 +89,7 @@ dependencies:
   - numexpr=2.8.7=py311h812550d_0
   - numpy=1.26.4=py311h24aa872_0
   - numpy-base=1.26.4=py311hbfb1bba_0
+  - openblas=0.3.4=ha44fe06_0
   - openssl=3.2.1=h4ab18f5_2
   - overrides=7.7.0=pyhd8ed1ab_0
   - packaging=24.0=pyhd8ed1ab_0
@@ -122,7 +124,6 @@ dependencies:
   - rfc3339-validator=0.1.4=py311h06a4308_0
   - rfc3986-validator=0.1.1=py311h06a4308_0
   - rpds-py=0.10.6=py311hb02cf49_0
-  - scipy=1.13.0=py311h24aa872_0
   - send2trash=1.8.3=pyh0d859eb_0
   - setuptools=68.2.2=py311h06a4308_0
   - six=1.16.0=pyhd3eb1b0_1
@@ -154,7 +155,14 @@ dependencies:
   - zipp=3.17.0=py311h06a4308_0
   - zlib=1.2.13=h5eee18b_1
   - pip:
+      - amqp==5.2.0
       - asgiref==3.8.1
+      - billiard==4.2.1
+      - celery==5.4.0
+      - click==8.1.7
+      - click-didyoumean==0.3.1
+      - click-plugins==1.1.1
+      - click-repl==0.3.0
       - contourpy==1.2.1
       - cycler==0.12.1
       - django==5.0.4
@@ -163,21 +171,29 @@ dependencies:
       - djangorestframework==3.15.2
       - drf-spectacular==0.27.2
       - fonttools==4.51.0
+      - gunicorn==22.0.0
       - inflection==0.5.1
       - joblib==1.4.2
       - kiwisolver==1.4.5
+      - kombu==5.4.2
+      - llvmlite==0.43.0
       - matplotlib==3.8.4
+      - numba==0.60.0
+      - numba-scipy==0.4.0
       - pandas-flavor==0.6.0
       - patsy==0.5.6
       - pillow==10.3.0
       - pingouin==0.5.4
       - psycopg2-binary==2.9.9
       - pyparsing==3.1.2
+      - redis==5.2.0
       - scikit-learn==1.4.2
+      - scipy==1.13.1
       - seaborn==0.13.2
       - sqlparse==0.5.0
       - statsmodels==0.14.2
       - tabulate==0.9.0
       - threadpoolctl==3.5.0
       - uritemplate==4.1.1
+      - vine==5.1.0
       - xarray==2024.3.0

@@ -3,26 +3,37 @@ Django backend for the DyHealthNet Masters project (2024) to build a prototype f
 
 ## Usage guide
 
-1. Create a conda environment including all package dependencies and activate it:   
-   ```bash
-   conda env create -f environment.yml -n dyhealthnet_env
-   conda activate dyhealthnet_env
-   
-4. Clone the repository using one of the following options:  
+1. Clone the repository using one of the following options:  
    ```bash
    git clone https://github.com/DyHealthNet/backend_django.git #https
    git clone git@github.com:DyHealthNet/backend_django.git #ssh
 
-6. Set the secret key in the .env.example file manually and rename the file afterwards:
+2. Create a conda environment including all package dependencies and activate it:   
+   ```bash
+   conda env create -f environment.yml -n dyhealthnet_env
+   conda activate dyhealthnet_env
+
+3. Set the secret key in the .env.example file manually and rename the file afterwards:
    ```bash
    cd backend_django/dyhealthnet_project
    vi .env.example #Edit secret key variable
    mv .env.example .env
    
-8. Run the server and access it on your browser according to the instructions:  
+4. Install and run redis server:
+   ```bash
+   sudo apt update && sudo apt install redis-server
+   ```
+   
+5. Install and run celery worker:
+   ```bash
+   celery -A dyhealthnet_project worker -l info
+   ```
+
+6. Run the server and access it on your browser according to the instructions:  
    ```bash
    cd ..
-   python manage.py runserver`
+   python manage.py runserver
+   ```
    
 
 ## Format specifications
