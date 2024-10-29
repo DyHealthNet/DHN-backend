@@ -4,6 +4,7 @@ import json
 import hashlib
 import os.path
 
+from django.conf import settings
 from django.db import connection
 import logging
 from network.contexts.edge_sorting import process_file, add_edges
@@ -11,7 +12,7 @@ import pandas as pd
 
 logger = logging.getLogger('network')
 
-operator_funcs = {
+OPERATORS = {
     'less': lambda df, col, val: df[col] < val,
     'more': lambda df, col, val: df[col] > val,
     'in': lambda df, col, val: df[col].isin(val),
@@ -67,10 +68,10 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             col = con['column']
             val = con['value']
 
-            if op not in operator_funcs:
+            if op not in OPERATORS:
                 raise ValueError(f"Unsupported operator: {op}")
 
-            condition = operator_funcs[op](variables, col, val)
+            condition = OPERATORS[op](variables, col, val)
 
             if inside_conn == 'and':
                 current_mask &= condition
@@ -163,15 +164,19 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     new_names = create_context_tables(list(tables.keys()), context_name, conn)
 
     # save the tables to CSV files
-    for k, v in tables.items():
-        print(type(v))
-        if os.path.exists(f"/tmp/{context_name}/{new_names[k]}.csv"):
-            continue
-        with open(f"/tmp/{context_name}/{new_names[k]}.csv", 'w') as f:
-            f.write(v.getvalue())
+    if settings.LOW_MEMORY:
+        logger.debug("In low memory mode, saving tables to CSV files")
+        for k, v in tables.items():
+            if os.path.exists(f"/tmp/{context_name}/{new_names[k]}.csv"):
+                continue
+            with open(f"/tmp/{context_name}/{new_names[k]}.csv", 'w') as f:
+                f.write(v.getvalue())
+        edge_info = list(new_names.values())
+    else:
+        edge_info = {new_names[k]: v for k, v in tables.items()}
 
     # insert the data into the database
-    add_success = add_edges(conn, context_name, list(new_names.values()))
+    add_success = add_edges(conn, context_name, edge_info)
     return add_success
 
 

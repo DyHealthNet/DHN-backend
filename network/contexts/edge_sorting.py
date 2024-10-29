@@ -153,7 +153,7 @@ def count_rows(buffer):
     return row_count
 
 
-def add_edges(conn, context_name, edges: list) -> bool:
+def add_edges(conn, context_name, edges: list | dict) -> bool:
     """
     Add the given list of edges to the database in bulk
     :param context_name:
@@ -169,17 +169,21 @@ def add_edges(conn, context_name, edges: list) -> bool:
             # for edge_type in edges.keys():
             #     cursor.execute(f"TRUNCATE TABLE {edge_type};")
             # conn.commit()
-
+        # if edges are a list, then we are in low memory mode
         for edge_type in edges:
-            logger.debug(f"Adding {edge_type} edges to the database")
-            copy_from_file(cursor, edge_type, context_name)
-            logger.debug(f"Finished adding {edge_type} edges")
-            # edge_count = count_rows(edges[edge_type])
-            # if edge_count > 0:
-            #     conn.commit()
-            #     logger.debug(f"Finished adding {edge_count} {edge_type} edges")
-            # else:
-            #     logger.debug(f"No {edge_type} edges to add")
+            if settings.LOW_MEMORY:
+                copy_from_file(cursor, edge_type, context_name)
+                logger.debug(f"Finished adding {edge_type} edges")
+            else:
+                copy_from_buffer(cursor, edge_type, edges[edge_type])
+                edge_count = count_rows(edges[edge_type])
+                if edge_count > 0:
+                    conn.commit()
+                    logger.debug(f"Finished adding {edge_count} {edge_type} edges")
+                    # freeing up memory as soon as possible
+                    del edges[edge_type]
+                else:
+                    logger.debug(f"No {edge_type} edges to add")
     except Exception as e:
         conn.rollback()
         logger.error(f"A problem occurred while adding edges: {e}")

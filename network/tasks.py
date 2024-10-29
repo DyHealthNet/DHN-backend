@@ -17,14 +17,14 @@ def create_context_wrapper(cat_data: json, cont_data: json, params: dict, contex
     scores = calculate_association_scores(cat_data, cont_data, params['tests'])
 
     # insert context to db
-    succ = insert_context(scores, context_name, **kwargs)
+    success = insert_context(scores, context_name, **kwargs)
 
+    # remove temp files created by my lack of RAM
     dir_path = os.path.join('/tmp', context_name)
     if os.path.exists(dir_path) and os.path.isdir(dir_path):
-        # Remove all files and subdirectories in the specified directory
         shutil.rmtree(dir_path)
 
-    return succ
+    return success
 
 
 @shared_task

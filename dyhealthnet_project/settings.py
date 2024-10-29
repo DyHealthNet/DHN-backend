@@ -17,7 +17,8 @@ from celery import Celery
 
 env = environ.Env(
     DEBUG=(bool, False),
-    NUM_WORKERS=(int, 1)
+    NUM_WORKERS=(int, 1),
+    LOW_MEMORY=(bool, True),
 )
 environ.Env.read_env()
 
@@ -212,3 +213,4 @@ PROTEIN_LABEL_COLUMN = env("PROTEIN_LABEL_COLUMN")
 CALCULATED_EDGES_PATH = env("CALCULATED_EDGES_PATH")
 
 NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
+LOW_MEMORY = env("LOW_MEMORY", cast=bool)

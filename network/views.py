@@ -937,10 +937,6 @@ class CreateUserContext(generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
-        test = test_task.delay()
-
-        print(test)
-
         # first step: subset the data
         partial_data = subset_patients(all_data, params)
 
@@ -951,15 +947,15 @@ class CreateUserContext(generics.GenericAPIView):
         # third step check if the context already exists
         # Skip this for now
 
-        # fourth step: check the parameters wanted for the context
+        # fourth step: check the parameters wanted for the context e.g. is the context valid?
         # Skip this for now
 
-        # fourth step b: create the context
-        # calculate scores
-        cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL, id_column=env("PATIENT_ID_COLUMN"))
+        # fifth step: separate the data into categorical and continuous data
+        cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL)
         logger.info(f"Calculating association scores for context {context_name} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
+        # sixth step: save data to file in order to be able to load it in the celery task
         if not os.path.exists(f"/tmp/{context_name}"):
             os.mkdir(f"/tmp/{context_name}")
         cont_file_name = f"/tmp/{context_name}/cont.pkl"
@@ -969,6 +965,7 @@ class CreateUserContext(generics.GenericAPIView):
         if not os.path.exists(cat_file_name):
             cat_data.to_pickle(cat_file_name)
 
+        # seventh step: start the celery task
         task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_name,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
