@@ -11,7 +11,7 @@ from network.models import CohortVariant
 from network.color_utils import *
 import json
 
-from network.score_calculation import calculate_association_scores, separate_cat_cont
+from network.score_calculation import separate_cat_cont
 from network.utils import check_files_and_return, list_node_variables
 from network.contexts.contexts import subset_patients, create_context_id
 from network.tasks import create_context_wrapper, test_task
@@ -71,6 +71,12 @@ else:
                                          return_dataset=True)
 
     all_data = join_dataframes([PHENOTYPES, PROTEINS, METABOLITES])
+
+    # Associate the layers with their respective variables
+    LAYERS = {'phenomics': PHENOTYPES.columns,
+              'proteomics': PROTEINS.columns,
+              'metabolomics': METABOLITES.columns}
+
     # If file exists open the file and load the JSON data
     # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
     var_label_map_dict = None
@@ -908,26 +914,52 @@ class GetDataView2(generics.GenericAPIView):
                     "start the calculation of a context-specific network.",
         parameters=[
             OpenApiParameter(
-                name='x',
-                description='variable x',
+                name='subset_params',
+                description='Custom filtering parameters as a JSON',
                 required=True,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.OBJECT,
                 location=OpenApiParameter.QUERY,
+                examples=[
+                    OpenApiExample(
+                        name="Example of test_params_format",
+                        value={
+                            "connect": {
+                                "inside": "and",
+                                "outside": "or"
+                            },
+                            "conditions": {
+                                "0": [
+                                    {
+                                        "column": "x0so5385",
+                                        "operator": "less",
+                                        "value": 4000
+                                    },
+                                    {
+                                        "column": "x0_sex",
+                                        "operator": "equal",
+                                        "value": 1
+                                    }
+                                ],
+                                "1": [
+                                    {
+                                        "column": "x0so5385",
+                                        "operator": "more",
+                                        "value": 6000
+                                    }
+                                ]
+                            },
+                            "tests": {
+                                "cont_cont": "pearson",
+                                "cat_cat": "chi2",
+                                "cat_cont_m": "anova",
+                                "cat_cont_b": "ttest",
+                            },
+                            "layers": ['metabolomics', 'phenomics']
+                        },
+                        description="An example of the filtering parameters passed as a JSON string."
+                    )
+                ]
             ),
-            OpenApiParameter(
-                name='y',
-                description='variable y',
-                required=True,
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name='c',
-                description='colour variable',
-                required=False,
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-            )
         ]
     )
 )
@@ -937,8 +969,17 @@ class CreateUserContext(generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
+        # nullth step: remove all layers that are not wanted as per params['layers']
+        context_data = all_data.copy()
+        for layer in list(set(LAYERS.keys()) - set(params['layers'])):
+            logger.debug(f"Removing layer {layer} as it is not wanted in the context")
+            context_data = context_data.drop(LAYERS[layer], axis=1)
+
         # first step: subset the data
-        partial_data = subset_patients(all_data, params)
+        try:
+            partial_data = subset_patients(context_data, params)
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
 
         # second step: get the context-name
         context_name = create_context_id(partial_data.index, partial_data.columns)
@@ -1004,17 +1045,17 @@ class ContextStatusView(generics.GenericAPIView):
         parameters=[
             OpenApiParameter(
                 name='subset_params',
-                description='Custom filtering parameters as a JSON string',
+                description='Custom filtering parameters as a JSON',
                 required=True,
                 location=OpenApiParameter.QUERY,
-                type=OpenApiTypes.STR,  # Represent as string for query parameters
+                type=OpenApiTypes.OBJECT,
                 examples=[
                     OpenApiExample(
                         name="Example of test_params_format",
                         value={
                             "connect": {
-                                "inside": "or",
-                                "outside": "and"
+                                "inside": "and",
+                                "outside": "or"
                             },
                             "conditions": {
                                 "0": [
@@ -1051,7 +1092,11 @@ class FilterUserContext(generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No subset parameters provided.', status=405)
         try:
-            out_df = subset_patients(all_data, params)
+            context_data = all_data.copy()
+            for layer in list(set(LAYERS.keys()) - set(params['layers'])):
+                logger.debug(f"Removing layer {layer} as it is not wanted in the context")
+                context_data = context_data.drop(LAYERS[layer], axis=1)
+            out_df = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
         remaining_users = out_df.shape[0]

@@ -71,6 +71,9 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             if op not in OPERATORS:
                 raise ValueError(f"Unsupported operator: {op}")
 
+            if col not in variables.columns:
+                raise ValueError(f"Column {col} not in available variables")
+
             condition = OPERATORS[op](variables, col, val)
 
             if inside_conn == 'and':
@@ -88,14 +91,6 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             overall_mask |= mask
 
     return variables[overall_mask].copy()
-
-
-def get_rows(conn, table_name):
-    cursor = conn.cursor()
-    cursor.execute(f"SELECT id, label1, label2, pval, effsize FROM {table_name}")
-    existing_rows = cursor.fetchall()
-    cursor.close()
-    return existing_rows
 
 
 def update_buffer(updates, conn, table_name: str = 'edges'):
