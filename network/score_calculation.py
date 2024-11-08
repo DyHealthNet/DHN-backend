@@ -105,10 +105,10 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
                                     threads=settings.NUM_WORKERS)
         done_test = "anova"
 
-    if tests in ['non-parametric', 'kruskal_wallis']:
+    if tests in ['non-parametric', 'kruskal-wallis']:
         more_cont_out = nanpy.kruskal_wallis(cat_phenotypes_more, cont_phenotypes, axis=1,
                                              threads=settings.NUM_WORKERS)
-        done_test = "kruskal_wallis"
+        done_test = "kruskal-wallis"
 
     return nanpy_formatting(more_cont_out, [cat_cols_more, cont_cols], done_test)
 
@@ -131,25 +131,25 @@ def nanpy_binary_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.Data
     done_test = None
     two_cont_out = None
 
-    if test in ['parametric', 'ttest']:
+    if test in ['parametric', 't-test']:
         logger.info("Doing parametric tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         two_cont_out = nanpy.ttest(cat_phenotypes_two, cont_phenotypes, axis=1,
                                    threads=settings.NUM_WORKERS)
-        done_test = "ttest"
+        done_test = "t-test"
     elif test in ['anova']:
         logger.info("Doing ANOVA tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         two_cont_out = nanpy.anova(cat_phenotypes_two, cont_phenotypes, axis=1,
                                    threads=settings.NUM_WORKERS)
         done_test = "anova"
 
-    if test in ['non-parametric', 'mwu']:
+    if test in ['non-parametric', 'mann-whitney u']:
         logger.debug("Doing non-parametric tests with shape: %s", cat_phenotypes_two.shape)
         two_cont_out = nanpy.mwu(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS)
-        done_test = "mwu"
-    elif test in ['kruskal_wallis']:
+        done_test = "mann-whitney u"
+    elif test in ['kruskal-wallis']:
         logger.debug("Doing Kruskal-Wallis tests with shape: %s", cat_phenotypes_two.shape)
         two_cont_out = nanpy.kruskal_wallis(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS)
-        done_test = "kruskal_wallis"
+        done_test = "kruskal-wallis"
 
     return nanpy_formatting(two_cont_out, [cat_cols_two, cont_cols], done_test)
 
@@ -201,10 +201,10 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
     #     cat_data = cat_data.iloc[:, :500]
 
     if isinstance(tests, str):
-        tests = {'cont_cont': tests,
-                 'cat_cat': tests,
-                 'cat_cont_b': tests,
-                 'cat_cont_m': tests}
+        tests = {'contCont': tests,
+                 'catCat': tests,
+                 'catContB': tests,
+                 'catContM': tests}
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])
@@ -213,6 +213,9 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
 
     logger.debug(f"Continous data shape: {cont_data.shape}")
     logger.debug(f"Categorical data shape: {cat_data.shape}")
+
+    logger.debug(f"Doing tests: {tests}")
+    tests = {k: v.lower() for k, v in tests.items()}
 
     start = timeit.default_timer()
 
@@ -223,10 +226,10 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
     # Continuous-Continuous association testing
     cont_cont_results_np, cont_cont_results = None, None
 
-    if tests.get('cont_cont') in ['parametric', 'both', 'pearson']:
+    if tests.get('contCont') in ['parametric', 'both', 'pearson']:
         cont_cont_results = nanpy_cont_cont(cont_data, 'parametric')
 
-    if tests.get('cont_cont') in ['non-parametric', 'both', 'spearman']:
+    if tests.get('contCont') in ['non-parametric', 'both', 'spearman']:
         cont_cont_results_np = nanpy_cont_cont(cont_data, 'non-parametric')
 
     cont_cont_results = combine_np_p(cont_cont_results_np, cont_cont_results)
@@ -235,17 +238,17 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
     # Continuous-Categorical association testing
     cat_cont_two_np, cat_cont_two, cat_cont_more_np, cat_cont_more = None, None, None, None
 
-    if tests.get('cat_cont_m') in ['parametric', 'both', 'ttest', 'anova']:
-        cat_cont_more = nanpy_cat_cont(cont_data, cat_data, tests.get('cat_cont_m'))
+    if tests.get('catContM') in ['parametric', 'both', 't-test', 'anova']:
+        cat_cont_more = nanpy_cat_cont(cont_data, cat_data, tests.get('catContM'))
 
-    if tests.get('cat_cont_b') in ['parametric', 'both', 'ttest', 'anova']:
-        cat_cont_two = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('cat_cont_b'))
+    if tests.get('catContB') in ['parametric', 'both', 't-test', 'anova']:
+        cat_cont_two = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('catContB'))
 
-    if tests.get('cat_cont_m') in ['non-parametric', 'both', 'mwu', 'kruskal_wallis']:
-        cat_cont_more_np = nanpy_cat_cont(cont_data, cat_data, tests.get('cat_cont_m'))
+    if tests.get('catContM') in ['non-parametric', 'both', 'mann-whitney u', 'kruskal-wallis']:
+        cat_cont_more_np = nanpy_cat_cont(cont_data, cat_data, tests.get('catContM'))
 
-    if tests.get('cat_cont_b') in ['non-parametric', 'both', 'mwu', 'kruskal_wallis']:
-        cat_cont_two_np = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('cat_cont_b'))
+    if tests.get('catContB') in ['non-parametric', 'both', 'mann-whitney u', 'kruskal-wallis']:
+        cat_cont_two_np = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('catContB'))
 
     cat_cont_two = combine_np_p(cat_cont_two_np, cat_cont_two)
     cat_cont_more = combine_np_p(cat_cont_more_np, cat_cont_more)

@@ -967,7 +967,7 @@ class CreateUserContext(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
-            return HttpResponseBadRequest('No parameters provided.', status=405)
+            return HttpResponseBadRequest('No parameters provided.', status=400)
 
         # nullth step: remove all layers that are not wanted as per params['layers']
         context_data = all_data.copy()
@@ -979,7 +979,7 @@ class CreateUserContext(generics.GenericAPIView):
         try:
             partial_data = subset_patients(context_data, params)
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=405)
+            return HttpResponseBadRequest(str(ex), status=400)
 
         # second step: get the context-name
         context_name = create_context_id(partial_data.index, partial_data.columns)
@@ -1032,7 +1032,10 @@ class CreateUserContext(generics.GenericAPIView):
 class ContextStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):
-        task_id = request.GET.get("task_id")
+        task_id = request.GET.get("taskId")
+        logger.debug("Got request for taskId: " + task_id)
+        if not task_id:
+            return HttpResponseBadRequest('No taskId provided.', status=400)
         task = AsyncResult(task_id)
         return JsonResponse({'status': task.status, 'result': task.result})
 
@@ -1098,7 +1101,7 @@ class FilterUserContext(generics.GenericAPIView):
                 context_data = context_data.drop(LAYERS[layer], axis=1)
             out_df = subset_patients(context_data, params)
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=405)
+            return HttpResponseBadRequest(str(ex), status=400)
         remaining_users = out_df.shape[0]
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})

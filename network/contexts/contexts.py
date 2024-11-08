@@ -53,8 +53,8 @@ def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
 
 def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     masks = []
-    inside_conn = params['connect']['inside']
-    outside_conn = params['connect']['outside']
+    inside_conn = params['connect']['inside'].lower()
+    outside_conn = params['connect']['outside'].lower()
 
     if inside_conn not in ['and', 'or'] or outside_conn not in ['and', 'or']:
         raise ValueError(f"Unsupported connection types: {inside_conn}, {outside_conn}")
@@ -67,6 +67,10 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             op = con['operator']
             col = con['column']
             val = con['value']
+
+            # for now, extract the column from the stuff in the brackets
+            if '(' in col:
+                col = col.split('(')[1].split(')')[0]
 
             if op not in OPERATORS:
                 raise ValueError(f"Unsupported operator: {op}")
