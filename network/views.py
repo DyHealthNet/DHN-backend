@@ -3,12 +3,19 @@ import sys
 import pandas as pd
 import re
 import numpy as np
+from django.contrib.auth.mixins import LoginRequiredMixin
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
+from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
+from django.contrib.auth.models import auth, Group  # Authentication models & functions
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from .form import CreateUserForm, LoginForm
+
 import json
 
 from network.score_calculation import separate_cat_cont
@@ -963,11 +970,14 @@ class GetDataView2(generics.GenericAPIView):
         ]
     )
 )
-class CreateUserContext(generics.GenericAPIView):
+class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
+    login_url = 'network:login'
+    redirect_field_name = None
+    #permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
-            return HttpResponseBadRequest('No parameters provided.', status=400)
+            return HttpResponseBadRequest('No parameters provided.', status=405)
 
         # nullth step: remove all layers that are not wanted as per params['layers']
         context_data = all_data.copy()
@@ -979,7 +989,7 @@ class CreateUserContext(generics.GenericAPIView):
         try:
             partial_data = subset_patients(context_data, params)
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=400)
+            return HttpResponseBadRequest(str(ex), status=405)
 
         # second step: get the context-name
         context_name = create_context_id(partial_data.index, partial_data.columns)
@@ -1029,13 +1039,11 @@ class CreateUserContext(generics.GenericAPIView):
         ]
     )
 )
-class ContextStatusView(generics.GenericAPIView):
+class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
+    login_url = 'network:login'
     @staticmethod
     def get(request):
-        task_id = request.GET.get("taskId")
-        logger.debug("Got request for taskId: " + task_id)
-        if not task_id:
-            return HttpResponseBadRequest('No taskId provided.', status=400)
+        task_id = request.GET.get("task_id")
         task = AsyncResult(task_id)
         return JsonResponse({'status': task.status, 'result': task.result})
 
@@ -1089,7 +1097,8 @@ class ContextStatusView(generics.GenericAPIView):
         ]
     )
 )
-class FilterUserContext(generics.GenericAPIView):
+class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
+    login_url = 'network:login'
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
@@ -1101,7 +1110,69 @@ class FilterUserContext(generics.GenericAPIView):
                 context_data = context_data.drop(LAYERS[layer], axis=1)
             out_df = subset_patients(context_data, params)
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=400)
+            return HttpResponseBadRequest(str(ex), status=405)
         remaining_users = out_df.shape[0]
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
+
+def login_view(request):
+    form = LoginForm()
+    if request.method == "POST":
+        form = LoginForm(request, data=request.POST)
+        if form.is_valid():
+            username = request.POST.get('username')
+            password = request.POST.get('password')
+
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                return redirect("network:dashboard")
+
+    context = {'loginform': form}
+    return render(request, 'login.html', context=context)
+
+def logout_view(request):
+    logout(request)
+    return render(request, 'logout.html')
+
+def register(request):
+    form = CreateUserForm()
+    if request.method == "POST":
+        form = CreateUserForm(request.POST)
+        if form.is_valid():
+            # Create the user
+            user = form.save()
+
+            # Add the user to the "default_users" group
+            group_name = "default_users"
+            group, created = Group.objects.get_or_create(name=group_name)
+            user.groups.add(group)
+            return redirect('network:login')
+
+    context = {'registerform': form}
+    return render(request, 'register.html', context=context)
+
+@login_required(login_url="network:login")
+def dashboard(request):
+    return render(request, 'dashboard.html')
+
+# class LoginView(APIView):
+#     form_class = LoginForm()
+#     def get(self, request, *args, **kwargs):
+#         # Render the form if you want to stick with the template approach
+#         form = self.form_class
+#         return Response({'loginform': form})
+#     def post(self, request, *args, **kwargs):
+#         form = self.form_class
+#         if form.is_valid():
+#             username = request.POST.get('username')
+#             password = request.POST.get('password')
+#
+#             user = authenticate(request, username=username, password=password)
+#             if user is not None:
+#                 login(request, user)
+#                 return redirect("network:dashboard")
+#
+#         context = {'loginform': form}
+#         return JsonResponse(context, status=HttpResponseBadRequest("Username or Password incorrect."))
+
