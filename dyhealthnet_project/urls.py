@@ -25,7 +25,8 @@ from network import views
 
 urlpatterns = [
     path("network/", include("network.urls")),
-    #path("admin/", admin.site.urls),
+    path("admin/", admin.site.urls),
+    path('network/api/', include('allauth.urls')),
     # Added for OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(api_version='v1'), name="schema"),
     # Swagger UI:

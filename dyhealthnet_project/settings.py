@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import os
 import environ
-import all
 from celery import Celery
 
 env = environ.Env(
@@ -22,6 +21,9 @@ env = environ.Env(
     LOW_MEMORY=(bool, True),
 )
 environ.Env.read_env()
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = True # env('DEBUG')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,27 +34,70 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = ['*']
+
+SITE_ID = 1 # Django’s Sites framework is required for django-allauth
 
 # Application definition
 
 INSTALLED_APPS = [
     'network.apps.NetworksConfig',
-    #'django.contrib.admin', #
+    'django.contrib.admin', #
     'django.contrib.auth', #
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
+    'django_extensions', # optional show_urls
     # Added for OpenAPI
     'drf_spectacular',
     'rest_framework',
-    'corsheaders'
+# Third-party apps
+    'corsheaders',
+    # django-allauth
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.github',
+    'allauth.socialaccount.providers.google',
 ]
+
+SOCIALACCOUNT_PROVIDERS = {
+    'github': {
+        # For each OAuth based provider, either add a ''SocialApp''
+        # (''socialaccount'' app) containing the required client
+        # credentials, or list them here:
+        'APP': {
+            'client_id': 'Iv23liAv6MBm8L4qyxpO',  # TODO to do this correctly for a user app?
+            'secret': 'e9a34c4966ad6eb051e32fd101f623681f160209',
+            'key': ''
+        },
+        'AUTH_PARAMS': {'access_type': 'online'},
+        'OAUTH_PKCE_ENABLED': True,  # Optional, enables PKCE (Proof Key for Code Exchange)
+        'SCOPE': ['user', 'email'] ,
+    },
+    'google': {
+        # For each OAuth based provider, either add a ''SocialApp''
+        # (''socialaccount'' app) containing the required client
+        # credentials, or list them here:
+        'APP': {
+            'client_id': '<your_client_id>',
+            'secret': SECRET_KEY,
+            'key': ''
+        },
+        'SCOPE': ['openid', 'email', 'profile'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+        'OAUTH_PKCE_ENABLED': True,  # Enable PKCE for additional security
+    }
+}
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',          # Default authentication
+    'allauth.account.auth_backends.AuthenticationBackend', # Allauth authentication
+]
+
 # Added for OpenAPI
 REST_FRAMEWORK = {
     # your other DRF settings here
@@ -73,6 +118,7 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
@@ -139,7 +185,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-LOGIN_REDIRECT_URL = '/'
+# Redirect URLs after login/logout
+LOGIN_REDIRECT_URL = '/network/api/dashboard/'
+LOGOUT_REDIRECT_URL = '/network/api/dashboard/'
 
 
 # Internationalization
@@ -223,3 +271,5 @@ LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 
 #TODO add real email functionality
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_FILE_PATH = BASE_DIR / 'emails'
+
