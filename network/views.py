@@ -14,7 +14,7 @@ from django.contrib.auth import authenticate, login, logout     #Authentication 
 from django.contrib.auth.models import auth, Group  # Authentication models & functions
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
-from .form import CreateUserForm, LoginForm
+#from .form import CreateUserForm, LoginForm
 
 import json
 
@@ -971,8 +971,8 @@ class GetDataView2(generics.GenericAPIView):
     )
 )
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
-    redirect_field_name = None
+    #login_url = 'network:login'
+    #redirect_field_name = None
     #permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
         params = request.data
@@ -1040,7 +1040,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
+    #login_url = 'network:login'
     @staticmethod
     def get(request):
         task_id = request.GET.get("task_id")
@@ -1098,7 +1098,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
+    #login_url = 'network:login'
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
@@ -1115,55 +1115,10 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
 
-def login_view(request):
-    form = LoginForm()
-    if request.method == "POST":
-        form = LoginForm(request, data=request.POST)
-        if form.is_valid():
-            username = request.POST.get('username')
-            password = request.POST.get('password')
-
-            user = authenticate(request, username=username, password=password)
-            if user is not None:
-                login(request, user)
-                return redirect("network:dashboard")
-
-    context = {'loginform': form}
-    return render(request, 'login.html', context=context)
-
-def logout_view(request):
-    logout(request)
-    return render(request, 'logout.html')
-
-def register(request):
-    form = CreateUserForm()
-    if request.method == "POST":
-        form = CreateUserForm(request.POST)
-        if form.is_valid():
-            # Create the user
-            user = form.save()
-
-            # Add the user to the "default_users" group
-            group_name = "default_users"
-            group, created = Group.objects.get_or_create(name=group_name)
-            user.groups.add(group)
-            return redirect('network:login')
-
-    context = {'registerform': form}
-    return render(request, 'register.html', context=context)
-
-@login_required(login_url="network:login")
-def dashboard(request):
-    return render(request, 'dashboard.html')
-
-# class LoginView(APIView):
-#     form_class = LoginForm()
-#     def get(self, request, *args, **kwargs):
-#         # Render the form if you want to stick with the template approach
-#         form = self.form_class
-#         return Response({'loginform': form})
-#     def post(self, request, *args, **kwargs):
-#         form = self.form_class
+# def login_view(request):
+#     form = LoginForm()
+#     if request.method == "POST":
+#         form = LoginForm(request, data=request.POST)
 #         if form.is_valid():
 #             username = request.POST.get('username')
 #             password = request.POST.get('password')
@@ -1173,6 +1128,69 @@ def dashboard(request):
 #                 login(request, user)
 #                 return redirect("network:dashboard")
 #
-#         context = {'loginform': form}
-#         return JsonResponse(context, status=HttpResponseBadRequest("Username or Password incorrect."))
+#     context = {'loginform': form}
+#     return render(request, 'login.html', context=context)
+#
+# def logout_view(request):
+#     logout(request)
+#     return render(request, 'logout.html')
+#
+# def register(request):
+#     form = CreateUserForm()
+#     if request.method == "POST":
+#         form = CreateUserForm(request.POST)
+#         if form.is_valid():
+#             # Create the user
+#             user = form.save()
+#
+#             # Add the user to the "default_users" group
+#             group_name = "default_users"
+#             group, created = Group.objects.get_or_create(name=group_name)
+#             user.groups.add(group)
+#             return redirect('network:login')
+#
+#     context = {'registerform': form}
+#     return render(request, 'register.html', context=context)
+#
+# @login_required(login_url="network:login")
+# def dashboard(request):
+#     return render(request, 'dashboard.html')
+
+class LoginView(generics.GenericAPIView):
+    @staticmethod
+    def post(request, *args, **kwargs):
+        params = request.data
+        username = params['username']
+        password = params['password']
+        print(f'username: {username}')
+        print(f'password: {password}')
+
+        user = authenticate(request, username=username, password=password)
+        print(f'user: {user}')
+        if user is not None:
+            login(request, user)
+            print(f'Log in worked')
+            return JsonResponse({'status': 'success', 'message': 'Logged in successfully'}, status=200)
+
+        print(f'Not logged in')
+        return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
+
+class LogoutView(generics.GenericAPIView):
+    @staticmethod
+    def post(request):
+        # Log the user out
+        logout(request)
+        return JsonResponse({'status': 'success', 'message': 'Logged out successfully'}, status=200)
+
+class CheckLoginStatusView(LoginRequiredMixin,generics.GenericAPIView):
+    @staticmethod
+    def get(request):
+        print(f'Hi Im here')
+        if request.user.is_authenticated:
+            return JsonResponse({"is_logged_in": True, "username": request.user.username}, status=200)
+        else:
+            return JsonResponse({"is_logged_in": False}, status=status.HTTP_401_UNAUTHORIZED)
+
+# URL configuration for this view
+# path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
 

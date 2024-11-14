@@ -24,10 +24,11 @@ urlpatterns = [
     path("api/createContext", views.CreateUserContext.as_view(), name="create_context"),
     path("api/contextStatus", views.ContextStatusView.as_view(), name="context_status"),
 
-    path("api/register/", views.register, name="register"),
-    path("api/login/", views.login_view, name="login"),
-    path("api/logout/", views.logout_view, name="logout"),
-    path("api/dashboard/", views.dashboard, name="dashboard"),
+    #path("api/register/", views.register, name="register"),
+    path("api/login/", views.LoginView.as_view(), name="login"),
+    path("api/checklogin/", views.CheckLoginStatusView.as_view(), name="checklogin"),
+    path("api/logout/", views.LogoutView.as_view(), name="logout"),
+    #path("api/dashboard/", views.dashboard, name="dashboard"),
 
     #path("api/password_reset/", auth_views.PasswordResetView.as_view(), name="admin_password_reset"),
     #path("api/password_reset/done/", auth_views.PasswordResetDoneView.as_view(), name="password_reset_done"),

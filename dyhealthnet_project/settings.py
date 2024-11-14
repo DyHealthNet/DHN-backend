@@ -54,7 +54,7 @@ INSTALLED_APPS = [
     # Added for OpenAPI
     'drf_spectacular',
     'rest_framework',
-# Third-party apps
+    # Third-party apps
     'corsheaders',
     # django-allauth
     'allauth',
@@ -127,6 +127,16 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware', # Associates users with requests using sessions.
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+# Allow specific origins
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',  # Frontend URL  #TODO adapt if necessary
+]
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",  # Frontend URL
 ]
 
 ROOT_URLCONF = 'dyhealthnet_project.urls'
