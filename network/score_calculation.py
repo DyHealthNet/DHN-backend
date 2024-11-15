@@ -182,8 +182,8 @@ def order_categories(data: pd.DataFrame):
     return data
 
 
-def separate_cat_cont(all_data, phenotypes_meta):
-    if not all_data or not phenotypes_meta:
+def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
+    if isinstance(all_data, type(None)) or isinstance(phenotypes_meta, type(None)):
         return None, None
     logger.debug("Separating categorical and continuous phenotypes")
     cat_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()

@@ -79,6 +79,9 @@ else:
 
     all_data = join_dataframes([PHENOTYPES, PROTEINS, METABOLITES])
 
+    ALL_CAT, ALL_CONT = separate_cat_cont(all_data, PHENO_META_LABEL)
+    # maximum number of categories here is 29 for variable: x0pe05d
+
     # Associate the layers with their respective variables
     LAYERS = {'phenomics': PHENOTYPES.columns,
               'proteomics': PROTEINS.columns,
@@ -1115,6 +1118,24 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
 
+
+class VariableInfoView(generics.GenericAPIView):
+    def get(self, request):
+        variable = request.GET.get("variableId")
+        if variable is None:
+            return HttpResponseBadRequest('No variableId provided.', status=400)
+
+        # Get the variable information
+        if variable in ALL_CAT.columns:
+            var_info = [int(x) for x in ALL_CAT[variable].unique() if not pd.isna(x)]
+        elif variable in ALL_CONT.columns:
+            var_info = ALL_CONT[variable].min(), ALL_CONT[variable].max()
+        else:
+            return HttpResponseBadRequest('Variable not found.', status=404)
+
+        return JsonResponse({'result': var_info})
+
+
 # def login_view(request):
 #     form = LoginForm()
 #     if request.method == "POST":
@@ -1156,6 +1177,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
 # def dashboard(request):
 #     return render(request, 'dashboard.html')
 
+
 class LoginView(generics.GenericAPIView):
     @staticmethod
     def post(request, *args, **kwargs):
@@ -1175,12 +1197,14 @@ class LoginView(generics.GenericAPIView):
         print(f'Not logged in')
         return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
 
+
 class LogoutView(generics.GenericAPIView):
     @staticmethod
     def post(request):
         # Log the user out
         logout(request)
         return JsonResponse({'status': 'success', 'message': 'Logged out successfully'}, status=200)
+
 
 class CheckLoginStatusView(LoginRequiredMixin,generics.GenericAPIView):
     @staticmethod

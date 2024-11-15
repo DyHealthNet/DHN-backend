@@ -23,15 +23,16 @@ urlpatterns = [
     path("api/filterContext", views.FilterUserContext.as_view(), name="filter_context"),
     path("api/createContext", views.CreateUserContext.as_view(), name="create_context"),
     path("api/contextStatus", views.ContextStatusView.as_view(), name="context_status"),
+    path("api/singleVariableInfo", views.VariableInfoView.as_view(), name="variable_info"),
 
-    #path("api/register/", views.register, name="register"),
+    # path("api/register/", views.register, name="register"),
     path("api/login/", views.LoginView.as_view(), name="login"),
     path("api/checklogin/", views.CheckLoginStatusView.as_view(), name="checklogin"),
     path("api/logout/", views.LogoutView.as_view(), name="logout"),
-    #path("api/dashboard/", views.dashboard, name="dashboard"),
+    # path("api/dashboard/", views.dashboard, name="dashboard"),
 
-    #path("api/password_reset/", auth_views.PasswordResetView.as_view(), name="admin_password_reset"),
-    #path("api/password_reset/done/", auth_views.PasswordResetDoneView.as_view(), name="password_reset_done"),
-    #path("api/reset/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
-    #path("api/reset/done/", auth_views.PasswordResetCompleteView.as_view(), name="password_reset_complete"),
+    # path("api/password_reset/", auth_views.PasswordResetView.as_view(), name="admin_password_reset"),
+    # path("api/password_reset/done/", auth_views.PasswordResetDoneView.as_view(), name="password_reset_done"),
+    # path("api/reset/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
+    # path("api/reset/done/", auth_views.PasswordResetCompleteView.as_view(), name="password_reset_complete"),
 ]

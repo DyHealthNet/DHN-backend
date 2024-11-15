@@ -23,7 +23,7 @@ env = environ.Env(
 environ.Env.read_env()
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True # env('DEBUG')
+DEBUG = True  # env('DEBUG')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -113,6 +113,10 @@ SPECTACULAR_SETTINGS = {
     'SERVERS': [{
             'url': 'http://localhost:8000',
             'description': 'Development server'
+        },
+        {
+            'url': 'http://localhost:9999',
+            'description': 'Development server 2'
         }]
 }
 
@@ -132,11 +136,13 @@ MIDDLEWARE = [
 # Allow specific origins
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',  # Frontend URL  #TODO adapt if necessary
+    'http://localhost:5174'
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",  # Frontend URL
+    'http://localhost:5174'
 ]
 
 ROOT_URLCONF = 'dyhealthnet_project.urls'
@@ -279,7 +285,7 @@ CALCULATED_EDGES_PATH = env("CALCULATED_EDGES_PATH")
 NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 
-#TODO add real email functionality
+# TODO add real email functionality
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 EMAIL_FILE_PATH = BASE_DIR / 'emails'
 
