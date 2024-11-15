@@ -183,6 +183,8 @@ def order_categories(data: pd.DataFrame):
 
 
 def separate_cat_cont(all_data, phenotypes_meta):
+    if not all_data or not phenotypes_meta:
+        return None, None
     logger.debug("Separating categorical and continuous phenotypes")
     cat_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
                                                       .isin(["categorical", "boolean"])].label)].copy()

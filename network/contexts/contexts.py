@@ -13,10 +13,11 @@ import pandas as pd
 logger = logging.getLogger('network')
 
 OPERATORS = {
-    'less': lambda df, col, val: df[col] < val,
-    'more': lambda df, col, val: df[col] > val,
+    'less than (<)': lambda df, col, val: df[col] < val,
+    'more than (>)': lambda df, col, val: df[col] > val,
     'in': lambda df, col, val: df[col].isin(val),
-    'equal': lambda df, col, val: df[col] == val
+    'equals (=)': lambda df, col, val: df[col] == val,
+    'in range': lambda df, col, val: (df[col] >= val[0]) & (df[col] <= val[1]),
 }
 
 TABLE_STRUCTURE = """
@@ -71,6 +72,8 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             # for now, extract the column from the stuff in the brackets
             if '(' in col:
                 col = col.split('(')[1].split(')')[0]
+            elif '/' in col:
+                col = col.split('/')[0].strip()
 
             if op not in OPERATORS:
                 raise ValueError(f"Unsupported operator: {op}")
