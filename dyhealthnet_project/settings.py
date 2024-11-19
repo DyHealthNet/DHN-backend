@@ -23,7 +23,7 @@ env = environ.Env(
 environ.Env.read_env()
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True # env('DEBUG')
+DEBUG =  env('DEBUG')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -150,6 +150,9 @@ CSRF_TRUSTED_ORIGINS = [
     FRONTEND_HOME_URL,  # Frontend URL
     'http://localhost:5174'
 ]
+
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 3600 # 1h
 
 ROOT_URLCONF = 'dyhealthnet_project.urls'
 
