@@ -25,7 +25,7 @@ urlpatterns = [
     path("api/contextStatus", views.ContextStatusView.as_view(), name="context_status"),
     path("api/singleVariableInfo", views.VariableInfoView.as_view(), name="variable_info"),
 
-    # path("api/register/", views.register, name="register"),
+    path("api/register/", views.RegisterView.as_view(), name="register"),
     path("api/login/", views.LoginView.as_view(), name="login"),
     path("api/checklogin/", views.CheckLoginStatusView.as_view(), name="checklogin"),
     path("api/logout/", views.LogoutView.as_view(), name="logout"),

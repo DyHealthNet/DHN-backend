@@ -11,7 +11,7 @@ from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
 from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
-from django.contrib.auth.models import auth, Group  # Authentication models & functions
+from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 #from .form import CreateUserForm, LoginForm
@@ -1185,7 +1185,6 @@ class LoginView(generics.GenericAPIView):
         username = params['username']
         password = params['password']
         print(f'username: {username}')
-        print(f'password: {password}')
 
         user = authenticate(request, username=username, password=password)
         print(f'user: {user}')
@@ -1193,6 +1192,32 @@ class LoginView(generics.GenericAPIView):
             login(request, user)
             print(f'Log in worked')
             return JsonResponse({'status': 'success', 'message': 'Logged in successfully'}, status=200)
+
+        print(f'Not logged in')
+        return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
+
+class RegisterView(generics.GenericAPIView):
+    @staticmethod
+    def post(request, *args, **kwargs):
+        params = request.data
+        username = params['username']
+        password = params['password']
+        print(f'username: {username}')
+        print(f'password: {password}')
+
+        try:
+            User.objects.create_user(username=username, password=password)
+            print("User created successfully")
+        except IntegrityError:
+            print(f'Not logged in')
+            return JsonResponse({'status': 'error', 'message': 'Username already exists'}, status=401)
+
+        authenticated_user = authenticate(username=username, password=password)
+        print(f'user: {authenticated_user}')
+        if authenticated_user is not None:
+            login(request, authenticated_user)
+            print(f'Sign up worked')
+            return JsonResponse({'status': 'success', 'message': 'Signed up and logged in successfully'}, status=200)
 
         print(f'Not logged in')
         return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
