@@ -1128,12 +1128,17 @@ class VariableInfoView(generics.GenericAPIView):
         # Get the variable information
         if variable in ALL_CAT.columns:
             var_info = [int(x) for x in ALL_CAT[variable].unique() if not pd.isna(x)]
+            bins = ALL_CAT[variable].value_counts().sort_index()
         elif variable in ALL_CONT.columns:
             var_info = ALL_CONT[variable].min(), ALL_CONT[variable].max()
+            bins = pd.cut(ALL_CONT[variable], bins=20).value_counts().sort_index()
         else:
             return HttpResponseBadRequest('Variable not found.', status=404)
 
-        return JsonResponse({'result': var_info})
+        return JsonResponse({'result': var_info,
+                             'distribution': {'values': [int(x) for x in bins.values],
+                                              'labels': [str(x) for x in list(bins.index)]},
+                             'type': 'bar' if variable in ALL_CAT.columns else 'trend'})
 
 
 # def login_view(request):
