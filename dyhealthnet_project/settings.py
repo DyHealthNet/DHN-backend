@@ -23,7 +23,7 @@ env = environ.Env(
 environ.Env.read_env()
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env('DEBUG')
+DEBUG =  env('DEBUG')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,6 +33,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
+
+FRONTEND_HOME_URL = "http://localhost:5173"
 
 
 ALLOWED_HOSTS = ['*']
@@ -78,20 +80,24 @@ SOCIALACCOUNT_PROVIDERS = {
         'OAUTH_PKCE_ENABLED': True,  # Optional, enables PKCE (Proof Key for Code Exchange)
         'SCOPE': ['user', 'email'] ,
     },
-    'google': {
+    'orcid': {
         # For each OAuth based provider, either add a ''SocialApp''
         # (''socialaccount'' app) containing the required client
         # credentials, or list them here:
         'APP': {
             'client_id': '<your_client_id>',
-            'secret': SECRET_KEY,
+            'secret': '',
             'key': ''
         },
-        'SCOPE': ['openid', 'email', 'profile'],
+        'SCOPE': ['user', 'email'],
         'AUTH_PARAMS': {'access_type': 'online'},
         'OAUTH_PKCE_ENABLED': True,  # Enable PKCE for additional security
     }
 }
+
+SOCIALACCOUNT_ADAPTER = "network.adapters.MySocialAccountAdapter"
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_LOGIN_ON_GET = True
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',          # Default authentication
@@ -135,15 +141,18 @@ MIDDLEWARE = [
 
 # Allow specific origins
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',  # Frontend URL  #TODO adapt if necessary
+    FRONTEND_HOME_URL,  # Frontend URL  #TODO adapt if necessary
     'http://localhost:5174'
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",  # Frontend URL
+    FRONTEND_HOME_URL,  # Frontend URL
     'http://localhost:5174'
 ]
+
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 3600 # 1h
 
 ROOT_URLCONF = 'dyhealthnet_project.urls'
 
@@ -202,8 +211,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Redirect URLs after login/logout
-LOGIN_REDIRECT_URL = '/network/api/dashboard/'
-LOGOUT_REDIRECT_URL = '/network/api/dashboard/'
+LOGIN_REDIRECT_URL = FRONTEND_HOME_URL
+LOGOUT_REDIRECT_URL = FRONTEND_HOME_URL
 
 
 # Internationalization
