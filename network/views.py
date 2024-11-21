@@ -995,8 +995,8 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             return HttpResponseBadRequest(str(ex), status=405)
 
         # second step: get the context-name
-        context_name = create_context_id(partial_data.index, partial_data.columns)
-        logger.info(f"Creating context called {context_name}")
+        context_id = create_context_id(partial_data.index, partial_data.columns)
+        logger.info(f"Creating context called {context_id}")
 
         # third step check if the context already exists
         # Skip this for now
@@ -1006,25 +1006,26 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         # fifth step: separate the data into categorical and continuous data
         cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL)
-        logger.info(f"Calculating association scores for context {context_name} with shapes {cat_data.shape} and "
+        logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
         # sixth step: save data to file in order to be able to load it in the celery task
-        if not os.path.exists(f"/tmp/{context_name}"):
-            os.mkdir(f"/tmp/{context_name}")
-        cont_file_name = f"/tmp/{context_name}/cont.pkl"
+        if not os.path.exists(f"/tmp/{context_id}"):
+            os.mkdir(f"/tmp/{context_id}")
+        cont_file_name = f"/tmp/{context_id}/cont.pkl"
         if not os.path.exists(cont_file_name):
             cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{context_name}/cat.pkl"
+        cat_file_name = f"/tmp/{context_id}/cat.pkl"
         if not os.path.exists(cat_file_name):
             cat_data.to_pickle(cat_file_name)
 
         # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_name,
+        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_id,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
-        logger.info(f"Context creation for {context_name} successfully started: {task}")
+
+        logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({"taskId": task.id})
 
 
@@ -1043,7 +1044,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
-    #login_url = 'network:login'
+    login_url = 'network:login'
     @staticmethod
     def get(request):
         task_id = request.GET.get("task_id")
@@ -1101,7 +1102,8 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    #login_url = 'network:login'
+    login_url = 'network:login'
+
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
@@ -1200,6 +1202,7 @@ class LoginView(generics.GenericAPIView):
 
         print(f'Not logged in')
         return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
+
 
 class RegisterView(generics.GenericAPIView):
     @staticmethod
