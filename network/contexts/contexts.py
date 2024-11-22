@@ -7,7 +7,7 @@ import os.path
 from django.conf import settings
 from django.db import connection
 import logging
-from network.contexts.edge_sorting import process_file, add_edges
+from network.contexts.edge_sorting import process_file, add_edges, DB_COLUMNS
 import pandas as pd
 
 logger = logging.getLogger('network')
@@ -25,7 +25,7 @@ EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
 def create_table_structure(table_name, context_id, label_table1, label_table2):
-    column_info = settings.DB_COLUMNS[table_name]
+    column_info = DB_COLUMNS[table_name]
     context_table_name = f"{table_name}_{context_id}"
     table_structure = f"""
     CREATE TABLE IF NOT EXISTS {context_table_name} (

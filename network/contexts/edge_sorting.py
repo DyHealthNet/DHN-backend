@@ -3,11 +3,9 @@ import sys
 from io import StringIO
 import logging
 from django.conf import settings
-
-
+from network.models import *
 
 logger = logging.getLogger("network")
-
 
 DB_EDGES = {
     ('phenotype', 'variant'): "edges_variant_phenotype",
@@ -30,7 +28,35 @@ DB_EDGES = {
     ('phenotype', 'phenotype'): "edges_phenotype_phenotype",
 }
 
-DB_COLUMNS = settings.DB_COLUMNS
+# Define the columns we need for each table so that we can order them later when we read the file
+DB_COLUMNS = {
+    "edges_variant_phenotype": ['label1', 'label2'] +
+                               [field.name for field in EffectsVariantPhenotype._meta.get_fields()][3:],
+    "edges_variant_metabolite": ['label1', 'label2'] +
+                                [field.name for field in EffectsVariantMetabolite._meta.get_fields()][3:],
+
+    "edges_variant_protein": ['label1', 'label2'] +
+                             [field.name for field in EffectsVariantProtein._meta.get_fields()][3:],
+
+    "edges_protein_protein": ['label1', 'label2'] +
+                             [field.name for field in EffectsProteinProtein._meta.get_fields()][3:],
+
+    "edges_protein_metabolite": ['label1', 'label2'] +
+                                [field.name for field in EffectsProteinMetabolite._meta.get_fields()][3:],
+
+    "edges_metabolite_metabolite": ['label1', 'label2'] +
+                                   [field.name for field in EffectsMetaboliteMetabolite._meta.get_fields()][3:],
+
+    "edges_protein_phenotype": ['label1', 'label2'] +
+                               [field.name for field in EffectsProteinPhenotype._meta.get_fields()][3:],
+
+    "edges_metabolite_phenotype": ['label1', 'label2'] +
+                                  [field.name for field in EffectsMetabolitePhenotype._meta.get_fields()][3:],
+
+    "edges_phenotype_phenotype": ['label1', 'label2'] +
+                                 [field.name for field in EffectsPhenotypePhenotype._meta.get_fields()][3:]
+}
+
 
 # this gives us information which data type comes first in the column order
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
