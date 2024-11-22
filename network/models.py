@@ -224,15 +224,21 @@ class EffectsMetaboliteMetabolite(models.Model):
     metabolite_2 = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, db_column='metabolite_id_2', blank=True,
                                      null=True,
                                      related_name='cohort_metabolite_2')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_metabolite_metabolite'
+        db_table = 'edges_metabolite_metabolite'
 
 
 class EffectsMetabolitePhenotype(models.Model):
@@ -240,15 +246,46 @@ class EffectsMetabolitePhenotype(models.Model):
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True,
                                    db_column='metabolite_id')
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True, db_column='phenotype_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    ttest_p_unadjusted = models.FloatField(blank=True, null=True)
+    ttest_p_bonferroni = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    ttest_e_cohens_d = models.FloatField(blank=True, null=True)
+
+    anova_p_unadjusted = models.FloatField(blank=True, null=True)
+    anova_p_bonferroni = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    anova_e_np2 = models.FloatField(blank=True, null=True)
+
+    mwu_p_unadjusted = models.FloatField(blank=True, null=True)
+    mwu_p_bonferroni = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    mwu_e_r = models.FloatField(blank=True, null=True)
+
+    kruskal_p_unadjusted = models.FloatField(blank=True, null=True)
+    kruskal_p_bonferroni = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    kruskal_e_eta2 = models.FloatField(blank=True, null=True)
+
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_metabolite_phenotype'
+        db_table = 'edges_metabolite_phenotype'
 
 
 class EffectsPhenotypePhenotype(models.Model):
@@ -259,15 +296,53 @@ class EffectsPhenotypePhenotype(models.Model):
     phenotype_2 = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, db_column='phenotype_id_2', blank=True,
                                     null=True,
                                     related_name='cohort_phenotype_2')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    chi2_p_unadjusted = models.FloatField(blank=True, null=True)
+    chi2_p_bonferroni = models.FloatField(blank=True, null=True)
+    chi2_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    chi2_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    chi2_e_cramers_v = models.FloatField(blank=True, null=True)
+    chi2_e_phi = models.FloatField(blank=True, null=True)
+
+    ttest_p_unadjusted = models.FloatField(blank=True, null=True)
+    ttest_p_bonferroni = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    ttest_e_cohens_d = models.FloatField(blank=True, null=True)
+
+    anova_p_unadjusted = models.FloatField(blank=True, null=True)
+    anova_p_bonferroni = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    anova_e_np2 = models.FloatField(blank=True, null=True)
+
+    mwu_p_unadjusted = models.FloatField(blank=True, null=True)
+    mwu_p_bonferroni = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    mwu_e_r = models.FloatField(blank=True, null=True)
+
+    kruskal_p_unadjusted = models.FloatField(blank=True, null=True)
+    kruskal_p_bonferroni = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    kruskal_e_eta2 = models.FloatField(blank=True, null=True)
+
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_phenotype_phenotype'
+        db_table = 'edges_phenotype_phenotype'
 
 
 class EffectsProteinMetabolite(models.Model):
@@ -276,15 +351,22 @@ class EffectsProteinMetabolite(models.Model):
                                 db_column='protein_id')
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True,
                                    db_column='metabolite_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_protein_metabolite'
+        db_table = 'edges_protein_metabolite'
 
 
 class EffectsProteinPhenotype(models.Model):
@@ -292,15 +374,46 @@ class EffectsProteinPhenotype(models.Model):
     protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True, db_index=True,
                                 db_column='protein_id')
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True, db_column='phenotype_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    ttest_p_unadjusted = models.FloatField(blank=True, null=True)
+    ttest_p_bonferroni = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    ttest_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    ttest_e_cohens_d = models.FloatField(blank=True, null=True)
+
+    anova_p_unadjusted = models.FloatField(blank=True, null=True)
+    anova_p_bonferroni = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    anova_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    anova_e_np2 = models.FloatField(blank=True, null=True)
+
+    mwu_p_unadjusted = models.FloatField(blank=True, null=True)
+    mwu_p_bonferroni = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    mwu_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    mwu_e_r = models.FloatField(blank=True, null=True)
+
+    kruskal_p_unadjusted = models.FloatField(blank=True, null=True)
+    kruskal_p_bonferroni = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    kruskal_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    kruskal_e_eta2 = models.FloatField(blank=True, null=True)
+
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_protein_phenotype'
+        db_table = 'edges_protein_phenotype'
 
 
 class EffectsProteinProtein(models.Model):
@@ -309,15 +422,22 @@ class EffectsProteinProtein(models.Model):
                                   related_name='cohort_protein_1', db_index=True)
     protein_2 = models.ForeignKey('CohortProtein', models.DO_NOTHING, db_column='protein_id_2', blank=True, null=True,
                                   related_name='cohort_protein_2', db_index=True)
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    pearson_p_unadjusted = models.FloatField(blank=True, null=True)
+    pearson_p_bonferroni = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    pearson_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    pearson_e_r2 = models.FloatField(blank=True, null=True)
+
+    spearman_p_unadjusted = models.FloatField(blank=True, null=True)
+    spearman_p_bonferroni = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_hb = models.FloatField(blank=True, null=True)
+    spearman_p_benjamini_yek = models.FloatField(blank=True, null=True)
+    spearman_e_rho = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_protein_protein'
+        db_table = 'edges_protein_protein'
 
 
 class EffectsVariantMetabolite(models.Model):
@@ -325,45 +445,42 @@ class EffectsVariantMetabolite(models.Model):
     metabolite = models.ForeignKey('CohortMetabolite', models.DO_NOTHING, blank=True, null=True,
                                    db_column='metabolite_id')
     variant = models.ForeignKey('CohortVariant', models.DO_NOTHING, blank=True, null=True, db_column='variant_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    gwas_p_unadjusted = models.FloatField(blank=True, null=True)
+    gwas_p_bonferroni = models.FloatField(blank=True, null=True)
+    gwas_e_unspecified = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_variant_metabolite'
+        db_table = 'edges_variant_metabolite'
 
 
 class EffectsVariantPhenotype(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
     phenotype = models.ForeignKey('CohortPhenotype', models.DO_NOTHING, blank=True, null=True, db_column='phenotype_id')
     variant = models.ForeignKey('CohortVariant', models.DO_NOTHING, blank=True, null=True, db_column='variant_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    gwas_p_unadjusted = models.FloatField(blank=True, null=True)
+    gwas_p_bonferroni = models.FloatField(blank=True, null=True)
+    gwas_e_unspecified = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_variant_phenotype'
+        db_table = 'edges_variant_phenotype'
 
 
 class EffectsVariantProtein(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
     protein = models.ForeignKey('CohortProtein', models.DO_NOTHING, blank=True, null=True, db_column='protein_id')
     variant = models.ForeignKey('CohortVariant', models.DO_NOTHING, blank=True, null=True, db_column='variant_id')
-    p_value = models.FloatField(blank=True, null=True)
-    adjusted_p_value = models.FloatField(blank=True, null=True)
-    effect_size = models.FloatField(blank=True, null=True)
-    effect_size_type = models.CharField(max_length=200, blank=True, null=True)
-    test_statistic = models.CharField(max_length=200, blank=True, null=True)
+
+    gwas_p_unadjusted = models.FloatField(blank=True, null=True)
+    gwas_p_bonferroni = models.FloatField(blank=True, null=True)
+    gwas_e_unspecified = models.FloatField(blank=True, null=True)
 
     class Meta:
         managed = False
-        db_table = 'effects_variant_protein'
+        db_table = 'edges_variant_protein'
 
 
 # 'References' edges map CHRIS nodes to external nodes
