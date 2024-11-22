@@ -974,9 +974,9 @@ class GetDataView2(generics.GenericAPIView):
     )
 )
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    #login_url = 'network:login'
-    #redirect_field_name = None
-    #permission_denied_message = "You are not allowed here."
+    login_url = 'network:login'
+    # redirect_field_name = None
+    # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
@@ -1024,7 +1024,6 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
-
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({"taskId": task.id})
 
@@ -1047,8 +1046,10 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = 'network:login'
     @staticmethod
     def get(request):
-        task_id = request.GET.get("task_id")
+        task_id = request.GET.get("taskId")
         task = AsyncResult(task_id)
+        if task.status == 'FAILURE':
+            return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
 
@@ -1239,10 +1240,9 @@ class LogoutView(generics.GenericAPIView):
         return JsonResponse({'status': 'success', 'message': 'Logged out successfully'}, status=200)
 
 
-class CheckLoginStatusView(LoginRequiredMixin,generics.GenericAPIView):
+class CheckLoginStatusView(LoginRequiredMixin, generics.GenericAPIView):
     @staticmethod
     def get(request):
-        print(f'Hi Im here')
         if request.user.is_authenticated:
             return JsonResponse({"is_logged_in": True, "username": request.user.username}, status=200)
         else:

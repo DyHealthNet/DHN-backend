@@ -20,21 +20,24 @@ OPERATORS = {
     'in range': lambda df, col, val: (df[col] >= val[0]) & (df[col] <= val[1]),
 }
 
-TABLE_STRUCTURE = """
-    CREATE TABLE IF NOT EXISTS {table_name} ( 
-    id SERIAL PRIMARY KEY, 
-    label1 VARCHAR REFERENCES {label_table1}(cohort_id), 
-    label2 VARCHAR REFERENCES {label_table2}(cohort_id), 
-    np_p_value JSON, 
-    np_effect_size JSON, 
-    np_test_statistic VARCHAR, 
-    p_value JSON, 
-    effect_size JSON, 
-    test_statistic VARCHAR
-);
-"""
 
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
+
+
+def create_table_structure(table_name, context_id, label_table1, label_table2):
+    column_info = settings.DB_COLUMNS[table_name]
+    context_table_name = f"{table_name}_{context_id}"
+    table_structure = f"""
+    CREATE TABLE IF NOT EXISTS {context_table_name} (
+    id SERIAL PRIMARY KEY,
+    label1 VARCHAR REFERENCES {label_table1}(cohort_id),
+    label2 VARCHAR REFERENCES {label_table2}(cohort_id),
+    """
+    for column in column_info[2:]:
+        table_structure += f"{column} DOUBLE PRECISION,\n"
+
+    table_structure = table_structure[:-2] + ");"
+    return table_structure
 
 
 def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
@@ -45,6 +48,8 @@ def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
     :param patient_list: List of patient IDs
     :return: Unique ID
     """
+    # return random number between 1 and 10000
+    # return str(random.randint(1, 10000))
     sorted_patients = sorted(list(patient_list) + list(column_list))
     combined_patients = ''.join(sorted_patients)
     hash_object = hashlib.sha256(combined_patients.encode('utf-8'))
@@ -142,11 +147,10 @@ def create_context_tables(needed_tables: list[str], context_name: str, conn):
         if EDGE_ORDER[first_table] < EDGE_ORDER[second_table]:
             first_table, second_table = second_table, first_table
 
-        cursor.execute(TABLE_STRUCTURE.format(
-            table_name=f"{table_name}_{context_name}",
-            label_table1=f"cohort_{first_table}",
-            label_table2=f"cohort_{second_table}"
-        ))
+        cursor.execute(create_table_structure(table_name, context_name,
+                                              f"cohort_{first_table}",
+                                              f"cohort_{second_table}"))
+
         new_names[table_name] = f"{table_name}_{context_name}"
     logger.debug(f"Created tables for context {context_name}")
     conn.commit()
@@ -156,7 +160,7 @@ def create_context_tables(needed_tables: list[str], context_name: str, conn):
 def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     all_scores = io.StringIO()
     conn = connection
-    scores.to_csv(all_scores, sep=',', index=True, header=False, lineterminator='\n')
+    scores.to_csv(all_scores, sep=',', index=True, header=True, lineterminator='\n')
     all_scores.seek(0)
 
     # sort the file buffer into individual edge tables

@@ -40,7 +40,7 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
                    key not in EXCLUDED_EFFECTS}
 
     p_columns = [f"{test}_{key}" for key in p_values_raw.keys()]
-    e_columns = [f"{test}_{key}" for key in effects_raw.keys()]
+    e_columns = [f"{test}_e_{key}" for key in effects_raw.keys()]
 
     df = pd.DataFrame({
         'label1': label1,

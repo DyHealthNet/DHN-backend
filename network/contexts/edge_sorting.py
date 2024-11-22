@@ -5,48 +5,35 @@ import logging
 from django.conf import settings
 
 
+
 logger = logging.getLogger("network")
 
 
 DB_EDGES = {
-    ('phenotype', 'variant'): "effects_variant_phenotype",
-    ('variant', 'phenotype'): "effects_variant_phenotype",
-    ('variant', 'metabolite'): "effects_variant_metabolite",
-    ('metabolite', 'variant'): "effects_variant_metabolite",
-    ('variant', 'protein'): "effects_variant_protein",
-    ('protein', 'variant'): "effects_variant_protein",
+    ('phenotype', 'variant'): "edges_variant_phenotype",
+    ('variant', 'phenotype'): "edges_variant_phenotype",
+    ('variant', 'metabolite'): "edges_variant_metabolite",
+    ('metabolite', 'variant'): "edges_variant_metabolite",
+    ('variant', 'protein'): "edges_variant_protein",
+    ('protein', 'variant'): "edges_variant_protein",
 
-    ('protein', 'protein'): "effects_protein_protein",
-    ('protein', 'phenotype'): "effects_protein_phenotype",
-    ('phenotype', 'protein'): "effects_protein_phenotype",
-    ('protein', 'metabolite'): "effects_protein_metabolite",
-    ('metabolite', 'protein'): "effects_protein_metabolite",
+    ('protein', 'protein'): "edges_protein_protein",
+    ('protein', 'phenotype'): "edges_protein_phenotype",
+    ('phenotype', 'protein'): "edges_protein_phenotype",
+    ('protein', 'metabolite'): "edges_protein_metabolite",
+    ('metabolite', 'protein'): "edges_protein_metabolite",
 
-    ('metabolite', 'metabolite'): "effects_metabolite_metabolite",
-    ('metabolite', 'phenotype'): "effects_metabolite_phenotype",
-    ('phenotype', 'metabolite'): "effects_metabolite_phenotype",
+    ('metabolite', 'metabolite'): "edges_metabolite_metabolite",
+    ('metabolite', 'phenotype'): "edges_metabolite_phenotype",
+    ('phenotype', 'metabolite'): "edges_metabolite_phenotype",
 
-    ('phenotype', 'phenotype'): "effects_phenotype_phenotype",
+    ('phenotype', 'phenotype'): "edges_phenotype_phenotype",
 }
+
+DB_COLUMNS = settings.DB_COLUMNS
 
 # this gives us information which data type comes first in the column order
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
-
-
-def swap_labels(s, label1, label2):
-    index1 = s.find(label1)
-    index2 = s.find(label2)
-
-    if index1 == -1 or index2 == -1:
-        return s
-
-    before = s[:min(index1, index2)]
-    between = s[min(index1 + len(label1), index2 + len(label2)):max(index1, index2)]
-    after = s[max(index1 + len(label1), index2 + len(label2)):]
-
-    if index1 < index2:
-        return before + label2 + between + label1 + after
-    return before + label1 + between + label2 + after
 
 
 def map_edge(edge: tuple, protein_set: set, pheno_set: set, metabo_set: set, variant_set: set) \
@@ -112,11 +99,12 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
         mapped, types, swap = map_edge(edge, protein_cols, phenotype_cols, metabolite_cols, variant_cols)
         return mapped, types if types else None, swap
 
-    edges.readline()
+    columns = edges.readline().strip().split(',')
+    # we need to find the order of the columns and then map it to the table columns that we have for any given table
     for line in edges.readlines():
         if "nan" in line:
             continue
-        line_split = line.split(',')
+        line_split = line.strip().split(',')
         source, dest = line_split[1], line_split[2]
         source_map, dest_map, swap = map_and_filter((source, dest))
         if source_map is None or dest_map is None:
@@ -124,8 +112,19 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
         edge_map = (source_map, dest_map)
         # swap the labels to match the order in the database
         if swap:
-            line = swap_labels(line, source, dest)
-        all_edge_types[DB_EDGES[edge_map]].write(line)
+            line_split[1], line_split[2] = line_split[2], line_split[1]
+        table = DB_EDGES[edge_map]
+        # sort the line split depending on the order of the columns in the database needed for the table,
+        # if we didn't do the test, we add a blank string
+        new_line = []
+        for col in DB_COLUMNS[table]:
+            if col in columns:
+                new_line.append(line_split[columns.index(col)])
+            else:
+                new_line.append("")
+        new_line = line_split[0] + "," + ','.join(new_line) + "\n"
+
+        all_edge_types[table].write(new_line)
 
     logger.debug("Finished processing edges")
     return all_edge_types
@@ -171,6 +170,7 @@ def add_edges(conn, context_name, edges: list | dict) -> bool:
             # conn.commit()
         # if edges are a list, then we are in low memory mode
         for edge_type in edges:
+            cursor.execute(f"ALTER TABLE {edge_type} DISABLE TRIGGER ALL")
             if settings.LOW_MEMORY:
                 copy_from_file(cursor, edge_type, context_name)
                 logger.debug(f"Finished adding {edge_type} edges")
@@ -184,6 +184,7 @@ def add_edges(conn, context_name, edges: list | dict) -> bool:
                     del edges[edge_type]
                 else:
                     logger.debug(f"No {edge_type} edges to add")
+            cursor.execute(f"ALTER TABLE {edge_type} ENABLE TRIGGER ALL")
     except Exception as e:
         conn.rollback()
         logger.error(f"A problem occurred while adding edges: {e}")
