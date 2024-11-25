@@ -34,8 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
 
-FRONTEND_HOME_URL = "http://localhost:5173"
-
+FRONTEND_HOME_URL = env('FRONTEND_HOME_URL')
 
 ALLOWED_HOSTS = ['*']
 
@@ -78,7 +77,7 @@ SOCIALACCOUNT_PROVIDERS = {
         },
         'AUTH_PARAMS': {'access_type': 'online'},
         'OAUTH_PKCE_ENABLED': True,  # Optional, enables PKCE (Proof Key for Code Exchange)
-        'SCOPE': ['user', 'email'] ,
+        'SCOPE': ['user', 'email', 'user:email'] ,
     },
     'orcid': {
         # For each OAuth based provider, either add a ''SocialApp''
@@ -94,10 +93,11 @@ SOCIALACCOUNT_PROVIDERS = {
         'OAUTH_PKCE_ENABLED': True,  # Enable PKCE for additional security
     }
 }
-
-SOCIALACCOUNT_ADAPTER = "network.adapters.MySocialAccountAdapter"
+#ACCOUNT_AUTHENTICATION_METHOD = "username_email"
+#SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
+SOCIALACCOUNT_REDIRECT_URL = '/'
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',          # Default authentication
@@ -235,7 +235,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True  # TODO set to false in production
 
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
 

@@ -14,9 +14,10 @@ from django.contrib.auth import authenticate, login, logout     #Authentication 
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
-#from .form import CreateUserForm, LoginForm
 
 import json
+
+from rest_framework.views import APIView
 
 from network.score_calculation import separate_cat_cont
 from network.utils import check_files_and_return, list_node_variables
@@ -1240,13 +1241,13 @@ class LogoutView(generics.GenericAPIView):
         return JsonResponse({'status': 'success', 'message': 'Logged out successfully'}, status=200)
 
 
-class CheckLoginStatusView(LoginRequiredMixin, generics.GenericAPIView):
+class CheckLoginStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         if request.user.is_authenticated:
             return JsonResponse({"is_logged_in": True, "username": request.user.username}, status=200)
         else:
-            return JsonResponse({"is_logged_in": False}, status=status.HTTP_401_UNAUTHORIZED)
+            return JsonResponse({"is_logged_in": False}, status=401)
 
 # URL configuration for this view
 # path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
