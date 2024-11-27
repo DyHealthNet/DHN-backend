@@ -7,7 +7,11 @@ import os.path
 from django.conf import settings
 from django.db import connection
 import logging
+
+from network import models
 from network.contexts.edge_sorting import process_file, add_edges, DB_COLUMNS
+from network.models import Context
+from django.db.models import Max
 import pandas as pd
 
 logger = logging.getLogger('network')
@@ -40,20 +44,14 @@ def create_table_structure(table_name, context_id, label_table1, label_table2):
     return table_structure
 
 
-def create_context_id(patient_list: list[str], column_list: list[str]) -> str:
+def create_context_id() -> str:
     """
-    Creates a unique 10-character ID for a given set of patients.
-    Retains the same ID for the same set of patients regardless of order.
-    :param column_list: List of column names available for the context
-    :param patient_list: List of patient IDs
-    :return: Unique ID
+    Retrieves the biggest context_id from the context table and returns a new unique id
     """
-    # return random number between 1 and 10000
-    # return str(random.randint(1, 10000))
-    sorted_patients = sorted(list(patient_list) + list(column_list))
-    combined_patients = ''.join(sorted_patients)
-    hash_object = hashlib.sha256(combined_patients.encode('utf-8'))
-    unique_id = hash_object.hexdigest()[:10]
+    max_id = Context.objects.aggregate(Max('context_id'))['context_id__max']
+    if max_id is None:
+        max_id = 0
+    unique_id = str(max_id + 1)
     return unique_id
 
 
@@ -173,9 +171,9 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     if settings.LOW_MEMORY:
         logger.debug("In low memory mode, saving tables to CSV files")
         for k, v in tables.items():
-            if os.path.exists(f"/tmp/{context_name}/{new_names[k]}.csv"):
+            if os.path.exists(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv"):
                 continue
-            with open(f"/tmp/{context_name}/{new_names[k]}.csv", 'w') as f:
+            with open(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv", 'w') as f:
                 f.write(v.getvalue())
         edge_info = list(new_names.values())
     else:

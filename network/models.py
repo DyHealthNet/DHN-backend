@@ -534,6 +534,22 @@ class CohortReferencesVariant(models.Model):
         db_table = 'cohort_references_variant'
 
 
+# add model for all contexts so we can keep track of them
+class Context(models.Model):
+    context_id = models.CharField(primary_key=True, max_length=200, db_column='context_id')
+    cat_cat_test = models.CharField(max_length=200, blank=True, null=True)
+    cont_cont_test = models.CharField(max_length=200, blank=True, null=True)
+    cat_cont_b_test = models.CharField(max_length=200, blank=True, null=True)
+    cat_cont_m_test = models.CharField(max_length=200, blank=True, null=True)
+    created_at = models.DateTimeField(blank=True, null=True)
+    last_accessed = models.DateTimeField(blank=True, null=True)
+    params = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        managed = True
+        db_table = 'context'
+
+
 # Views combining several tables
 class ViewDescriptionFTS(models.Model):
     id = models.CharField(primary_key=True, max_length=200, db_column='id')

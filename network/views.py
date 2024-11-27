@@ -10,7 +10,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
 from network.models import CohortVariant
 from network.color_utils import *
-from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
+from django.contrib.auth import authenticate, login, logout  #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
@@ -62,7 +62,7 @@ else:
     # ugly but it works
     PHENO_META_LABEL = check_files_and_return(env("PHENOTYPE_META_PATH"),
                                               id_column=env("PHENOTYPE_LABEL_COLUMN"),
-                                              column_list=["type"],)
+                                              column_list=["type"], )
     PHENO_META_LABEL["label"] = PHENO_META_LABEL.index
 
     PROTEINS = check_files_and_return(env("PROTEIN_PATH"),
@@ -976,6 +976,7 @@ class GetDataView2(generics.GenericAPIView):
 )
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = 'network:login'
+
     # redirect_field_name = None
     # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
@@ -996,31 +997,29 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             return HttpResponseBadRequest(str(ex), status=405)
 
         # second step: get the context-name
-        context_id = create_context_id(partial_data.index, partial_data.columns)
-        logger.info(f"Creating context called {context_id}")
+        context_id = create_context_id()
+        logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
 
-        # third step check if the context already exists
+        # third step: check the parameters wanted for the context e.g. is the context valid?
         # Skip this for now
 
-        # fourth step: check the parameters wanted for the context e.g. is the context valid?
-        # Skip this for now
-
-        # fifth step: separate the data into categorical and continuous data
+        # fourth step: separate the data into categorical and continuous data
         cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL)
         logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
-        # sixth step: save data to file in order to be able to load it in the celery task
-        if not os.path.exists(f"/tmp/{context_id}"):
-            os.mkdir(f"/tmp/{context_id}")
-        cont_file_name = f"/tmp/{context_id}/cont.pkl"
+        # fifth step: save data to file in order to be able to load it in the celery task
+        folder_name = f"dyhealthnet-{context_id}"
+        if not os.path.exists(f"/tmp/{folder_name}"):
+            os.mkdir(f"/tmp/{folder_name}")
+        cont_file_name = f"/tmp/{folder_name}/cont.pkl"
         if not os.path.exists(cont_file_name):
             cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{context_id}/cat.pkl"
+        cat_file_name = f"/tmp/{folder_name}/cat.pkl"
         if not os.path.exists(cat_file_name):
             cat_data.to_pickle(cat_file_name)
 
-        # seventh step: start the celery task
+        # sixth step: start the celery task
         task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_id,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
@@ -1045,6 +1044,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 )
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = 'network:login'
+
     @staticmethod
     def get(request):
         task_id = request.GET.get("taskId")
@@ -1251,4 +1251,3 @@ class CheckLoginStatusView(generics.GenericAPIView):
 
 # URL configuration for this view
 # path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
-
