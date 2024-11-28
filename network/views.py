@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
-from network.models import CohortVariant, UserContextLink
+from network.models import CohortVariant
 from network.color_utils import *
 from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
@@ -1005,27 +1005,25 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             return HttpResponseBadRequest(str(ex), status=405)
 
         # second step: get the context-name
-        context_id = create_context_id(partial_data.index, partial_data.columns)
-        logger.info(f"Creating context called {context_id}")
+        context_id = create_context_id()
+        logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
 
-        # third step check if the context already exists
+        # third step: check the parameters wanted for the context e.g. is the context valid?
         # Skip this for now
 
-        # fourth step: check the parameters wanted for the context e.g. is the context valid?
-        # Skip this for now
-
-        # fifth step: separate the data into categorical and continuous data
+        # fourth step: separate the data into categorical and continuous data
         cat_data, cont_data = separate_cat_cont(partial_data, PHENO_META_LABEL)
         logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
-        # sixth step: save data to file in order to be able to load it in the celery task
-        if not os.path.exists(f"/tmp/{context_id}"):
-            os.mkdir(f"/tmp/{context_id}")
-        cont_file_name = f"/tmp/{context_id}/cont.pkl"
+        # fifth step: save data to file in order to be able to load it in the celery task
+        folder_name = f"dyhealthnet-{context_id}"
+        if not os.path.exists(f"/tmp/{folder_name}"):
+            os.mkdir(f"/tmp/{folder_name}")
+        cont_file_name = f"/tmp/{folder_name}/cont.pkl"
         if not os.path.exists(cont_file_name):
             cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{context_id}/cat.pkl"
+        cat_file_name = f"/tmp/{folder_name}/cat.pkl"
         if not os.path.exists(cat_file_name):
             cat_data.to_pickle(cat_file_name)
 
@@ -1153,6 +1151,74 @@ class VariableInfoView(generics.GenericAPIView):
                                               'labels': [str(x) for x in list(bins.index)]},
                              'type': 'bar' if variable in ALL_CAT.columns else 'trend'})
 
+
+class RetrieveContextsView(generics.GenericAPIView):
+    def get(self, request):
+        empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
+        context_ids = []
+        user = request.user
+        # context id, value pairs
+        # context_ids = [(1, 1), (2, 3), (3, 2)] # TODO: replace this with the actual context ids from the user
+        result = []
+
+        for i in range(1, 6):
+            # check if value exists in context_ids, if not, add empty context field
+            if i not in [x[1] for x in context_ids]:
+                empty_field = empty_context_field.copy()
+                empty_field['contextName'] = f'Context {i}'
+                empty_field['contextValue'] = i
+                result.append(empty_field)
+                continue
+            # get the context with the corresponding id
+            context = Context.objects.get(context_id=[x[0] for x in context_ids if x[1] == i][0])
+            result.append({'contextName': context.params['contextName'],
+                           'contextValue': i,
+                           'content': context.params})
+
+        return JsonResponse({'result': result})
+
+# def login_view(request):
+#     form = LoginForm()
+#     if request.method == "POST":
+#         form = LoginForm(request, data=request.POST)
+#         if form.is_valid():
+#             username = request.POST.get('username')
+#             password = request.POST.get('password')
+#
+#             user = authenticate(request, username=username, password=password)
+#             if user is not None:
+#                 login(request, user)
+#                 return redirect("network:dashboard")
+#
+#     context = {'loginform': form}
+#     return render(request, 'login.html', context=context)
+#
+# def logout_view(request):
+#     logout(request)
+#     return render(request, 'logout.html')
+#
+# def register(request):
+#     form = CreateUserForm()
+#     if request.method == "POST":
+#         form = CreateUserForm(request.POST)
+#         if form.is_valid():
+#             # Create the user
+#             user = form.save()
+#
+#             # Add the user to the "default_users" group
+#             group_name = "default_users"
+#             group, created = Group.objects.get_or_create(name=group_name)
+#             user.groups.add(group)
+#             return redirect('network:login')
+#
+#     context = {'registerform': form}
+#     return render(request, 'register.html', context=context)
+#
+# @login_required(login_url="network:login")
+# def dashboard(request):
+#     return render(request, 'dashboard.html')
+
+
 class LoginView(generics.GenericAPIView):
     @staticmethod
     def post(request, *args, **kwargs):
@@ -1188,7 +1254,6 @@ class RegisterView(generics.GenericAPIView):
             print(f'Not logged in')
             return JsonResponse({'status': 'error', 'message': 'Username already exists'}, status=401)
 
-        # directly login the registered User
         authenticated_user = authenticate(username=username, password=password)
         print(f'user: {authenticated_user}')
         if authenticated_user is not None:
@@ -1218,4 +1283,6 @@ class CheckLoginStatusView(generics.GenericAPIView):
         else:
             return JsonResponse({"is_logged_in": False}, status=401)
 
+# URL configuration for this view
+# path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
 

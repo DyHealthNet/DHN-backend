@@ -163,7 +163,7 @@ def copy_from_buffer(cursor, edge_type, edge_file):
 
 
 def copy_from_file(cursor, edge_type, name):
-    file = f"/tmp/{name}/{edge_type}.csv"
+    file = f"/tmp/dyhealthnet-{name}/{edge_type}.csv"
     # check if the file is empty
     with open(file, 'r') as f:
         if f.readline() == '':

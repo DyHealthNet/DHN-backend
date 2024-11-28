@@ -1,4 +1,5 @@
 import json
+from functools import reduce
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,10 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
         **{e_columns[i]: effects_raw[key] for i, key in enumerate(effects_raw)},
     })
 
+    if settings.DROP_INSIGNIFICANT:
+        logger.debug("Drop insignificant results")
+        df = df[df[f"{test}_p_unadjusted"] < settings.ALPHA]
+
     if file_name:
         df.to_csv(file_name, sep=',', index=True, header=False, lineterminator='\n')
 
@@ -64,19 +69,29 @@ def combine_tests(cat_cat, cont_cont, cat_cont_b, cat_cont_m) -> pd.DataFrame:
     :param p_results: the parametric results
     :return: results with both tests combined
     """
+    merge_needed = False
+    id_pairs = set()
     all_results = []
+    start = timeit.default_timer()
+
     for results in [cat_cat, cont_cont, cat_cont_b, cat_cont_m]:
         for test in results:
-            if test is not None:
-                all_results.append(test)
+            if test is None:
+                continue
+            all_results.append(test)
+            test_pairs = set(zip(test['label1'], test['label2']))
+            if id_pairs & test_pairs:
+                merge_needed = True
+            id_pairs.update(test_pairs)
 
-    start = timeit.default_timer()
-    # merge all results on label1, label2
-    out = all_results[0]
-    for i in range(1, len(all_results)):
-        out = pd.merge(out, all_results[i], on=['label1', 'label2'], how='outer')
+    # Merge or concatenate results
+    if merge_needed:
+        logger.debug("Merging all results")
+        out = reduce(lambda left, right: pd.merge(left, right, on=['label1', 'label2'], how='outer'), all_results)
+    else:
+        out = pd.concat(all_results, ignore_index=True)
 
-    logger.debug(f"Finished merging of all results in {timeit.default_timer() - start:2f} seconds")
+    logger.debug(f"Finished combining of all results in {timeit.default_timer() - start:2f} seconds")
 
     return out
 

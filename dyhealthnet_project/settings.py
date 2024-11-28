@@ -19,6 +19,7 @@ env = environ.Env(
     DEBUG=(bool, False),
     NUM_WORKERS=(int, 1),
     LOW_MEMORY=(bool, True),
+    DROP_INSIGNIFICANT_EDGES=(bool, False),
 )
 environ.Env.read_env()
 
@@ -280,6 +281,8 @@ CELERY_RESULT_BACKEND = 'redis://localhost:6379'
 # Custom DyHealthNet settings
 
 NAN_VALUE = -999.0
+ALPHA = 0.05
+DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
 
 PHENOTYPE_DESCRIPTION_COLUMN = env("PHENOTYPE_DESCRIPTION_COLUMN")
 PHENOTYPE_TYPE_COLUMN = env("PHENOTYPE_TYPE_COLUMN")
