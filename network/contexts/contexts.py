@@ -156,13 +156,10 @@ def create_context_tables(needed_tables: list[str], context_name: str, conn):
 
 
 def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
-    all_scores = io.StringIO()
     conn = connection
-    scores.to_csv(all_scores, sep=',', index=True, header=True, lineterminator='\n')
-    all_scores.seek(0)
 
     # sort the file buffer into individual edge tables
-    tables = process_file(all_scores, **kwargs)
+    tables = process_file(scores, **kwargs)
 
     # create all needed tables in the database
     new_names = create_context_tables(list(tables.keys()), context_name, conn)

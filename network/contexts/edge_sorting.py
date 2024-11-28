@@ -2,6 +2,8 @@ import io
 import sys
 from io import StringIO
 import logging
+
+import pandas as pd
 from django.conf import settings
 from network.models import *
 
@@ -63,7 +65,7 @@ EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
 def map_edge(edge: tuple, protein_set: set, pheno_set: set, metabo_set: set, variant_set: set) \
-        -> tuple[str, str, bool] | None:
+        -> tuple[str, str, bool] | tuple[None, None, None]:
     """
     Map the source and target of an edge to the appropriate data type given an id and the cohort sets
     :param variant_set: set of unique variant IDs from the cohort data
@@ -93,7 +95,7 @@ def map_edge(edge: tuple, protein_set: set, pheno_set: set, metabo_set: set, var
             break
 
     if not source_type or not target_type:
-        return None
+        return None, None, None
 
     swap = False
     if EDGE_ORDER[source_type] < EDGE_ORDER[target_type]:
@@ -101,7 +103,7 @@ def map_edge(edge: tuple, protein_set: set, pheno_set: set, metabo_set: set, var
     return source_type, target_type, swap
 
 
-def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metabolite_set: set,
+def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, metabolite_set: set,
                  variant_set: set) -> dict:
     """
     Process a chunk of edges by mapping and filtering the source and target of the edge, and creating SQLAlchemy objects
@@ -126,25 +128,24 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
         return mapped, types if types else None, swap
 
     # Precompute as much as possible to avoid recomputing in the loop
-    columns = edges.readline().strip().split(',')
+    columns = edges.columns
     column_index_map = {col: idx for idx, col in enumerate(columns)}
     table_column_indices = {
         table: [column_index_map[col] if col in column_index_map else None for col in DB_COLUMNS[table]]
         for table in DB_COLUMNS
     }
 
-    for line in edges:
-        if "nan" in line:
-            continue
-        line_split = line.strip().split(',')
+    for row in edges.itertuples(index=False, name=None):  # Skip index, return as tuple
+        line_split = list(row)
         source, dest = line_split[1], line_split[2]
         source_map, dest_map, swap = map_and_filter((source, dest))
         if source_map is None or dest_map is None:
             continue
+
         edge_map = (source_map, dest_map)
-        # swap the labels to match the order in the database
         if swap:
             line_split[1], line_split[2] = line_split[2], line_split[1]
+
         table = DB_EDGES[edge_map]
 
         # Generate new line based on column order
@@ -153,8 +154,7 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
             if idx is not None:
                 new_line += line_split[idx] + ','
             else:
-                new_line += ','
-        new_line = new_line[:-1] + '\n'
+                new_line.append("")
 
         all_edge_types[table].write(new_line)
 
