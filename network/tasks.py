@@ -14,7 +14,7 @@ from django.contrib.auth.models import User
 from network.models import UserContextLink
 
 @shared_task
-def create_context_wrapper(cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int,**kwargs):
+def create_context_wrapper(cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
     cat_data = pd.read_pickle(cat_data)
     cont_data = pd.read_pickle(cont_data)
     scores = calculate_association_scores(cat_data, cont_data, params['tests'])
@@ -39,6 +39,8 @@ def create_context_wrapper(cat_data: json, cont_data: json, params: dict, contex
                               params=params)
         new_context.save()
         user = User.objects.get(id=user_id)
+        if UserContextLink.objects.filter(user_id=user, context_value=params['contextValue']).exists():
+            UserContextLink.objects.filter(user_id=user, context_value=params['contextValue']).delete()
         UserContextLink.objects.create(user_id=user, context_id=context_name, context_value=params['contextValue'])
 
     return success

@@ -125,9 +125,15 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
         mapped, types, swap = map_edge(edge, protein_cols, phenotype_cols, metabolite_cols, variant_cols)
         return mapped, types if types else None, swap
 
+    # Precompute as much as possible to avoid recomputing in the loop
     columns = edges.readline().strip().split(',')
-    # we need to find the order of the columns and then map it to the table columns that we have for any given table
-    for line in edges.readlines():
+    column_index_map = {col: idx for idx, col in enumerate(columns)}
+    table_column_indices = {
+        table: [column_index_map[col] if col in column_index_map else None for col in DB_COLUMNS[table]]
+        for table in DB_COLUMNS
+    }
+
+    for line in edges:
         if "nan" in line:
             continue
         line_split = line.strip().split(',')
@@ -140,15 +146,15 @@ def process_file(edges: io.StringIO, protein_set: set, phenotype_set: set, metab
         if swap:
             line_split[1], line_split[2] = line_split[2], line_split[1]
         table = DB_EDGES[edge_map]
-        # sort the line split depending on the order of the columns in the database needed for the table,
-        # if we didn't do the test, we add a blank string
-        new_line = []
-        for col in DB_COLUMNS[table]:
-            if col in columns:
-                new_line.append(line_split[columns.index(col)])
+
+        # Generate new line based on column order
+        new_line = line_split[0] + ','
+        for idx in table_column_indices[table]:
+            if idx is not None:
+                new_line += line_split[idx] + ','
             else:
-                new_line.append("")
-        new_line = line_split[0] + "," + ','.join(new_line) + "\n"
+                new_line += ','
+        new_line = new_line[:-1] + '\n'
 
         all_edge_types[table].write(new_line)
 
