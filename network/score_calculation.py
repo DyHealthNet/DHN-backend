@@ -1,4 +1,5 @@
 import json
+from functools import reduce
 
 import numpy as np
 import pandas as pd
@@ -76,9 +77,7 @@ def combine_tests(cat_cat, cont_cont, cat_cont_b, cat_cont_m) -> pd.DataFrame:
 
     start = timeit.default_timer()
     # merge all results on label1, label2
-    out = all_results[0]
-    for i in range(1, len(all_results)):
-        out = pd.merge(out, all_results[i], on=['label1', 'label2'], how='outer')
+    out = reduce(lambda left, right: pd.merge(left, right, on=['label1', 'label2'], how='outer'), all_results)
 
     logger.debug(f"Finished merging of all results in {timeit.default_timer() - start:2f} seconds")
 

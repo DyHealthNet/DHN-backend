@@ -1148,10 +1148,10 @@ class VariableInfoView(generics.GenericAPIView):
 class RetrieveContextsView(generics.GenericAPIView):
     def get(self, request):
         empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
-
+        context_ids = []
         user = request.user
         # context id, value pairs
-        context_ids = [(1, 1), (2, 3), (3, 2)] # TODO: replace this with the actual context ids from the user
+        # context_ids = [(1, 1), (2, 3), (3, 2)] # TODO: replace this with the actual context ids from the user
         result = []
 
         for i in range(1, 6):
