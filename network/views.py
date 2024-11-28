@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
-from network.models import CohortVariant
+from network.models import CohortVariant, Context
 from network.color_utils import *
 from django.contrib.auth import authenticate, login, logout  #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
@@ -1144,6 +1144,31 @@ class VariableInfoView(generics.GenericAPIView):
                                               'labels': [str(x) for x in list(bins.index)]},
                              'type': 'bar' if variable in ALL_CAT.columns else 'trend'})
 
+
+class RetrieveContextsView(generics.GenericAPIView):
+    def get(self, request):
+        empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
+
+        user = request.user
+        # context id, value pairs
+        context_ids = [(1, 1), (2, 3), (3, 2)] # TODO: replace this with the actual context ids from the user
+        result = []
+
+        for i in range(1, 6):
+            # check if value exists in context_ids, if not, add empty context field
+            if i not in [x[1] for x in context_ids]:
+                empty_field = empty_context_field.copy()
+                empty_field['contextName'] = f'Context {i}'
+                empty_field['contextValue'] = i
+                result.append(empty_field)
+                continue
+            # get the context with the corresponding id
+            context = Context.objects.get(context_id=[x[0] for x in context_ids if x[1] == i][0])
+            result.append({'contextName': context.params['contextName'],
+                           'contextValue': i,
+                           'content': context.params})
+
+        return JsonResponse({'result': result})
 
 # def login_view(request):
 #     form = LoginForm()
