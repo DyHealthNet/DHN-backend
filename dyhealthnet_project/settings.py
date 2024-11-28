@@ -94,10 +94,11 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 #ACCOUNT_AUTHENTICATION_METHOD = "username_email"
+#SOCIALACCOUNT_ADAPTER = "network.adapter.MySocialAccountAdapter"
+#ACCOUNT_ADAPTER = 'network.adapter.MyAccountAdapter'
 #SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
-SOCIALACCOUNT_REDIRECT_URL = '/'
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',          # Default authentication

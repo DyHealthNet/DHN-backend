@@ -1,5 +1,7 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.contrib.auth.models import User
+
 
 
 # 'Cohort' models correspond to CHRIS nodes
@@ -573,3 +575,13 @@ class ViewExternalNodes(models.Model):
     class Meta:
         managed = False
         db_table = 'view_external_nodes'
+
+class UserContextLink(models.Model):
+    user_id = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
+    #context_id = models.ForeignKey('Context', models.DO_NOTHING, blank=True, null=True)
+    context_id = models.CharField(blank=True, max_length=200, db_column='context_id')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'user_context'

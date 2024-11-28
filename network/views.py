@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
-from network.models import CohortVariant
+from network.models import CohortVariant, UserContextLink
 from network.color_utils import *
 from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
@@ -975,13 +975,22 @@ class GetDataView2(generics.GenericAPIView):
     )
 )
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
+    login_url = env("FRONTEND_HOME_URL")
     # redirect_field_name = None
     # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
         params = request.data
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
+
+        logger.info(f"The user {request.user.username} has the id {request.user.id}")
+
+        # Probably not needed in the end as user can only have 5 Context tabs
+        user_objects_count = UserContextLink.objects.filter(user_id=request.user.id).count()
+        if user_objects_count >= 5:
+            return JsonResponse({'error': 'You can only create up to 5 objects.'}, status=400)
+
+        logger.info(f"The user {request.user.username} can create another context.")
 
         # nullth step: remove all layers that are not wanted as per params['layers']
         context_data = all_data.copy()
@@ -1021,7 +1030,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             cat_data.to_pickle(cat_file_name)
 
         # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_id,
+        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_id, user_id=request.user.id,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
@@ -1044,7 +1053,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
+    login_url = env("FRONTEND_HOME_URL")
     @staticmethod
     def get(request):
         task_id = request.GET.get("taskId")
@@ -1104,7 +1113,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     )
 )
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = 'network:login'
+    #login_url = env("FRONTEND_HOME_URL")
 
     def post(self, request, *args, **kwargs):
         params = request.data
@@ -1144,49 +1153,6 @@ class VariableInfoView(generics.GenericAPIView):
                                               'labels': [str(x) for x in list(bins.index)]},
                              'type': 'bar' if variable in ALL_CAT.columns else 'trend'})
 
-
-# def login_view(request):
-#     form = LoginForm()
-#     if request.method == "POST":
-#         form = LoginForm(request, data=request.POST)
-#         if form.is_valid():
-#             username = request.POST.get('username')
-#             password = request.POST.get('password')
-#
-#             user = authenticate(request, username=username, password=password)
-#             if user is not None:
-#                 login(request, user)
-#                 return redirect("network:dashboard")
-#
-#     context = {'loginform': form}
-#     return render(request, 'login.html', context=context)
-#
-# def logout_view(request):
-#     logout(request)
-#     return render(request, 'logout.html')
-#
-# def register(request):
-#     form = CreateUserForm()
-#     if request.method == "POST":
-#         form = CreateUserForm(request.POST)
-#         if form.is_valid():
-#             # Create the user
-#             user = form.save()
-#
-#             # Add the user to the "default_users" group
-#             group_name = "default_users"
-#             group, created = Group.objects.get_or_create(name=group_name)
-#             user.groups.add(group)
-#             return redirect('network:login')
-#
-#     context = {'registerform': form}
-#     return render(request, 'register.html', context=context)
-#
-# @login_required(login_url="network:login")
-# def dashboard(request):
-#     return render(request, 'dashboard.html')
-
-
 class LoginView(generics.GenericAPIView):
     @staticmethod
     def post(request, *args, **kwargs):
@@ -1222,6 +1188,7 @@ class RegisterView(generics.GenericAPIView):
             print(f'Not logged in')
             return JsonResponse({'status': 'error', 'message': 'Username already exists'}, status=401)
 
+        # directly login the registered User
         authenticated_user = authenticate(username=username, password=password)
         print(f'user: {authenticated_user}')
         if authenticated_user is not None:
@@ -1244,11 +1211,11 @@ class LogoutView(generics.GenericAPIView):
 class CheckLoginStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):
+        print(f"Received CSRF token header: {request.headers.get('X-CSRFToken')}")
+        print(f"Cookie CSRF token: {request.COOKIES.get('csrftoken')}")
         if request.user.is_authenticated:
             return JsonResponse({"is_logged_in": True, "username": request.user.username}, status=200)
         else:
             return JsonResponse({"is_logged_in": False}, status=401)
 
-# URL configuration for this view
-# path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
 
