@@ -49,6 +49,10 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
         **{e_columns[i]: effects_raw[key] for i, key in enumerate(effects_raw)},
     })
 
+    if settings.DROP_INSIGNIFICANT:
+        logger.debug("Drop insignificant results")
+        df = df[df[f"{test}_p_unadjusted"] < settings.ALPHA]
+
     if file_name:
         df.to_csv(file_name, sep=',', index=True, header=False, lineterminator='\n')
 

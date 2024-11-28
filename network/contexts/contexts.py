@@ -51,7 +51,7 @@ def create_context_id() -> str:
     max_id = Context.objects.aggregate(Max('context_id'))['context_id__max']
     if max_id is None:
         max_id = 0
-    unique_id = str(max_id + 1)
+    unique_id = str(int(max_id) + 1)
     return unique_id
 
 
