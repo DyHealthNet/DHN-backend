@@ -1,6 +1,5 @@
 import os
 import shutil
-from datetime import datetime
 
 from celery import shared_task
 import time
@@ -36,14 +35,11 @@ def create_context_wrapper(cat_data: json, cont_data: json, params: dict, contex
                               cont_cont_test=params['tests']['contCont'].lower(),
                               cat_cont_b_test=params['tests']['catContB'].lower(),
                               cat_cont_m_test=params['tests']['catContM'].lower(),
-                              created_at=datetime.now(),
                               last_accessed=None,
                               params=params)
         new_context.save()
-
-    if success:
         user = User.objects.get(id=user_id)
-        UserContextLink.objects.create(user_id=user, context_id=context_id)
+        UserContextLink.objects.create(user_id=user, context_id=context_name, context_value=params['contextValue'])
 
     return success
 

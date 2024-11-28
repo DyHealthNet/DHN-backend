@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
-from network.models import CohortVariant
+from network.models import CohortVariant, UserContextLink, Context
 from network.color_utils import *
 from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
@@ -1156,9 +1156,11 @@ class RetrieveContextsView(generics.GenericAPIView):
     def get(self, request):
         empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
         context_ids = []
-        user = request.user
+        user = request.user.id
         # context id, value pairs
-        # context_ids = [(1, 1), (2, 3), (3, 2)] # TODO: replace this with the actual context ids from the user
+        for context_pair in UserContextLink.objects.filter(user_id=user).values_list('context_id', 'context_value'):
+            context_ids.append(context_pair)
+        logger.debug(context_ids)
         result = []
 
         for i in range(1, 6):
@@ -1176,47 +1178,6 @@ class RetrieveContextsView(generics.GenericAPIView):
                            'content': context.params})
 
         return JsonResponse({'result': result})
-
-# def login_view(request):
-#     form = LoginForm()
-#     if request.method == "POST":
-#         form = LoginForm(request, data=request.POST)
-#         if form.is_valid():
-#             username = request.POST.get('username')
-#             password = request.POST.get('password')
-#
-#             user = authenticate(request, username=username, password=password)
-#             if user is not None:
-#                 login(request, user)
-#                 return redirect("network:dashboard")
-#
-#     context = {'loginform': form}
-#     return render(request, 'login.html', context=context)
-#
-# def logout_view(request):
-#     logout(request)
-#     return render(request, 'logout.html')
-#
-# def register(request):
-#     form = CreateUserForm()
-#     if request.method == "POST":
-#         form = CreateUserForm(request.POST)
-#         if form.is_valid():
-#             # Create the user
-#             user = form.save()
-#
-#             # Add the user to the "default_users" group
-#             group_name = "default_users"
-#             group, created = Group.objects.get_or_create(name=group_name)
-#             user.groups.add(group)
-#             return redirect('network:login')
-#
-#     context = {'registerform': form}
-#     return render(request, 'register.html', context=context)
-#
-# @login_required(login_url="network:login")
-# def dashboard(request):
-#     return render(request, 'dashboard.html')
 
 
 class LoginView(generics.GenericAPIView):

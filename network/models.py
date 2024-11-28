@@ -543,7 +543,7 @@ class Context(models.Model):
     cont_cont_test = models.CharField(max_length=200, blank=True, null=True)
     cat_cont_b_test = models.CharField(max_length=200, blank=True, null=True)
     cat_cont_m_test = models.CharField(max_length=200, blank=True, null=True)
-    created_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     last_accessed = models.DateTimeField(blank=True, null=True)
     params = models.JSONField(blank=True, null=True)
 
@@ -592,11 +592,13 @@ class ViewExternalNodes(models.Model):
         managed = False
         db_table = 'view_external_nodes'
 
+
 class UserContextLink(models.Model):
     user_id = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
     #context_id = models.ForeignKey('Context', models.DO_NOTHING, blank=True, null=True)
     context_id = models.CharField(blank=True, max_length=200, db_column='context_id')
     created_at = models.DateTimeField(auto_now_add=True)
+    context_value = models.IntegerField(blank=True, null=True)
 
     class Meta:
         managed = True
