@@ -135,26 +135,22 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
         for table in DB_COLUMNS
     }
 
-    for row in edges.itertuples(index=False, name=None):  # Skip index, return as tuple
+    for i, row in enumerate(edges.itertuples(index=False, name=None)):
         line_split = list(row)
-        source, dest = line_split[1], line_split[2]
+        source, dest = line_split[0], line_split[1]
         source_map, dest_map, swap = map_and_filter((source, dest))
         if source_map is None or dest_map is None:
             continue
 
         edge_map = (source_map, dest_map)
         if swap:
-            line_split[1], line_split[2] = line_split[2], line_split[1]
+            line_split[0], line_split[1] = line_split[1], line_split[0]
 
         table = DB_EDGES[edge_map]
 
         # Generate new line based on column order
-        new_line = line_split[0] + ','
-        for idx in table_column_indices[table]:
-            if idx is not None:
-                new_line += line_split[idx] + ','
-            else:
-                new_line.append("")
+        new_line = [str(i)] + [str(line_split[idx]) if idx is not None else '' for idx in table_column_indices[table]]
+        new_line = ",".join(new_line) + "\n"
 
         all_edge_types[table].write(new_line)
 
@@ -170,10 +166,6 @@ def copy_from_buffer(cursor, edge_type, edge_file):
 
 def copy_from_file(cursor, edge_type, name):
     file = f"/tmp/dyhealthnet-{name}/{edge_type}.csv"
-    # check if the file is empty
-    with open(file, 'r') as f:
-        if f.readline() == '':
-            return
     copy_sql = f"COPY {edge_type} FROM '{file}' WITH (FORMAT CSV, DELIMITER ',', QUOTE '\"')"
     cursor.execute(copy_sql)
 
@@ -212,8 +204,6 @@ def add_edges(conn, context_name, edges: list | dict) -> bool:
                 if edge_count > 0:
                     conn.commit()
                     logger.debug(f"Finished adding {edge_count} {edge_type} edges")
-                    # freeing up memory as soon as possible
-                    del edges[edge_type]
                 else:
                     logger.debug(f"No {edge_type} edges to add")
             cursor.execute(f"ALTER TABLE {edge_type} ENABLE TRIGGER ALL")
