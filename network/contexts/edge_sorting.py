@@ -64,45 +64,6 @@ DB_COLUMNS = {
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
-def map_edge(edge: tuple, protein_set: set, pheno_set: set, metabo_set: set, variant_set: set) \
-        -> tuple[str, str, bool] | tuple[None, None, None]:
-    """
-    Map the source and target of an edge to the appropriate data type given an id and the cohort sets
-    :param variant_set: set of unique variant IDs from the cohort data
-    :param edge: Pandas Series containing the source and target of the edge
-    :param protein_set: set of unique protein IDs from the cohort data
-    :param pheno_set: set of unique phenotype labels from the cohort data
-    :param metabo_set: set of unique metabolite names from the cohort data
-    :return: Tuple containing the mapped source and target, and their respective data types
-    """
-    maps_and_types = [(protein_set, 'protein'), (pheno_set, 'phenotype'),
-                      (metabo_set, 'metabolite'), (variant_set, 'variant')]
-
-    mapped_source = mapped_target = source_type = target_type = None
-
-    for cohort_set, data_type in maps_and_types:
-        if not mapped_source:
-            if edge[0] in cohort_set:
-                source_type = data_type
-                mapped_source = edge[0]
-
-        if not mapped_target:
-            if edge[1] in cohort_set:
-                target_type = data_type
-                mapped_target = edge[1]
-
-        if source_type and target_type:
-            break
-
-    if not source_type or not target_type:
-        return None, None, None
-
-    swap = False
-    if EDGE_ORDER[source_type] < EDGE_ORDER[target_type]:
-        swap = True
-    return source_type, target_type, swap
-
-
 def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, metabolite_set: set,
                  variant_set: set) -> dict:
     """
@@ -116,16 +77,15 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
     :param variant_set: set of unique variant IDs from the cohort data
     :return: Tuple containing the list of formatted edges and the list of edge types
     """
-    all_edge_types = {edge_type: StringIO() for edge_type in DB_EDGES.values()}
-    # ObJeCt oF TyPe SeT iS NoT JSON sErIaLiZaBlE
-    protein_cols = set(protein_set)
-    phenotype_cols = set(phenotype_set)
-    metabolite_cols = set(metabolite_set)
-    variant_cols = set(variant_set)
 
-    def map_and_filter(edge: tuple) -> tuple[tuple[str, str], tuple[str, str], bool] | tuple[None, None, bool]:
-        mapped, types, swap = map_edge(edge, protein_cols, phenotype_cols, metabolite_cols, variant_cols)
-        return mapped, types if types else None, swap
+    list_edge_types = {edge_type: [] for edge_type in DB_EDGES.values()}
+    # ObJeCt oF TyPe SeT iS NoT JSON sErIaLiZaBlE
+    combined_mapping = {
+        **{item: 'protein' for item in set(protein_set)},
+        **{item: 'phenotype' for item in set(phenotype_set)},
+        **{item: 'metabolite' for item in set(metabolite_set)},
+        **{item: 'variant' for item in set(variant_set)},
+    }
 
     # Precompute as much as possible to avoid recomputing in the loop
     columns = edges.columns
@@ -138,21 +98,23 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
     for i, row in enumerate(edges.itertuples(index=False, name=None)):
         line_split = list(row)
         source, dest = line_split[0], line_split[1]
-        source_map, dest_map, swap = map_and_filter((source, dest))
+        source_map, dest_map = map(combined_mapping.get, (source, dest))
         if source_map is None or dest_map is None:
             continue
 
         edge_map = (source_map, dest_map)
-        if swap:
+        if EDGE_ORDER[source_map] < EDGE_ORDER[dest_map]:
             line_split[0], line_split[1] = line_split[1], line_split[0]
 
         table = DB_EDGES[edge_map]
 
         # Generate new line based on column order
-        new_line = [str(i)] + [str(line_split[idx]) if idx is not None else '' for idx in table_column_indices[table]]
-        new_line = ",".join(new_line) + "\n"
+        new_line = [i] + [line_split[idx] if idx is not None else "" for idx in table_column_indices[table]]
+        new_line = ",".join(map(str, new_line)) + "\n"
 
-        all_edge_types[table].write(new_line)
+        list_edge_types[table].append(new_line)
+
+    all_edge_types = {edge_type: StringIO("".join(list_edge_types[edge_type])) for edge_type in list_edge_types}
 
     logger.debug("Finished processing edges")
     return all_edge_types
@@ -211,4 +173,5 @@ def add_edges(conn, context_name, edges: list | dict) -> bool:
         conn.rollback()
         logger.error(f"A problem occurred while adding edges: {e}")
         return False
+    del edges
     return True

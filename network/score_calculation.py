@@ -50,6 +50,11 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
         **{e_columns[i]: effects_raw[key] for i, key in enumerate(effects_raw)},
     })
 
+    # remove all nan values with null
+    if df.isna().any().any():
+        logger.debug("Removing %s NAs in dataframe", df.isnull().sum().sum())
+        df = df.replace(np.nan, '')
+
     if settings.DROP_INSIGNIFICANT:
         logger.debug("Drop insignificant results")
         df = df[df[f"{test}_p_unadjusted"] < settings.ALPHA]
@@ -255,8 +260,6 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
     logger.info("Finished continuous-categorical score creation")
 
     scores = combine_tests(cat_cat_results, cont_cont_results, cat_cont_two, cat_cont_more)
-    scores = scores.fillna('')
     logger.debug("%s pairwise association scores were calculated in %s seconds", scores.shape[0],
                  int(timeit.default_timer() - start))
-
     return scores
