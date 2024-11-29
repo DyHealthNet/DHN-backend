@@ -21,7 +21,7 @@ from rest_framework.views import APIView
 
 from network.score_calculation import separate_cat_cont
 from network.utils import check_files_and_return, list_node_variables
-from network.contexts.contexts import subset_patients, create_context_id
+from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables
 from network.tasks import create_context_wrapper, test_task
 import os
 import environ
@@ -1128,6 +1128,35 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         remaining_users = out_df.shape[0]
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
+
+
+class DeleteUserContext(generics.GenericAPIView):
+    login_url = env("FRONTEND_HOME_URL")
+
+    def delete(self, request, *args, **kwargs):
+        try:
+            data = request.data
+        except AttributeError:
+            return HttpResponseBadRequest('No data provided.', status=400)
+
+        context_value = data.get('contextValue')
+        if context_value is None:
+            return HttpResponseBadRequest('No contextValue provided.', status=400)
+
+        try:
+            context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
+        except UserContextLink.DoesNotExist:
+            return HttpResponseBadRequest('Context not found.', status=404)
+
+        # we explicitly never leak the context id to the frontend
+        context_id = context.context_id
+
+        # remove the context from the context table also
+        Context.objects.get(context_id=int(context_id)).delete()
+        delete_context_tables(context_id)
+
+        context.delete()
+        return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
 
 
 class VariableInfoView(generics.GenericAPIView):

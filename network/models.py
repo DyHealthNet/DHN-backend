@@ -538,7 +538,7 @@ class CohortReferencesVariant(models.Model):
 
 # add model for all contexts so we can keep track of them
 class Context(models.Model):
-    context_id = models.CharField(primary_key=True, max_length=200, db_column='context_id')
+    context_id = models.IntegerField(primary_key=True, db_column='context_id')
     cat_cat_test = models.CharField(max_length=200, blank=True, null=True)
     cont_cont_test = models.CharField(max_length=200, blank=True, null=True)
     cat_cont_b_test = models.CharField(max_length=200, blank=True, null=True)

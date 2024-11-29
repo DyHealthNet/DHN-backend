@@ -44,6 +44,21 @@ def create_table_structure(table_name, context_id, label_table1, label_table2):
     return table_structure
 
 
+def delete_context_tables(context_id: str):
+    conn = connection
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_name LIKE 'edges_%_{context_id}'
+    """)
+    tables = cursor.fetchall()
+    logger.debug(f"Deleting {len(tables)} tables for context {context_id}")
+    for table in tables:
+        cursor.execute(f"DROP TABLE {table[0]}")
+    conn.commit()
+
+
 def create_context_id() -> str:
     """
     Retrieves the biggest context_id from the context table and returns a new unique id
@@ -72,10 +87,10 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             col = con['column']
             val = con['value']
 
-            # for now, extract the column from the stuff in the brackets
+            # extract the last word in brackets or before a slash
             if '(' in col:
-                col = col.split('(')[1].split(')')[0]
-            elif '/' in col:
+                col = col.split('(')[-1].split(')')[0].strip()
+            elif 'Protein' in col or 'Metabolite' in col:
                 col = col.split('/')[0].strip()
 
             if op not in OPERATORS:
