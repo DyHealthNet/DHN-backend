@@ -140,6 +140,10 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
         result_dfs[table] = new_df
 
     all_edge_types = {edge_type: dataframe_to_buffer_arrow(result_dfs[edge_type]) for edge_type in result_dfs}
+    # update all_edge_types with missing edge types to avoid key errors
+    for edge_type in DB_EDGES.values():
+        if edge_type not in all_edge_types:
+            all_edge_types[edge_type] = io.BytesIO()
 
     logger.debug("Finished processing edges")
     return all_edge_types
