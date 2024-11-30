@@ -185,7 +185,7 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
         for k, v in tables.items():
             if os.path.exists(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv"):
                 continue
-            with open(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv", 'w') as f:
+            with open(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv", 'wb') as f:
                 f.write(v.getvalue())
         edge_info = list(new_names.values())
     else:

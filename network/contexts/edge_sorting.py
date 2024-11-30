@@ -1,8 +1,13 @@
 import io
 import sys
+import time
+import timeit
 from io import StringIO
 import logging
+import pyarrow as pa
+import pyarrow.csv as pc
 
+import numpy as np
 import pandas as pd
 from django.conf import settings
 from network.models import *
@@ -64,6 +69,15 @@ DB_COLUMNS = {
 EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
+def dataframe_to_buffer_arrow(df):
+    buffer = io.BytesIO()
+    df = df.reset_index()
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    pc.write_csv(table, buffer, write_options=pc.WriteOptions(include_header=False, quoting_style=None))
+    buffer.seek(0)
+    return buffer
+
+
 def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, metabolite_set: set,
                  variant_set: set) -> dict:
     """
@@ -77,8 +91,7 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
     :param variant_set: set of unique variant IDs from the cohort data
     :return: Tuple containing the list of formatted edges and the list of edge types
     """
-
-    list_edge_types = {edge_type: [] for edge_type in DB_EDGES.values()}
+    logger.debug("Starting processing edges")
     # ObJeCt oF TyPe SeT iS NoT JSON sErIaLiZaBlE
     combined_mapping = {
         **{item: 'protein' for item in set(protein_set)},
@@ -90,31 +103,43 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
     # Precompute as much as possible to avoid recomputing in the loop
     columns = edges.columns
     column_index_map = {col: idx for idx, col in enumerate(columns)}
+    # some columns might be missing, so we need to fill them with None
     table_column_indices = {
         table: [column_index_map[col] if col in column_index_map else None for col in DB_COLUMNS[table]]
         for table in DB_COLUMNS
     }
 
-    for i, row in enumerate(edges.itertuples(index=False, name=None)):
-        line_split = list(row)
-        source, dest = line_split[0], line_split[1]
-        source_map, dest_map = map(combined_mapping.get, (source, dest))
-        if source_map is None or dest_map is None:
-            continue
+    edges["map1"] = edges["label1"].map(combined_mapping)
+    edges["map2"] = edges["label2"].map(combined_mapping)
 
-        edge_map = (source_map, dest_map)
-        if EDGE_ORDER[source_map] < EDGE_ORDER[dest_map]:
-            line_split[0], line_split[1] = line_split[1], line_split[0]
+    edges = edges.dropna(subset=["map1", "map2"])
 
-        table = DB_EDGES[edge_map]
+    # Swap label1 and label2 to ensure db order
+    swap_condition = edges["map1"].map(EDGE_ORDER) < edges["map2"].map(EDGE_ORDER)
+    edges.loc[swap_condition, ["label1", "label2"]] = edges.loc[swap_condition, ["label2", "label1"]].values
 
-        # Generate new line based on column order
-        new_line = [i] + [line_split[idx] if idx is not None else "" for idx in table_column_indices[table]]
-        new_line = ",".join(map(str, new_line)) + "\n"
+    # Add the table column based on the tuple of mapped values
+    edges["table"] = list(zip(edges["map1"], edges["map2"]))
+    edges["table"] = edges["table"].map(DB_EDGES)
 
-        list_edge_types[table].append(new_line)
+    # Drop the intermediate mapping columns
+    edges = edges.drop(columns=["map1", "map2"])
 
-    all_edge_types = {edge_type: StringIO("".join(list_edge_types[edge_type])) for edge_type in list_edge_types}
+    result_dfs = {}
+    for table, group in edges.groupby("table"):
+        indices = table_column_indices[table]
+
+        new_df = pd.DataFrame(index=group.index, columns=range(len(indices)))
+
+        for col_idx, df_col_idx in enumerate(indices):
+            if df_col_idx is not None:
+                new_df[col_idx] = group.iloc[:, df_col_idx]
+            else:
+                new_df[col_idx] = None
+
+        result_dfs[table] = new_df
+
+    all_edge_types = {edge_type: dataframe_to_buffer_arrow(result_dfs[edge_type]) for edge_type in result_dfs}
 
     logger.debug("Finished processing edges")
     return all_edge_types

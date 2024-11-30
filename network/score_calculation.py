@@ -51,9 +51,9 @@ def nanpy_formatting(assoc_out: dict[np.array], labels: list, test: str, file_na
     })
 
     # remove all nan values with null
-    if df.isna().any().any():
-        logger.debug("Removing %s NAs in dataframe", df.isnull().sum().sum())
-        df = df.replace(np.nan, '')
+    # if df.isna().any().any():
+    #     logger.debug("Removing %s NAs in dataframe", df.isnull().sum().sum())
+    #     df = df.replace(np.nan, '')
 
     if settings.DROP_INSIGNIFICANT:
         logger.debug("Drop insignificant results")
