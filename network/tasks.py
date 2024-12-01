@@ -1,20 +1,37 @@
 import os
 import shutil
 
-from celery import shared_task
+from celery import shared_task, current_task
 import time
 import pandas as pd
 import json
+
+from django.http import HttpResponseServerError
 
 from network.models import Context
 from network.contexts.contexts import insert_context
 from network.score_calculation import calculate_association_scores
 
-from django.contrib.auth.models import User
 from network.models import UserContextLink
+#from network.views import DeleteContext
 
-@shared_task
-def create_context_wrapper(cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
+@shared_task(bind=True)
+def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
+    # extract relevant info from params and add it to db
+    new_context = Context(context_id=context_name,
+                          cat_cat_test=params['tests']['catCat'].lower(),
+                          cont_cont_test=params['tests']['contCont'].lower(),
+                          cat_cont_b_test=params['tests']['catContB'].lower(),
+                          cat_cont_m_test=params['tests']['catContM'].lower(),
+                          last_accessed=None,
+                          params=params)
+
+    new_context.save()
+    if UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).exists():
+        UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).delete()
+    UserContextLink.objects.create(user_id=user_id, context_id=context_name,
+                                   context_value=params['contextValue'], context_task_id=self.request.id)
+
     cat_data = pd.read_pickle(cat_data)
     cont_data = pd.read_pickle(cont_data)
     scores = calculate_association_scores(cat_data, cont_data, params['tests'])
@@ -28,20 +45,11 @@ def create_context_wrapper(cat_data: json, cont_data: json, params: dict, contex
     if os.path.exists(dir_path) and os.path.isdir(dir_path):
         shutil.rmtree(dir_path)
 
-    if success:
-        # extract relevant info from params and add it to db
-        new_context = Context(context_id=context_name,
-                              cat_cat_test=params['tests']['catCat'].lower(),
-                              cont_cont_test=params['tests']['contCont'].lower(),
-                              cat_cont_b_test=params['tests']['catContB'].lower(),
-                              cat_cont_m_test=params['tests']['catContM'].lower(),
-                              last_accessed=None,
-                              params=params)
-        new_context.save()
-        user = User.objects.get(id=user_id)
-        if UserContextLink.objects.filter(user_id=user, context_value=params['contextValue']).exists():
-            UserContextLink.objects.filter(user_id=user, context_value=params['contextValue']).delete()
-        UserContextLink.objects.create(user_id=user, context_id=context_name, context_value=params['contextValue'])
+    if not success:
+        UserContextLink.objects.filter(user_id=user_id, context_id=context_name, context_value=params['contextValue']).delete()
+        Context.objects.filter(context_id=context_name).delete()
+        # DeleteContext.delete(context_id=context_name)
+        return HttpResponseServerError('Context creation did not work. Context and UserContextLinkRemoved', status=500)
 
     return success
 

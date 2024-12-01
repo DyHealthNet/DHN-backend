@@ -4,6 +4,7 @@ import pandas as pd
 import re
 import numpy as np
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import IntegrityError
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
 from rest_framework import generics
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -986,8 +987,8 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"The user {request.user.username} has the id {request.user.id}")
 
         # Probably not needed in the end as user can only have 5 Context tabs
-        user_objects_count = UserContextLink.objects.filter(user_id=request.user.id).count()
-        if user_objects_count >= 5:
+        user_objects_count = UserContextLink.objects.filter(user=request.user).count()
+        if user_objects_count >= int(env("MAX_CONTEXT_PER_USER")):
             return JsonResponse({'error': 'You can only create up to 5 objects.'}, status=400)
 
         logger.info(f"The user {request.user.username} can create another context.")
@@ -1028,7 +1029,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             cat_data.to_pickle(cat_file_name)
 
         # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_file_name, cont_file_name, params, context_id, user_id=request.user.id,
+        task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params, context_name=context_id, user_id=request.user.id,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
@@ -1039,11 +1040,12 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Get the status of a context-specific network calculation",
-        description="Given a task_id, this endpoint will return the status of the context-specific network calculation.",
+        description="Given a context_value, and the logged in user, this endpoint will return the status of the "
+                    "context-specific network calculation.",
         parameters=[
             OpenApiParameter(
-                name='task_id',
-                description='task_id of the context-specific network calculation',
+                name='context_value',
+                description='context_value of the user-specific context',
                 required=True,
                 type=OpenApiTypes.STR,
             )
@@ -1054,7 +1056,9 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
     @staticmethod
     def get(request):
-        task_id = request.GET.get("taskId")
+        user_context = UserContextLink.objects.get(user_id=request.user.id,
+                                                   context_value=request.GET.get("context_value"))
+        task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
             return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
@@ -1159,6 +1163,21 @@ class DeleteUserContext(generics.GenericAPIView):
         return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
 
 
+# In case you have accidentally deleted the UserContextLink but not the Context(s), not frontend accessible
+class DeleteContext(generics.GenericAPIView):
+    login_url = env("FRONTEND_HOME_URL")
+
+    def delete(context_id):
+        if context_id is None:
+            return HttpResponseBadRequest('No data provided.', status=400)
+
+        # remove the context from the context table also
+        Context.objects.get(context_id=int(context_id)).delete()
+        delete_context_tables(context_id)
+
+        return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
+
+
 class VariableInfoView(generics.GenericAPIView):
     def get(self, request):
         variable = request.GET.get("variableId")
@@ -1192,8 +1211,9 @@ class RetrieveContextsView(generics.GenericAPIView):
         logger.debug(context_ids)
         result = []
 
-        for i in range(1, 6):
+        for i in range(1, int(env("MAX_CONTEXT_PER_USER"))+1):
             # check if value exists in context_ids, if not, add empty context field
+            logger.debug(f"context: {i}")
             if i not in [x[1] for x in context_ids]:
                 empty_field = empty_context_field.copy()
                 empty_field['contextName'] = f'Context {i}'

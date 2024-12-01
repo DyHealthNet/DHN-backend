@@ -157,8 +157,9 @@ def copy_from_buffer(cursor, edge_type, edge_file):
 
 def copy_from_file(cursor, edge_type, name):
     file = f"/tmp/dyhealthnet-{name}/{edge_type}.csv"
-    copy_sql = f"COPY {edge_type} FROM '{file}' WITH (FORMAT CSV, DELIMITER ',', QUOTE '\"')"
-    cursor.execute(copy_sql)
+    with open(file, 'r') as f:
+        copy_sql = f"COPY {edge_type} FROM STDIN WITH (FORMAT CSV, DELIMITER ',', QUOTE '\"')"
+        cursor.copy_expert(copy_sql,f)
 
 
 def count_rows(buffer):

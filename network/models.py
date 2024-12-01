@@ -594,11 +594,12 @@ class ViewExternalNodes(models.Model):
 
 
 class UserContextLink(models.Model):
-    user_id = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
-    #context_id = models.ForeignKey('Context', models.DO_NOTHING, blank=True, null=True)
-    context_id = models.CharField(blank=True, max_length=200, db_column='context_id')
-    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
+    context = models.ForeignKey(Context,  blank=True, null=True, on_delete=models.CASCADE)
+    #context_id = models.CharField(blank=True, max_length=200, db_column='context_id')
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     context_value = models.IntegerField(blank=True, null=True)
+    context_task_id = models.CharField(blank=True, max_length=200)
 
     class Meta:
         managed = True
