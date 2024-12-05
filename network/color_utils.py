@@ -31,5 +31,19 @@ def enlarge_palette(color_palette, n_colors):
     return enlarged_palette
 
 
+def lighten_color(hex_color, factor=0.2):
+    """Lighten a hex color by a given factor (0.0 to 1.0)."""
+    # Strip the '#' if present
+    hex_color = hex_color.lstrip('#')
+    # Convert hex to RGB
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    # Lighten each channel
+    r = min(255, int(r + (255 - r) * factor))
+    g = min(255, int(g + (255 - g) * factor))
+    b = min(255, int(b + (255 - b) * factor))
+    # Convert back to hex
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 # Colormaps for overview page plots
 COLOR_PALETTE = sns.color_palette("muted")

@@ -482,6 +482,7 @@ class GetDataView(generics.GenericAPIView):
                 temp.append({
                     "label": var_label_mapping(c_idx, group_name),
                     "backgroundColor": colormap_local[color],
+                    "borderColor": lighten_color(colormap_local[color]),
                     "data": [{'x': var_label_mapping(x_idx, x), 'y': y} for x, y in
                              zip(group_data[x_idx], group_data[y_idx])]
                 })
