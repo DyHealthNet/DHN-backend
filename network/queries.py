@@ -7,6 +7,21 @@ CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
                'EffectsVariantMetabolite', 'EffectsVariantPhenotype',
                'EffectsVariantProtein'}
 
+# standard_pvalue_dict = {
+#     ('protein', 'protein'):'pearson_p_bonferroni',
+#     ('protein','metabolite'):'pearson_p_bonferroni',
+#     'phenotype':'',
+#     'metabolite':'pearson_p_bonferroni',
+#     'gene':'',
+#     'vaiant':'',
+#
+# type_mapping={
+#     'protein':'continous'
+#
+# }
+#
+# def getPvalueOfInterest(type1, type2, parametric=True, mult_test_corr= 'bh')
+
 
 def network_query(query_id, type, limit):
     edges = {}
@@ -20,12 +35,20 @@ def network_query(query_id, type, limit):
         if count == 0:
             continue
 
-        elif count == 1:
-            # Retrieve django model corresponding to current table
-            table_model = apps.get_model('network', table)
+        # Retrieve django model corresponding to current table
+        table_model = apps.get_model('network', table)
+        column_to_order_by = None
+        # Find a column ending with '_p_bonferroni'
+        for field in table_model._meta.get_fields():
+            if field.name.endswith('_p_bonferroni'):
+                column_to_order_by = field.name
+                break
+
+        if count == 1:
+
             # Filter for query_id, order by p-value and limit
             queryset = table_model.objects.filter(Q(**{type: query_id})
-                                                  ).order_by('p_value')[:limit].values()
+                                                  ).order_by(column_to_order_by)[:limit].values()
 
             # Find second type
             substring = table.split('Effects')[1]
@@ -38,11 +61,10 @@ def network_query(query_id, type, limit):
             node_ids.update(*zip(*queryset.values_list(f'{type}_id', f'{type_2}_id')))
 
         else:
-            # Retrieve django model corresponding to current table
-            table_model = apps.get_model('network', table)
+
             # Filter for query_id, order by p-value and limit
             queryset = table_model.objects.filter(Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
-                                                  ).order_by('p_value')[:limit].values()
+                                                  ).order_by(column_to_order_by)[:limit].values()
 
             # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))

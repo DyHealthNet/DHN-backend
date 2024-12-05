@@ -926,6 +926,13 @@ class GetDataView2(generics.GenericAPIView):
                     "start the calculation of a context-specific network.",
         parameters=[
             OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+            OpenApiParameter(
                 name='subset_params',
                 description='Custom filtering parameters as a JSON',
                 required=True,
@@ -984,12 +991,26 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
-        logger.info(f"The user {request.user.username} has the id {request.user.id}")
+        logger.debug(f"The user {request.user.username} has the id {request.user.id}")
 
+        user_context_query = UserContextLink.objects.filter(user=request.user)
+        # Check that no other context is pending/calculating for that user
+        for us_ctxt in user_context_query:
+            task_id = us_ctxt.context_task_id
+            task = AsyncResult(task_id)
+            logger.debug(f"Context {us_ctxt.context_id} has status {task.status}")
+            if task.status == 'PENDING':
+                logger.debug(f"Another context task is pending. User cannot start a second context creation "
+                             f"until finished")
+                return JsonResponse({'status': 'error',
+                                     'message': 'You can only start one context creation at a time.'}, status=429)
         # Probably not needed in the end as user can only have 5 Context tabs
+        #user_objects_count = user_context_query.count()
         user_objects_count = UserContextLink.objects.filter(user=request.user).count()
+        max_context = env("MAX_CONTEXT_PER_USER")
         if user_objects_count >= int(env("MAX_CONTEXT_PER_USER")):
-            return JsonResponse({'error': 'You can only create up to 5 objects.'}, status=400)
+            return JsonResponse({'status': 'error', 'message': f'You can only create up to {max_context} objects.'},
+                                status=429)
 
         logger.info(f"The user {request.user.username} can create another context.")
 
@@ -1034,7 +1055,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
-        return JsonResponse({"taskId": task.id})
+        return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)
 
 
 @extend_schema_view(
@@ -1043,6 +1064,13 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         description="Given a context_value, and the logged in user, this endpoint will return the status of the "
                     "context-specific network calculation.",
         parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
             OpenApiParameter(
                 name='context_value',
                 description='context_value of the user-specific context',
@@ -1056,8 +1084,11 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
     @staticmethod
     def get(request):
-        user_context = UserContextLink.objects.get(user_id=request.user.id,
-                                                   context_value=request.GET.get("context_value"))
+        try:
+            user_context = UserContextLink.objects.get(user_id=request.user.id,
+                                                       context_value=request.GET.get("context_value"))
+        except UserContextLink.DoesNotExist:
+            return JsonResponse({'status': 'null', 'result': 'No Context for that User and that Tab created'}, status=200)
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
@@ -1071,6 +1102,13 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
         description="Provided a combination of parameters with which the patients are subsetted, this endpoint will "
                     "return the number of patients, a context-specific network would include.",
         parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
             OpenApiParameter(
                 name='subset_params',
                 description='Custom filtering parameters as a JSON',
@@ -1133,7 +1171,30 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
 
-
+@extend_schema_view(
+    delete=extend_schema(
+        summary="Delete a context of a user",
+        description=(
+            "Delete a context of a user from all related tables given its Tab value."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+        ],
+    )
+)
 class DeleteUserContext(generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -1147,23 +1208,29 @@ class DeleteUserContext(generics.GenericAPIView):
         if context_value is None:
             return HttpResponseBadRequest('No contextValue provided.', status=400)
 
+        if not request.user.is_authenticated:
+            return JsonResponse({'status': 'error', 'message': 'Permission denied. User not authenticated'}, status=400) # 401?
+
+        logger.debug(f"Delete UserContextLink and associates for user {request.user.id} "
+                     f"and Context with value {context_value}")
         try:
-            context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
+            user_context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
         except UserContextLink.DoesNotExist:
             return HttpResponseBadRequest('Context not found.', status=404)
 
         # we explicitly never leak the context id to the frontend
-        context_id = context.context_id
+        context_id = user_context.context_id
 
         # remove the context from the context table also
         Context.objects.get(context_id=int(context_id)).delete()
         delete_context_tables(context_id)
 
-        context.delete()
+        user_context.delete()
         return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
 
 
 # In case you have accidentally deleted the UserContextLink but not the Context(s), not frontend accessible
+# Does this need OPENAPI specification if not accessible via API call?
 class DeleteContext(generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -1172,12 +1239,33 @@ class DeleteContext(generics.GenericAPIView):
             return HttpResponseBadRequest('No data provided.', status=400)
 
         # remove the context from the context table also
-        Context.objects.get(context_id=int(context_id)).delete()
+        try:
+            Context.objects.get(context_id=int(context_id)).delete()
+        except UserContextLink.DoesNotExist:
+            return HttpResponseBadRequest('Context not found.', status=404)
         delete_context_tables(context_id)
 
         return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get distribution statistics for the given variable",
+        description=(
+            "Get distribution statistics for the given variable Id to be shown to "
+            "the user during context creation and filtering"
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='variableId',
+                description='The variable ID for which the distribution is required',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+        ],
+    )
+)
 class VariableInfoView(generics.GenericAPIView):
     def get(self, request):
         variable = request.GET.get("variableId")
@@ -1200,6 +1288,24 @@ class VariableInfoView(generics.GenericAPIView):
                              'type': 'bar' if variable in ALL_CAT.columns else 'trend'})
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve Contexts for the current user",
+        description=(
+            "Get all (for the configured values / tabs [1,MAX_CONTEXT_PER_USER]) Contexts saved in the database "
+            "for the current user using the provided CSRF as user credentials. "
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+        ],
+    )
+)
 class RetrieveContextsView(generics.GenericAPIView):
     def get(self, request):
         empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
@@ -1229,6 +1335,35 @@ class RetrieveContextsView(generics.GenericAPIView):
         return JsonResponse({'result': result})
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Logs in user",
+        description="Logs a user in using their username and password.",
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+            OpenApiParameter(
+                name='username',
+                description='Name of user',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='password',
+                description='Password of user',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+    )
+)
 class LoginView(generics.GenericAPIView):
     @staticmethod
     def post(request, *args, **kwargs):
@@ -1248,6 +1383,36 @@ class LoginView(generics.GenericAPIView):
         return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Register a new user",
+        description="Registers a new user with a username and password if not already registered/ "
+                    "username already exists. If the registration is successful, the user is logged in.",
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+            OpenApiParameter(
+                name='username',
+                description='Name of user',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='password',
+                description='Password of user',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+    )
+)
 class RegisterView(generics.GenericAPIView):
     @staticmethod
     def post(request, *args, **kwargs):
@@ -1275,14 +1440,74 @@ class RegisterView(generics.GenericAPIView):
         return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Log out user",
+        description="Logs the current user out if they are logged in using the provided CSRF token as credentials",
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            ),
+        ],
+    )
+)
 class LogoutView(generics.GenericAPIView):
     @staticmethod
     def post(request):
-        # Log the user out
+        if not request.user.is_authenticated:
+            return JsonResponse(
+                {'status': 'error', 'message': 'No active session to log out from.'},
+                status=400
+            )
         logout(request)
         return JsonResponse({'status': 'success', 'message': 'Logged out successfully'}, status=200)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get the login status of the current user",
+        description=(
+            "Check the login status of the current user. The provided CSRF token by the client is checked "
+            "to ensure the session is secure and if the user is logged in. (If so username is returned.) "
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='X-CSRFToken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+            )
+        ],
+        responses={
+            200: {
+                "description": "User is logged in.",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "is_logged_in": True,
+                            "username": "example_user"
+                        }
+                    }
+                }
+            },
+            401: {
+                "description": "User is not logged in.",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "is_logged_in": False
+                        }
+                    }
+                }
+            }
+        }
+    )
+)
 class CheckLoginStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):

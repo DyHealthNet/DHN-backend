@@ -48,8 +48,8 @@ def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, c
     if not success:
         UserContextLink.objects.filter(user_id=user_id, context_id=context_name, context_value=params['contextValue']).delete()
         Context.objects.filter(context_id=context_name).delete()
-        # DeleteContext.delete(context_id=context_name)
-        return HttpResponseServerError('Context creation did not work. Context and UserContextLinkRemoved', status=500)
+        # DeleteContext.delete(context_id=context_name) not needed if insertion is atomic / all or nothing
+        return HttpResponseServerError('Context creation did not work. Context and UserContextLink removed', status=500)
 
     return success
 
