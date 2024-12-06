@@ -11,8 +11,9 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from network.queries import *
 from network.models import CohortVariant, UserContextLink, Context
 from network.color_utils import *
-from django.contrib.auth import authenticate, login, logout     #Authentication models & functions
+from django.contrib.auth import authenticate, login, logout  #Authentication models & functions
 from django.contrib.auth.models import auth, Group, User  # Authentication models & functions
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 
@@ -63,7 +64,7 @@ else:
     # ugly but it works
     PHENO_META_LABEL = check_files_and_return(env("PHENOTYPE_META_PATH"),
                                               id_column=env("PHENOTYPE_LABEL_COLUMN"),
-                                              column_list=["type"],)
+                                              column_list=["type"], )
     PHENO_META_LABEL["label"] = PHENO_META_LABEL.index
 
     PROTEINS = check_files_and_return(env("PROTEIN_PATH"),
@@ -985,6 +986,7 @@ class GetDataView2(generics.GenericAPIView):
 )
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
+
     # redirect_field_name = None
     # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
@@ -1005,12 +1007,13 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                              f"until finished")
                 return JsonResponse({'status': 'error',
                                      'message': 'You can only start one context creation at a time.'}, status=429)
-        # Probably not needed in the end as user can only have 5 Context tabs
-        #user_objects_count = user_context_query.count()
+
+        # Probably not needed in the end as user can only have 5 Context tabs, but they might just call the API so we
+        # should check here as well
         user_objects_count = UserContextLink.objects.filter(user=request.user).count()
-        max_context = env("MAX_CONTEXT_PER_USER")
-        if user_objects_count >= int(env("MAX_CONTEXT_PER_USER")):
-            return JsonResponse({'status': 'error', 'message': f'You can only create up to {max_context} objects.'},
+        if user_objects_count >= settings.MAX_CONTEXT_PER_USER:
+            return JsonResponse({'status': 'error',
+                                 'message': f'You can only create up to {settings.MAX_CONTEXT_PER_USER} objects.'},
                                 status=429)
 
         logger.info(f"The user {request.user.username} can create another context.")
@@ -1020,6 +1023,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         for layer in list(set(LAYERS.keys()) - set(params['layers'])):
             logger.debug(f"Removing layer {layer} as it is not wanted in the context")
             context_data = context_data.drop(LAYERS[layer], axis=1)
+
+        # set a color for the context
+        params['colors'] = define_context_color()
 
         # first step: subset the data
         try:
@@ -1051,7 +1057,8 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             cat_data.to_pickle(cat_file_name)
 
         # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params, context_name=context_id, user_id=request.user.id,
+        task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
+                                            context_name=context_id, user_id=request.user.id,
                                             protein_set=list(PROTEINS.columns), phenotype_set=list(PHENOTYPES.columns),
                                             metabolite_set=list(METABOLITES.columns), variant_set=[])
 
@@ -1083,13 +1090,15 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 )
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
+
     @staticmethod
     def get(request):
         try:
             user_context = UserContextLink.objects.get(user_id=request.user.id,
                                                        context_value=request.GET.get("context_value"))
         except UserContextLink.DoesNotExist:
-            return JsonResponse({'status': 'null', 'result': 'No Context for that User and that Tab created'}, status=200)
+            return JsonResponse({'status': 'null', 'result': 'No Context for that User and that Tab created'},
+                                status=200)
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
@@ -1172,11 +1181,12 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
 
+
 @extend_schema_view(
     delete=extend_schema(
         summary="Delete a context of a user",
         description=(
-            "Delete a context of a user from all related tables given its Tab value."
+                "Delete a context of a user from all related tables given its Tab value."
         ),
         parameters=[
             OpenApiParameter(
@@ -1210,7 +1220,8 @@ class DeleteUserContext(generics.GenericAPIView):
             return HttpResponseBadRequest('No contextValue provided.', status=400)
 
         if not request.user.is_authenticated:
-            return JsonResponse({'status': 'error', 'message': 'Permission denied. User not authenticated'}, status=400) # 401?
+            return JsonResponse({'status': 'error', 'message': 'Permission denied. User not authenticated'},
+                                status=400)  # 401?
 
         logger.debug(f"Delete UserContextLink and associates for user {request.user.id} "
                      f"and Context with value {context_value}")
@@ -1253,8 +1264,8 @@ class DeleteContext(generics.GenericAPIView):
     get=extend_schema(
         summary="Get distribution statistics for the given variable",
         description=(
-            "Get distribution statistics for the given variable Id to be shown to "
-            "the user during context creation and filtering"
+                "Get distribution statistics for the given variable Id to be shown to "
+                "the user during context creation and filtering"
         ),
         parameters=[
             OpenApiParameter(
@@ -1293,8 +1304,8 @@ class VariableInfoView(generics.GenericAPIView):
     get=extend_schema(
         summary="Retrieve Contexts for the current user",
         description=(
-            "Get all (for the configured values / tabs [1,MAX_CONTEXT_PER_USER]) Contexts saved in the database "
-            "for the current user using the provided CSRF as user credentials. "
+                "Get all (for the configured values / tabs [1,MAX_CONTEXT_PER_USER]) Contexts saved in the database "
+                "for the current user using the provided CSRF as user credentials. "
         ),
         parameters=[
             OpenApiParameter(
@@ -1309,7 +1320,8 @@ class VariableInfoView(generics.GenericAPIView):
 )
 class RetrieveContextsView(generics.GenericAPIView):
     def get(self, request):
-        empty_context_field = {'contextName': '', 'contextValue': 0, 'content': None}
+        empty_context_field = {'contextName': '', 'contextValue': 0, 'colors': {}, 'content': None}
+        default_colors = {'color': '#000000', 'lightVariant': '#000000', 'darkVariant': '#000000'}
         context_ids = []
         user = request.user.id
         # context id, value pairs
@@ -1318,22 +1330,30 @@ class RetrieveContextsView(generics.GenericAPIView):
         logger.debug(context_ids)
         result = []
 
-        for i in range(1, int(env("MAX_CONTEXT_PER_USER"))+1):
+        for i in range(1, settings.MAX_CONTEXT_PER_USER + 1):
             # check if value exists in context_ids, if not, add empty context field
-            logger.debug(f"context: {i}")
             if i not in [x[1] for x in context_ids]:
                 empty_field = empty_context_field.copy()
                 empty_field['contextName'] = f'Context {i}'
                 empty_field['contextValue'] = i
+                empty_field['colors'] = default_colors
                 result.append(empty_field)
                 continue
             # get the context with the corresponding id
             context = Context.objects.get(context_id=[x[0] for x in context_ids if x[1] == i][0])
             result.append({'contextName': context.params['contextName'],
                            'contextValue': i,
+                           'colors': context.params.get('colors', default_colors),
                            'content': context.params})
 
-        return JsonResponse({'result': result})
+        # check if there is a fields parameter in the request and if so, only return the requested fields
+        fields = request.GET.get('fields')
+        if fields:
+            logger.debug(f"Requested fields: {fields}")
+            result = [{key: value for key, value in context.items() if key in fields.split(',')} for context in result]
+            return JsonResponse({'result': result}, status=200)
+
+        return JsonResponse({'result': result}, status=200)
 
 
 @extend_schema_view(
@@ -1472,8 +1492,8 @@ class LogoutView(generics.GenericAPIView):
     get=extend_schema(
         summary="Get the login status of the current user",
         description=(
-            "Check the login status of the current user. The provided CSRF token by the client is checked "
-            "to ensure the session is secure and if the user is logged in. (If so username is returned.) "
+                "Check the login status of the current user. The provided CSRF token by the client is checked "
+                "to ensure the session is secure and if the user is logged in. (If so username is returned.) "
         ),
         parameters=[
             OpenApiParameter(
@@ -1521,4 +1541,3 @@ class CheckLoginStatusView(generics.GenericAPIView):
 
 # URL configuration for this view
 # path('api/check-login/', CheckLoginStatusView.as_view(), name='check_login')
-

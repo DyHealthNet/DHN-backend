@@ -88,6 +88,7 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             val = con['value']
 
             # extract the last word in brackets or before a slash
+            # TODO: replace with exract_var_id function from views.py
             if '(' in col:
                 col = col.split('(')[-1].split(')')[0].strip()
             elif 'Protein' in col or 'Metabolite' in col:
