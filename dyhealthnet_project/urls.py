@@ -28,6 +28,7 @@ urlpatterns = [
     path("context/", include('network.urls.context_urls')),
     path("plotting/", include('network.urls.plotting_urls')),
     path("auth/", include('network.urls.authentication_urls')),
+    path("general/", include('network.urls.general_urls')),
 
     path("admin/", admin.site.urls),
     path('network/api/', include('allauth.urls')),
