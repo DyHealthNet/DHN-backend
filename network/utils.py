@@ -110,3 +110,57 @@ def list_metabolite_variables(metabolites):
                                      data={'identifier': metabolites.columns + ' / Metabolite'})
     metabolite_values.loc[:, 'group'] = 'continuous'
     return metabolite_values
+
+
+# Function to extract the variable Id from the user-friendly input
+# (id is either in brackets at the end or simply the input)
+def extract_var_id(var):
+    # This is necessary because '/ Metabolite' & '/ Protein' is artificially added to the identifiers of
+    # metabolites or proteins to be more user-friendly and for an easier search
+    var = var.replace(' / Metabolite', '')
+    # var = var.replace(' / Protein', '') # -> not needed because id gets extracted from brackets at the end anyways
+    return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
+
+
+# Strip xref string of db -> Not used currently
+def strip_db_name(nodes_refs):
+    def strip_string(s):
+        return s.split('.', 1)[-1] if '.' in s else s
+
+    if not nodes_refs:
+        return ""
+    # Split the input string by "|", process each part, and join them back together
+    parts = nodes_refs.split('|')
+    stripped_parts = [strip_string(part) for part in parts]
+    return '|'.join(stripped_parts)
+
+
+# Function to convert the numerical values of (most) phenotypical variables into more representative labels
+# (e.g. 0:female, 1:male)
+def var_label_mapping(var_id, label, var_label_map_dict):
+    # When no var label mapping provided return original labels
+    if var_label_map_dict is None:
+        return label
+    if var_id not in var_label_map_dict:
+        return label
+    curr_var_label_dict = var_label_map_dict[var_id]
+    # convert list of labels or one label using the var label mapping dictionary
+    # -> when the label is not contained in the dict (e.g. for proteins, metabolites and some phenotypes)
+    # the original label is returned
+    if isinstance(label, list):
+        return [curr_var_label_dict.get(str(la), str(la)) for la in label]
+    else:
+        return curr_var_label_dict.get(str(label), str(label))
+
+
+def plot_variables(request):
+    x = request.GET.get("x")
+    y = request.GET.get("y")
+    c = request.GET.get("c")
+
+    if x is None or x == "" or y is None or y == "":
+        raise ValueError('Variable x and y must be declared.')
+    # equal variables will not return meaningful results and can throw an error later
+    if x == y:
+        raise ValueError('Variable x and y must be different')
+    return x, y, c
