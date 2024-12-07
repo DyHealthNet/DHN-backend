@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from django.conf import settings
 import logging
+import re
 
 logger = logging.getLogger('network')
 
