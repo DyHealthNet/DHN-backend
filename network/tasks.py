@@ -29,7 +29,7 @@ def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, c
     new_context.save()
     if UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).exists():
         UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).delete()
-    UserContextLink.objects.create(user_id=user_id, context_id=context_name,
+    user_context_link = UserContextLink.objects.create(user_id=user_id, context_id=context_name,
                                    context_value=params['contextValue'], context_task_id=self.request.id)
 
     cat_data = pd.read_pickle(cat_data)
@@ -50,6 +50,9 @@ def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, c
         Context.objects.filter(context_id=context_name).delete()
         # DeleteContext.delete(context_id=context_name) not needed if insertion is atomic / all or nothing
         return HttpResponseServerError('Context creation did not work. Context and UserContextLink removed', status=500)
+
+    user_context_link.context_status = "Finished"
+    user_context_link.save()
 
     return success
 

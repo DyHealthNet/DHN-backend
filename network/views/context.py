@@ -45,10 +45,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         user_context_query = UserContextLink.objects.filter(user=request.user)
         # Check that no other context is pending/calculating for that user
         for us_ctxt in user_context_query:
-            task_id = us_ctxt.context_task_id
-            task = AsyncResult(task_id)
-            logger.debug(f"Context {us_ctxt.context_id} has status {task.status}")
-            if task.status == 'PENDING':
+            status = us_ctxt.context_status
+            logger.debug(f"Context {us_ctxt.context_id} has status {status}")
+            if status == 'Pending':
                 logger.debug(f"Another context task is pending. User cannot start a second context creation "
                              f"until finished")
                 return JsonResponse({'status': 'error',
@@ -260,14 +259,25 @@ class RetrieveContextsView(generics.GenericAPIView):
                 empty_field['contextName'] = f'Context {i}'
                 empty_field['contextValue'] = i
                 empty_field['colors'] = default_colors
+                empty_field['status'] = "Waiting"
                 result.append(empty_field)
                 continue
             # get the context with the corresponding id
             context = Context.objects.get(context_id=[x[0] for x in context_ids if x[1] == i][0])
+            user_context = UserContextLink.objects.get(user_id=request.user.id,
+                                                       context_id=context.context_id)
+            task_status = user_context.context_status
+            if task_status != "Finished":
+                task_status = AsyncResult(user_context.context_task_id).status
+                if task_status:
+                    task_status = str(task_status).capitalize()
+                    logger.debug(f"context {context.params['contextName']} status {task_status}")
+                else:
+                    task_status = 'Waiting'
             result.append({'contextName': context.params['contextName'],
                            'contextValue': i,
                            'colors': context.params.get('colors', default_colors),
-                           'content': context.params})
+                           'content': context.params, 'status': task_status})
 
         # check if there is a fields parameter in the request and if so, only return the requested fields
         fields = request.GET.get('fields')

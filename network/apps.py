@@ -9,6 +9,8 @@ from network.score_calculation import separate_cat_cont
 from network.utils import check_files_and_return
 import environ
 
+from django.utils.autoreload import DJANGO_AUTORELOAD_ENV
+
 env = environ.Env()
 environ.Env.read_env()
 
@@ -44,6 +46,10 @@ class NetworksConfig(AppConfig):
         return result
 
     def ready(self):
+        # To avoid loading the files twice during server start
+        if os.environ.get("RUN_MAIN") != "true":
+            return  # Skip loading during autoreload
+
         if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
             pass
         else:

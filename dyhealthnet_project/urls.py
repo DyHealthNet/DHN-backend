@@ -31,7 +31,7 @@ urlpatterns = [
     path("general/", include('network.urls.general_urls')),
 
     path("admin/", admin.site.urls),
-    path('network/api/', include('allauth.urls')),
+    path('auth/api/', include('allauth.urls')),
     # Added for OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(api_version='v1'), name="schema"),
     # Swagger UI:

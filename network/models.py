@@ -594,12 +594,17 @@ class ViewExternalNodes(models.Model):
 
 
 class UserContextLink(models.Model):
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("FINISHED", "Finished"),
+    ]
     user = models.ForeignKey(User, blank=True, null=True, on_delete=models.CASCADE)
     context = models.ForeignKey(Context,  blank=True, null=True, on_delete=models.CASCADE)
     #context_id = models.CharField(blank=True, max_length=200, db_column='context_id')
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     context_value = models.IntegerField(blank=True, null=True)
     context_task_id = models.CharField(blank=True, max_length=200)
+    context_status = models.CharField(blank=True, max_length=200, choices=STATUS_CHOICES, default="Pending")
 
     class Meta:
         managed = True
