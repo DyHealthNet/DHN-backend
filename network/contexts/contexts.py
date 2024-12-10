@@ -14,14 +14,16 @@ from network.models import Context
 from django.db.models import Max
 import pandas as pd
 
+from network.utils import extract_var_id
+
 logger = logging.getLogger('network')
 
 OPERATORS = {
-    'less than (<)': lambda df, col, val: df[col] < val,
-    'more than (>)': lambda df, col, val: df[col] > val,
+    'less than (<)': lambda df, col, val: df[col] < float(val),
+    'more than (>)': lambda df, col, val: df[col] > float(val),
     'in': lambda df, col, val: df[col].isin(val),
     'equals (=)': lambda df, col, val: df[col] == val,
-    'in range': lambda df, col, val: (df[col] >= val[0]) & (df[col] <= val[1]),
+    'in range': lambda df, col, val: (df[col] >= float(val[0])) & (df[col] <= float(val[1])),
 }
 
 
@@ -87,12 +89,16 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             col = con['column']
             val = con['value']
 
-            # extract the last word in brackets or before a slash
-            # TODO: replace with exract_var_id function from views.py
-            if '(' in col:
-                col = col.split('(')[-1].split(')')[0].strip()
-            elif 'Protein' in col or 'Metabolite' in col:
-                col = col.split('/')[0].strip()
+            logger.debug(val)
+
+            # This is to handle user-friendly JSON input
+            if isinstance(val, dict):
+                val = val.get('value')
+
+            if isinstance(val, list) and all(isinstance(v, dict) for v in val):
+                val = [v.get('value') for v in val]
+
+            col = extract_var_id(col)
 
             if op not in OPERATORS:
                 raise ValueError(f"Unsupported operator: {op}")

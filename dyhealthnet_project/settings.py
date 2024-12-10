@@ -20,7 +20,8 @@ env = environ.Env(
     NUM_WORKERS=(int, 1),
     LOW_MEMORY=(bool, True),
     DROP_INSIGNIFICANT_EDGES=(bool, False),
-    MAX_CONTEXT_PER_USER=(int, 5)
+    MAX_CONTEXT_PER_USER=(int, 5),
+    PRESERVE_PRIVACY=(bool, True),
 )
 environ.Env.read_env()
 
@@ -297,6 +298,7 @@ CALCULATED_EDGES_PATH = env("CALCULATED_EDGES_PATH")
 NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
+PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
 
 # TODO add real email functionality
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

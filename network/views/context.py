@@ -1,4 +1,5 @@
 import os
+from math import floor, ceil
 
 import pandas as pd
 from celery.result import AsyncResult
@@ -20,6 +21,8 @@ from drf_spectacular.utils import extend_schema_view
 import logging
 import environ
 
+from network.utils import var_label_mapping
+
 env = environ.Env()
 environ.Env.read_env()
 logger = logging.getLogger('network')
@@ -27,9 +30,7 @@ logger = logging.getLogger('network')
 config = apps.get_app_config('network')
 
 
-@extend_schema_view(
-    post=create_context_schema
-)
+@extend_schema_view(post=create_context_schema)
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -69,21 +70,18 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             logger.debug(f"Removing layer {layer} as it is not wanted in the context")
             context_data = context_data.drop(config.LAYERS[layer], axis=1)
 
-        # set a color for the context
+        # first step: set a color for the context
         params['colors'] = define_context_color()
 
-        # first step: subset the data
+        # second step: subset the data
         try:
             partial_data = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
-        # second step: get the context-name
+        # third step: get the context-name
         context_id = create_context_id()
         logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
-
-        # third step: check the parameters wanted for the context e.g. is the context valid?
-        # Skip this for now
 
         # fourth step: separate the data into categorical and continuous data
         cat_data, cont_data = separate_cat_cont(partial_data, config.PHENO_META_LABEL)
@@ -104,16 +102,15 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         # seventh step: start the celery task
         task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
                                             context_name=context_id, user_id=request.user.id,
-                                            protein_set=list(config.PROTEINS.columns), phenotype_set=list(config.PHENOTYPES.columns),
+                                            protein_set=list(config.PROTEINS.columns),
+                                            phenotype_set=list(config.PHENOTYPES.columns),
                                             metabolite_set=list(config.METABOLITES.columns), variant_set=[])
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)
 
 
-@extend_schema_view(
-    get=context_status_schema
-)
+@extend_schema_view(get=context_status_schema)
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -132,9 +129,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
         return JsonResponse({'status': task.status, 'result': task.result})
 
 
-@extend_schema_view(
-    post=filter_context_schema
-)
+@extend_schema_view(post=filter_context_schema)
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
     # login_url = env("FRONTEND_HOME_URL")
 
@@ -150,14 +145,17 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
             out_df = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
+
         remaining_users = out_df.shape[0]
+        # for settings that want to preserve privacy, we only return the number of remaining users in the subset
+        if settings.PRESERVE_PRIVACY:
+            remaining_users = int(round(remaining_users / 100) * 100)
+
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
 
 
-@extend_schema_view(
-    delete=delete_context_schema
-)
+@extend_schema_view(delete=delete_context_schema)
 class DeleteUserContext(generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -212,9 +210,7 @@ class DeleteContext(generics.GenericAPIView):
         return JsonResponse({'status': 'success', 'message': 'Context deleted successfully'}, status=200)
 
 
-@extend_schema_view(
-    get=variable_info_schema
-)
+@extend_schema_view(get=variable_info_schema)
 class VariableInfoView(generics.GenericAPIView):
     def get(self, request):
         variable = request.GET.get("variableId")
@@ -224,9 +220,12 @@ class VariableInfoView(generics.GenericAPIView):
         # Get the variable information
         if variable in config.ALL_CAT.columns:
             var_info = [int(x) for x in config.ALL_CAT[variable].unique() if not pd.isna(x)]
+            var_info = [{'label': var_label_mapping(variable, x, config.VAR_LABEL_MAP), 'value': x} for x in var_info]
             bins = config.ALL_CAT[variable].value_counts().sort_index()
+
         elif variable in config.ALL_CONT.columns:
             var_info = config.ALL_CONT[variable].min(), config.ALL_CONT[variable].max()
+            var_info = [floor(var_info[0]), ceil(var_info[1])]
             bins = pd.cut(config.ALL_CONT[variable], bins=20).value_counts().sort_index()
         else:
             return HttpResponseBadRequest('Variable not found.', status=404)
@@ -237,9 +236,7 @@ class VariableInfoView(generics.GenericAPIView):
                              'type': 'bar' if variable in config.ALL_CAT.columns else 'trend'})
 
 
-@extend_schema_view(
-    get=retrieve_context_schema
-)
+@extend_schema_view(get=retrieve_context_schema)
 class RetrieveContextsView(generics.GenericAPIView):
     def get(self, request):
         empty_context_field = {'contextName': '', 'contextValue': 0, 'colors': {}, 'content': None}
