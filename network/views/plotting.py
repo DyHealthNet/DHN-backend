@@ -5,6 +5,7 @@ from django.http import HttpResponseBadRequest
 from django.apps import apps
 
 from network.contexts.contexts import subset_patients
+from network.db_utils import get_context
 from network.models import CohortVariant, UserContextLink, Context
 from drf_spectacular.utils import extend_schema_view
 from network.schemas.plotting_schemas import *
@@ -34,9 +35,8 @@ class GetTableView(generics.GenericAPIView):
             return JsonResponse(req_data_dict, safe=True)
 
         # retrieve the context given the context value and user
-        user_context = UserContextLink.objects.get(user_id=request.user.id,
-                                                   context_value=request.GET.get("contextValue"))
-        context = Context.objects.get(context_id=user_context.context_id)
+        context = get_context(request.user, request.GET.get('contextValue'))
+
         if not context:
             return HttpResponseBadRequest('Context not found', status=405)
 
