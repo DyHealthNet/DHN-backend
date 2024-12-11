@@ -3,7 +3,9 @@ from django.http import JsonResponse
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
 from django.apps import apps
-from network.models import CohortVariant
+
+from network.contexts.contexts import subset_patients
+from network.models import CohortVariant, UserContextLink, Context
 from drf_spectacular.utils import extend_schema_view
 from network.schemas.plotting_schemas import *
 from network.utils import *
@@ -24,25 +26,33 @@ class GetTableView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         # build result dict in right format
-        req_data_dict = {'Participants': len(config.all_data), 'Phenotypes': len(config.PHENOTYPES.columns),
-                         'Proteins': len(config.PROTEINS.columns) if config.PROTEINS is not None else 0,
-                         'Metabolites': len(config.METABOLITES.columns) if config.METABOLITES is not None else 0,
-                         'Genetic Variants': CohortVariant.objects.count()}
-        # Get Phenotype mera file to count the different data types (currently not used in frontend table)
-        df = pd.DataFrame(config.PHENO_META[env("PHENOTYPE_TYPE_COLUMN")][
-                              [(i in config.PHENOTYPES.columns) for i in
-                               config.PHENO_META.index]].copy()).value_counts()
-        req_data_dict['Phenotype-Boolean'] = int(df['boolean']) if 'boolean' in df.index else 0
-        req_data_dict['Phenotype-Categorical'] = int(df['categorical']) if 'categorical' in df.index else 0
-        req_data_dict['Phenotype-Float'] = int(df['float']) if 'float' in df.index else 0
-        req_data_dict['Phenotype-Integer'] = int(df['integer']) if 'integer' in df.index else 0
-        req_data_dict['Phenotype-Time'] = int(df['time']) if 'time' in df.index else 0
+        if not request.GET.get("contextValue") or not request.user.is_authenticated:
+            req_data_dict = {'Participants': len(config.all_data), 'Phenotypes': len(config.PHENOTYPES.columns),
+                             'Proteins': len(config.PROTEINS.columns) if config.PROTEINS is not None else 0,
+                             'Metabolites': len(config.METABOLITES.columns) if config.METABOLITES is not None else 0,
+                             'Genetic Variants': CohortVariant.objects.count()}
+            return JsonResponse(req_data_dict, safe=True)
+
+        # retrieve the context given the context value and user
+        user_context = UserContextLink.objects.get(user_id=request.user.id,
+                                                   context_value=request.GET.get("contextValue"))
+        context = Context.objects.get(context_id=user_context.context_id)
+        if not context:
+            return HttpResponseBadRequest('Context not found', status=405)
+
+        participants = subset_patients(config.all_data, context.params).shape[0]
+        phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
+        for layer in context.params['layers']:
+            phenotypes = len(config.PHENOTYPES.columns) if 'phenomics' in layer else phenotypes
+            proteins = len(config.PROTEINS.columns) if 'proteomics' in layer else proteins
+            metabolites = len(config.METABOLITES.columns) if 'metabolomics' in layer else metabolites
+            variants = 0 if 'variants' in layer else variants
+        req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes, 'Proteins': proteins,
+                         'Metabolites': metabolites, 'Genetic Variants': variants}
         return JsonResponse(req_data_dict, safe=True)
 
 
-@extend_schema_view(
-    get=get_data_schema
-)
+@extend_schema_view(get=get_data_schema)
 class GetDataView(generics.GenericAPIView):
     @staticmethod
     def get(request):
