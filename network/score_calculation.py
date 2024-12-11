@@ -222,7 +222,7 @@ def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataF
     return cat_data, cont_data
 
 
-def calculate_association_scores(cat_data, cont_data, tests='parametric'):
+def calculate_association_scores(cat_data, cont_data, tests: dict[str, dict] | str) -> pd.DataFrame:
     # subsample data for testing (only keep first 500 columns)
     # if settings.DEBUG:
     #     logger.debug("Subsampling data for testing")
@@ -234,6 +234,8 @@ def calculate_association_scores(cat_data, cont_data, tests='parametric'):
                  'catCat': tests,
                  'catContB': tests,
                  'catContM': tests}
+    else:
+        tests = {k: v.get('value') for k, v in tests.items()}
 
     cont_data = cont_data.copy()
     cont_data = cont_data.select_dtypes(include=[np.number])

@@ -19,10 +19,10 @@ from network.models import UserContextLink
 def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
     # extract relevant info from params and add it to db
     new_context = Context(context_id=context_name,
-                          cat_cat_test=params['tests']['catCat'].lower(),
-                          cont_cont_test=params['tests']['contCont'].lower(),
-                          cat_cont_b_test=params['tests']['catContB'].lower(),
-                          cat_cont_m_test=params['tests']['catContM'].lower(),
+                          cat_cat_test=params['tests']['catCat']['value'],
+                          cont_cont_test=params['tests']['contCont']['value'],
+                          cat_cont_b_test=params['tests']['catContB']['value'],
+                          cat_cont_m_test=params['tests']['catContM']['value'],
                           last_accessed=None,
                           params=params)
 
