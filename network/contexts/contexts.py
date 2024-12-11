@@ -80,6 +80,9 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     if inside_conn not in ['and', 'or'] or outside_conn not in ['and', 'or']:
         raise ValueError(f"Unsupported connection types: {inside_conn}, {outside_conn}")
 
+    if len(params['conditions']) == 0:
+        return variables.copy()
+
     outer_start = outside_conn == 'and'
 
     for param in params['conditions'].values():
