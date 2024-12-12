@@ -1,20 +1,19 @@
 # Here I want to add the user-context to the database
 import io
 import json
-import hashlib
 import os.path
 
 from django.conf import settings
 from django.db import connection
 import logging
 
-from network import models
 from network.contexts.edge_sorting import process_file, add_edges, DB_COLUMNS
 from network.models import Context
 from django.db.models import Max
 import pandas as pd
 
-from network.utils import extract_var_id
+from network.utils.db_utils import get_context
+from network.utils.utils import extract_var_id
 
 logger = logging.getLogger('network')
 
@@ -205,6 +204,19 @@ def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
     add_success = add_edges(conn, context_name, edge_info)
     return add_success
 
+
+def context_subset(request, data):
+    # If the user requests a context, subset the data based on the context
+    if request.GET.get("contextValue") and request.user.is_authenticated:
+        # subset data based on context
+        context = get_context(request.user, request.GET.get('contextValue'))
+        if not context:
+            return None
+
+        df = subset_patients(data, context.params)
+    else:
+        df = data.copy()
+    return df
 
 # Possible future implementation for updating multiple tables concurrently
 # def update_multiple_tables(conn_pool):

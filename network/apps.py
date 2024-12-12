@@ -1,15 +1,11 @@
 import json
-import os
 import sys
 
-import pandas as pd
 from django.apps import AppConfig
 
 from network.score_calculation import separate_cat_cont
-from network.utils import check_files_and_return
+from network.utils.startup_utils import *
 import environ
-
-from django.utils.autoreload import DJANGO_AUTORELOAD_ENV
 
 env = environ.Env()
 environ.Env.read_env()
@@ -32,18 +28,6 @@ class NetworksConfig(AppConfig):
         self.PHENO_META_LABEL = None
         self.PHENO_META = None
         self.PHENOTYPES = None
-
-    @staticmethod
-    def join_dataframes(dataframes: list):
-        """
-        Joins together all dataframes in the list with an inner join on the index
-        :param dataframes: list of dataframes
-        :return: joined dataframe
-        """
-        result = dataframes[0]
-        for df in dataframes[1:]:
-            result = pd.merge(result, df, left_index=True, right_index=True, how='inner')
-        return result
 
     def ready(self):
         # To avoid loading the files twice during server start
@@ -79,7 +63,7 @@ class NetworksConfig(AppConfig):
                                                       id_column=env("PATIENT_ID_COLUMN"),
                                                       return_dataset=True)
 
-            self.all_data = self.join_dataframes([self.PHENOTYPES, self.PROTEINS, self.METABOLITES])
+            self.all_data = join_dataframes([self.PHENOTYPES, self.PROTEINS, self.METABOLITES])
 
             self.ALL_CAT, self.ALL_CONT = separate_cat_cont(self.all_data, self.PHENO_META_LABEL)
             # maximum number of categories here is 29 for variable: x0pe05d

@@ -10,7 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 
 from rest_framework import generics
 
-from network.color_utils import define_context_color
+from network.utils.color_utils import define_context_color
 from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables
 from network.models import UserContextLink, Context
 from network.score_calculation import separate_cat_cont
@@ -21,7 +21,7 @@ from drf_spectacular.utils import extend_schema_view
 import logging
 import environ
 
-from network.utils import var_label_mapping
+from network.utils.utils import var_label_mapping
 
 env = environ.Env()
 environ.Env.read_env()

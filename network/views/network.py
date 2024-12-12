@@ -1,7 +1,6 @@
-import json
 from django.http import JsonResponse, HttpResponseBadRequest
 from rest_framework import generics
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes, extend_schema_view
+from drf_spectacular.utils import extend_schema_view
 from network.queries import *
 from network.schemas.network_schemas import *
 

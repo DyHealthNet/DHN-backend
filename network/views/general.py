@@ -4,10 +4,9 @@ from django.apps import apps
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
-from network.db_utils import get_context
+from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-
-from network.utils import *
+from network.utils.utils import list_node_variables
 
 config = apps.get_app_config('network')
 
