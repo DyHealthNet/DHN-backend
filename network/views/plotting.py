@@ -6,9 +6,11 @@ from django.apps import apps
 
 from drf_spectacular.utils import extend_schema_view
 
+from network.contexts.contexts import subset_patients, context_subset
 from network.models import CohortVariant
 from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
+from network.utils.db_utils import get_context
 from network.utils.utils import *
 
 import environ
@@ -52,7 +54,7 @@ class GetTableView(generics.GenericAPIView):
 
 
 @extend_schema_view(get=get_data_schema)
-class GetDataView(generics.GenericAPIView):
+class GetDataLinePlotView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         # Get request vars
@@ -66,21 +68,23 @@ class GetDataView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
-        if x_idx not in config.all_data.columns or y_idx not in config.all_data.columns:
+        line_plot_df = context_subset(request, config.all_data)
+
+        if x_idx not in line_plot_df.columns or y_idx not in line_plot_df.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
 
-        if pd.api.types.is_string_dtype(config.all_data[y_idx]):
+        if pd.api.types.is_string_dtype(line_plot_df[y_idx]):
             return HttpResponseBadRequest(
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
 
-        df = pd.DataFrame(config.all_data[[x_idx, y_idx]])
+        df = pd.DataFrame(line_plot_df[[x_idx, y_idx]])
         temp = []
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the request var which is built
             # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
-            if c_idx not in config.all_data.columns:
+            if c_idx not in line_plot_df.columns:
                 return HttpResponseBadRequest('Variable c, if declared, must be a valid variable of the data',
                                               status=405)
             # Check if variables are equal because this will not return meaningful results and can throw an error later
@@ -88,7 +92,7 @@ class GetDataView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable x and y must be different from c', status=405)
             # Add var c column to subset df
-            df[c_idx] = config.all_data[c_idx]
+            df[c_idx] = line_plot_df[c_idx]
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
             aggregated_df_mean = (df.groupby([x_idx, c_idx]).filter(lambda x:
@@ -100,7 +104,7 @@ class GetDataView(generics.GenericAPIView):
             # values for x positions with no aggregated value present)
             color = 0
             colormap_local = COLOR_PALETTE
-            num_colors = len(config.all_data[c_idx].unique())
+            num_colors = len(line_plot_df[c_idx].unique())
             # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(COLOR_PALETTE, num_colors)
@@ -154,7 +158,9 @@ class GetDataBarCountView(generics.GenericAPIView):
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
 
-        if x_idx not in config.all_data.columns:
+        bar_plot_df = context_subset(request, config.all_data)
+
+        if x_idx not in bar_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
         temp = []
 
@@ -163,7 +169,7 @@ class GetDataBarCountView(generics.GenericAPIView):
             # from description + (var_id) (in case of phenotypes and proteins))
             c_idx = extract_var_id(c)
             # Check if c var is present in our data -> else throw HttpResponseBadRequest
-            if c_idx not in config.all_data.columns:
+            if c_idx not in bar_plot_df.columns:
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the data', status=405)
             # Check if variables are equal because this will not return meaningful results and can throw an error later
@@ -172,12 +178,12 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Make df subset with x, c var and a count value for each pair of group
             # TODO Group combinations where c_idx is NaN will not be returned and therefore not appear ->
             #  return 0 instead?
-            df_count = config.all_data[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
+            df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
             color = 0
             colormap_local = COLOR_PALETTE
-            num_colors = len(config.all_data[c_idx].unique())
+            num_colors = len(bar_plot_df[c_idx].unique())
             # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
                 colormap_local = enlarge_palette(COLOR_PALETTE, num_colors)
@@ -193,7 +199,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         # if no color var c is given only group by x var
         else:
             # Make df subset with x var and a count variable
-            df_count = pd.DataFrame(config.all_data[x_idx]).groupby(x_idx).size().reset_index(name='counts')
+            df_count = pd.DataFrame(bar_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population",  # TODO rather empty label?
@@ -231,7 +237,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         x_idx = extract_var_id(x)  # Extract var_id from request var
         y_idx = extract_var_id(y)
 
-        box_plot_df = context_subset(request)
+        box_plot_df = context_subset(request, config.all_data)
 
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in box_plot_df.columns or y_idx not in box_plot_df.columns:
@@ -345,11 +351,14 @@ class GetDataHeatmapView(generics.GenericAPIView):
         #        'Variable x and y must be different', status=405)
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
+
+        heatmap_df = context_subset(request, config.all_data)
+
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
-        if x_idx not in config.all_data.columns or y_idx not in config.all_data.columns:
+        if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
         # compute contingency table
-        contingency_tab = pd.crosstab(config.all_data[x_idx], config.all_data[y_idx])
+        contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
         # save in dictionary and return in json format
         req_data_dict = {}
         req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), config.VAR_LABEL_MAP)
