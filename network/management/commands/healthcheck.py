@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
 from django.apps import apps
-from network.utils import check_files_and_return
+from network.utils.startup_utils import check_files_and_return
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.

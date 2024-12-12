@@ -3,7 +3,7 @@ import csv
 from django.core.management.base import BaseCommand
 import sys
 import pandas as pd
-import network.utils as utils
+import network.utils.startup_utils as utils
 from network.score_calculation import calculate_association_scores
 import environ
 import traceback
