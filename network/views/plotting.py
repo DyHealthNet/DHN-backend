@@ -42,6 +42,9 @@ class GetTableView(generics.GenericAPIView):
             return HttpResponseBadRequest('Context not found', status=405)
 
         participants = subset_patients(config.all_data, context.params).shape[0]
+        if settings.PRESERVE_PRIVACY:
+            participants = int(round(participants / 100) * 100)
+            
         phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
         for layer in context.params['layers']:
             phenotypes = len(config.PHENOTYPES.columns) if 'phenomics' in layer else phenotypes
