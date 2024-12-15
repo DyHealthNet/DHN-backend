@@ -1,5 +1,7 @@
+import random
+
 import pandas as pd
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.apps import apps
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
@@ -7,6 +9,7 @@ from drf_spectacular.utils import extend_schema_view
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
 from network.utils.utils import list_node_variables
+from network.utils.color_utils import define_context_color
 
 config = apps.get_app_config('network')
 
@@ -38,3 +41,48 @@ class GetVariablesView(generics.GenericAPIView):
         combined_vals = pd.concat(existing_values, axis=0)
         values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
         return JsonResponse(values_dict, safe=True)
+
+
+class GetColorView(generics.GenericAPIView):
+    @staticmethod
+    def get(request):
+        if request.GET.get('base'):
+            colors = [define_context_color(value=request.GET.get('value'), base_hue=request.GET.get('base'))]
+        else:
+            colors = []
+            for i in range(5):
+                colors.append(define_context_color(value=i))
+
+        base = """
+        <html>
+            <head>
+                <title>Color</title>
+                <style>
+                    .color-blob {
+                        display: inline-block;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%; /* Makes it a circle, remove this for a square */
+                        margin-left: 10px;
+                    }
+                </style>
+            </head>
+            <body>
+        """
+        color_html = ""
+
+        for i in range(5):
+            color_html += f"""
+            <p>Hue: {colors[i]['hue']}</p>
+            <p>Base color: {colors[i]['color']} <span class="color-blob" style="background-color: {colors[i]['color']};"></span></p>
+            <p>Light variant color: {colors[i]['lightVariant']} <span class="color-blob" style="background-color: {colors[i]['lightVariant']};"></span></p>
+            <p>Dark variant color: {colors[i]['darkVariant']} <span class="color-blob" style="background-color: {colors[i]['darkVariant']};"></span></p>
+            """
+
+        end = """
+        </body>
+        </html>
+        """
+
+        # return html
+        return HttpResponse(base + color_html + end)

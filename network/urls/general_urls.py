@@ -3,4 +3,5 @@ import network.views.general as views
 
 urlpatterns = [
     path("api/variables/", views.GetVariablesView.as_view(), name="get_variables"),
+    path("api/colors", views.GetColorView.as_view(), name="get_colors"),
 ]

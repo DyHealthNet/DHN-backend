@@ -71,7 +71,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             context_data = context_data.drop(config.LAYERS[layer], axis=1)
 
         # first step: set a color for the context
-        params['colors'] = define_context_color()
+        params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
 
         # second step: subset the data
         try:
@@ -93,11 +93,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         if not os.path.exists(f"/tmp/{folder_name}"):
             os.mkdir(f"/tmp/{folder_name}")
         cont_file_name = f"/tmp/{folder_name}/cont.pkl"
-        if not os.path.exists(cont_file_name):
-            cont_data.to_pickle(cont_file_name)
+        cont_data.to_pickle(cont_file_name)
         cat_file_name = f"/tmp/{folder_name}/cat.pkl"
-        if not os.path.exists(cat_file_name):
-            cat_data.to_pickle(cat_file_name)
+        cat_data.to_pickle(cat_file_name)
 
         # seventh step: start the celery task
         task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
@@ -246,7 +244,6 @@ class RetrieveContextsView(generics.GenericAPIView):
         # context id, value pairs
         for context_pair in UserContextLink.objects.filter(user_id=user).values_list('context_id', 'context_value'):
             context_ids.append(context_pair)
-        logger.debug(context_ids)
         result = []
 
         for i in range(1, settings.MAX_CONTEXT_PER_USER + 1):

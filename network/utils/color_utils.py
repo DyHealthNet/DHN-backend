@@ -1,6 +1,8 @@
 import numpy as np
 import seaborn as sns
 
+CONTEXT_HUES = [172, 33, 122, 272, 332]
+
 
 # functions to get appropriate background colors for plotting
 def darken_hex(hex_color, factor=0.2):
@@ -16,8 +18,15 @@ def darken_hex(hex_color, factor=0.2):
 
 
 # functions to get appropriate colors for plotting
-def rgb_to_hex(rgb):
+def rgb_to_hex(rgb, scale=True):
+    if not scale:
+        return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]), int(rgb[1]), int(rgb[2]))
     return '#{:02x}{:02x}{:02x}'.format(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
+
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 
 def hsl_to_hex(hue, saturation, lightness):
@@ -69,27 +78,30 @@ def lighten_color(hex_color, factor=0.2):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def define_context_color(base_hue=None):
+def define_context_color(value, base_hue=None):
     """
     Define a random color for each context that aligns with the theme colors
     :return: dict with lightVariant and darkVariant colors for each context
     """
-    light_saturation = 0.44
-    light_lightness = 0.755
+    light_s, light_l = 0.44, 0.755
+    light_s_var, light_l_var = 1.0, 0.806
 
-    dark_saturation = 0.239
-    dark_lightness = 0.418
+    dark_s, dark_l = 0.239, 0.418
+    dark_s_var, dark_l_var = 0.44, 0.32
 
     # get random int between 0 and 360
     if base_hue is None:
-        random_vue = np.random.randint(0, 360)
+        random_vue = CONTEXT_HUES[value]
+        if CONTEXT_HUES[value] == 33:
+            light_s, light_l = light_s_var, light_l_var
+            dark_s, dark_l = dark_s_var, dark_l_var
     else:
-        random_vue = base_hue
+        random_vue = int(base_hue)
 
     base_color = hsl_to_hex(random_vue, 1, 0.5)
-    light_variant = hsl_to_hex(random_vue, light_saturation, light_lightness)
-    dark_variant = hsl_to_hex(random_vue, dark_saturation, dark_lightness)
-    return {'color': base_color, 'lightVariant': light_variant, 'darkVariant': dark_variant}
+    light_variant = hsl_to_hex(random_vue, light_s, light_l)
+    dark_variant = hsl_to_hex(random_vue, dark_s, dark_l)
+    return {'color': base_color, 'lightVariant': light_variant, 'darkVariant': dark_variant, 'hue': random_vue}
 
 
 # Colormaps for overview page plots

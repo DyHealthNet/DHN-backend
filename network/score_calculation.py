@@ -103,6 +103,8 @@ def combine_tests(cat_cat, cont_cont, cat_cont_b, cat_cont_m) -> pd.DataFrame:
 
 def nanpy_cat_cat(cat_phenotypes: pd.DataFrame):
     cat_phenotypes, cols = df_to_numpy(cat_phenotypes)
+    if cat_phenotypes.shape[1] < 2:
+        return [None]
     output = nanpy.chi_squared(cat_phenotypes, axis=1, threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
     return [nanpy_formatting(output, [cols], 'chi2')]
 
@@ -110,6 +112,8 @@ def nanpy_cat_cat(cat_phenotypes: pd.DataFrame):
 def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, tests: str):
     # split cat_phenotypes into two dataframes, one with columns that contain only two unique values and one with more
     # than two unique values
+    if cat_phenotypes.shape[1] < 2:
+        return [None, None]
     cat_phenotypes_more = cat_phenotypes.loc[:, cat_phenotypes.nunique() > 2]
 
     cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
@@ -143,6 +147,8 @@ def nanpy_binary_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.Data
     :param test: the test to perform
     :return: DataFrame with the results of the association testing
     """
+    if cat_phenotypes.shape[1] < 2:
+        return [None, None, None, None]
     cat_phenotypes_two = cat_phenotypes.loc[:, cat_phenotypes.nunique() == 2]
     cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
     cat_phenotypes_two, cat_cols_two = df_to_numpy(cat_phenotypes_two)
@@ -178,6 +184,8 @@ def nanpy_binary_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.Data
 
 
 def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
+    if cont_phenotypes.shape[1] < 2:
+        return [None, None]
     cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
     cont_out_p, cont_out_s = None, None
     test_p, test_s = None, None
