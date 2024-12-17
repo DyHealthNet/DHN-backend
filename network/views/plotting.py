@@ -44,7 +44,7 @@ class GetTableView(generics.GenericAPIView):
         participants = subset_patients(config.all_data, context.params).shape[0]
         if settings.PRESERVE_PRIVACY:
             participants = int(round(participants / 100) * 100)
-            
+
         phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
         for layer in context.params['layers']:
             phenotypes = len(config.PHENOTYPES.columns) if 'phenomics' in layer else phenotypes
@@ -106,11 +106,11 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
-            colormap_local = COLOR_PALETTE
+            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(line_plot_df[c_idx].unique())
             # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(COLOR_PALETTE, num_colors)
+                colormap_local = enlarge_palette(colormap_local, num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
@@ -185,11 +185,11 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
             color = 0
-            colormap_local = COLOR_PALETTE
+            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(bar_plot_df[c_idx].unique())
             # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(COLOR_PALETTE, num_colors)
+                colormap_local = enlarge_palette(colormap_local, num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
@@ -291,11 +291,11 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
-            colormap_local = COLOR_PALETTE
+            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(box_plot_df[c_idx].unique())
             # check if more colors are needed than available, if yes enlarge palette to required size
             if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(COLOR_PALETTE, num_colors)
+                colormap_local = enlarge_palette(colormap_local, num_colors)
             bordercolor_map_local = [rgb_to_hex(darken_rgb(rgb)) for rgb in colormap_local]
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
