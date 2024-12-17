@@ -362,10 +362,17 @@ class GetDataHeatmapView(generics.GenericAPIView):
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
         # compute contingency table
         contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
+
+        # get colors for heatmap, 3 colors: low, medium, high
+        palette = COLOR_PALETTES.get(request.GET.get('colors', 'viridis'))
+        colors = [rgb_to_hex(rgb) for rgb in palette]
+        colors = [colors[0], colors[int(len(colors)/2)], colors[-1]]
+
         # save in dictionary and return in json format
         req_data_dict = {}
         req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), config.VAR_LABEL_MAP)
         req_data_dict["yCategories"] = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), config.VAR_LABEL_MAP)
         contingency_tab_inverse = np.array(contingency_tab.values)
         req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
+        req_data_dict["colors"] = colors
         return JsonResponse(req_data_dict, safe=True)
