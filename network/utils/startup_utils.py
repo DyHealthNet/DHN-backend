@@ -22,14 +22,22 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
     if path == "None" or path is None or path == "":
         return None
 
-    ending = os.path.splitext(path)[1].lower()
+    file_name, ending = os.path.splitext(path)
+    ending = ending.lower()
     if ending not in ['.csv', '.tsv']:
         raise ValueError(f"Unsupported file format: {ending}. Only CSV and TSV files are supported.")
-    # Set correct seperator according to ending
-    sep = ',' if ending == '.csv' else '\t'
 
-    logger.debug(f"Reading file {path}")
-    dataset = pd.read_csv(path, header=0, sep=sep, index_col=None, low_memory=False).copy()
+    parquet_file = f"{file_name}.parquet"
+
+    if not os.path.exists(parquet_file):
+        logger.info("Creating parquet file")
+        # Set correct seperator according to ending
+        sep = ',' if ending == '.csv' else '\t'
+        df = pd.read_csv(path, sep=sep, index_col=None, low_memory=False)
+        df.to_parquet(parquet_file)
+
+    logger.debug(f"Reading file {parquet_file}")
+    dataset = pd.read_parquet(parquet_file)
 
     # Check that id_column exists if provided
     if id_column:

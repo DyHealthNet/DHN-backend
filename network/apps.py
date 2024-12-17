@@ -1,5 +1,6 @@
 import json
 import sys
+import timeit
 
 from django.apps import AppConfig
 
@@ -37,6 +38,7 @@ class NetworksConfig(AppConfig):
         if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
             pass
         else:
+            start = timeit.default_timer()
             self.PHENOTYPES = check_files_and_return(env("PHENOTYPE_PATH"),
                                                      id_column=env("PATIENT_ID_COLUMN"),
                                                      return_dataset=True)
@@ -64,6 +66,8 @@ class NetworksConfig(AppConfig):
                                                       return_dataset=True)
 
             self.all_data = join_dataframes([self.PHENOTYPES, self.PROTEINS, self.METABOLITES])
+
+            logger.info("Startup time: " + str(timeit.default_timer() - start))
 
             self.ALL_CAT, self.ALL_CONT = separate_cat_cont(self.all_data, self.PHENO_META_LABEL)
             # maximum number of categories here is 29 for variable: x0pe05d
