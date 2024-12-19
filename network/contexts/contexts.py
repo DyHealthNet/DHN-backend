@@ -91,8 +91,6 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
             col = con['column']
             val = con['value']
 
-            logger.debug(val)
-
             # This is to handle user-friendly JSON input
             if isinstance(val, dict):
                 val = val.get('value')

@@ -66,11 +66,11 @@ class DataManager:
 
         # If file exists open the file and load the JSON data
         # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
-        self.VAR_LABEL_MAP = None
+        self._var_label_map = None
         if os.path.isfile(env("VAR_LABEL_MAPPING")):
             # logger.debug("Loading variable label mapping from file")
             with open(env("VAR_LABEL_MAPPING"), 'r') as file:
-                self.VAR_LABEL_MAP = json.load(file)
+                self._var_label_map = json.load(file)
 
     def get_df_copy(self, df: str | list) -> pd.DataFrame | dict | None:
         switch = {
@@ -83,7 +83,8 @@ class DataManager:
             'proteins': self._proteins,
             'pheno_meta_label': self._pheno_meta_label,
             'pheno_meta': self._pheno_meta,
-            'phenotypes': self._phenotypes
+            'phenotypes': self._phenotypes,
+            'var_label_map': self._var_label_map
         }
 
         if isinstance(df, str):
