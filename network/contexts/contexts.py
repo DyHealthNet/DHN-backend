@@ -80,7 +80,7 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
         raise ValueError(f"Unsupported connection types: {inside_conn}, {outside_conn}")
 
     if len(params['conditions']) == 0:
-        return variables.copy()
+        return variables
 
     outer_start = outside_conn == 'and'
 
@@ -124,7 +124,7 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
         elif outside_conn == 'or':
             overall_mask |= mask
 
-    return variables[overall_mask].copy()
+    return variables[overall_mask]
 
 
 def update_buffer(updates, conn, table_name: str = 'edges'):

@@ -18,20 +18,22 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-config = apps.get_app_config('network')
-
 
 @extend_schema_view(
     get=get_table_schema
 )
 class GetTableView(generics.GenericAPIView):
-    @staticmethod
-    def get(request):
+    data_manager = None
+
+    def get(self, request):
+        all_data, proteins, phenotypes, metabolites = self.data_manager.get_df_copy(['all_data', 'proteins',
+                                                                                    'phenotypes', 'metabolites'])
+
         # build result dict in right format
         if not request.GET.get("contextValue") or not request.user.is_authenticated:
-            req_data_dict = {'Participants': len(config.all_data), 'Phenotypes': len(config.PHENOTYPES.columns),
-                             'Proteins': len(config.PROTEINS.columns) if config.PROTEINS is not None else 0,
-                             'Metabolites': len(config.METABOLITES.columns) if config.METABOLITES is not None else 0,
+            req_data_dict = {'Participants': len(all_data), 'Phenotypes': len(phenotypes.columns),
+                             'Proteins': len(proteins.columns) if proteins is not None else 0,
+                             'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
                              'Genetic Variants': CohortVariant.objects.count()}
             return JsonResponse(req_data_dict, safe=True)
 
@@ -41,15 +43,15 @@ class GetTableView(generics.GenericAPIView):
         if not context:
             return HttpResponseBadRequest('Context not found', status=405)
 
-        participants = subset_patients(config.all_data, context.params).shape[0]
+        participants = subset_patients(all_data, context.params).shape[0]
         if settings.PRESERVE_PRIVACY:
             participants = int(round(participants / 100) * 100)
 
         phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
         for layer in context.params['layers']:
-            phenotypes = len(config.PHENOTYPES.columns) if 'phenomics' in layer else phenotypes
-            proteins = len(config.PROTEINS.columns) if 'proteomics' in layer else proteins
-            metabolites = len(config.METABOLITES.columns) if 'metabolomics' in layer else metabolites
+            phenotypes = len(phenotypes.columns) if 'phenomics' in layer else phenotypes
+            proteins = len(proteins.columns) if 'proteomics' in layer else proteins
+            metabolites = len(metabolites.columns) if 'metabolomics' in layer else metabolites
             variants = 0 if 'variants' in layer else variants
         req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes, 'Proteins': proteins,
                          'Metabolites': metabolites, 'Genetic Variants': variants}
@@ -58,8 +60,10 @@ class GetTableView(generics.GenericAPIView):
 
 @extend_schema_view(get=get_data_schema)
 class GetDataLinePlotView(generics.GenericAPIView):
-    @staticmethod
-    def get(request):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
         # Get request vars
         try:
             x, y, c = plot_variables(request)
@@ -71,7 +75,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
-        line_plot_df = context_subset(request, config.all_data)
+        line_plot_df = context_subset(request, all_data)
 
         if x_idx not in line_plot_df.columns or y_idx not in line_plot_df.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
@@ -114,10 +118,10 @@ class GetDataLinePlotView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
-                    "label": var_label_mapping(c_idx, group_name, config.VAR_LABEL_MAP),
+                    "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
                     "borderColor": lighten_color(colormap_local[color]),
-                    "data": [{'x': var_label_mapping(x_idx, x, config.VAR_LABEL_MAP), 'y': y} for x, y in
+                    "data": [{'x': var_label_mapping(x_idx, x, var_label_map), 'y': y} for x, y in
                              zip(group_data[x_idx], group_data[y_idx])]
                 })
                 color += 1
@@ -136,7 +140,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
             })
         # Store unique x_var values
         req_data_dict = {
-            'labels': var_label_mapping(x_idx, aggregated_df_mean[x_idx].unique().tolist(), config.VAR_LABEL_MAP),
+            'labels': var_label_mapping(x_idx, aggregated_df_mean[x_idx].unique().tolist(), var_label_map),
             'datasets': temp
         }
         return JsonResponse(req_data_dict, safe=True)
@@ -146,8 +150,11 @@ class GetDataLinePlotView(generics.GenericAPIView):
     get=get_bar_count_schema
 )
 class GetDataBarCountView(generics.GenericAPIView):
-    @staticmethod
-    def get(request):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+
         # Get request vars
         x = request.GET.get("x")
         c = request.GET.get("c")
@@ -161,7 +168,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
 
-        bar_plot_df = context_subset(request, config.all_data)
+        bar_plot_df = context_subset(request, all_data)
 
         if x_idx not in bar_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
@@ -193,9 +200,9 @@ class GetDataBarCountView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
-                    "label": var_label_mapping(c_idx, group_name, config.VAR_LABEL_MAP),
+                    "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
-                    "data": [{'x': var_label_mapping(x_idx, x, config.VAR_LABEL_MAP), 'y': y} for x, y in
+                    "data": [{'x': var_label_mapping(x_idx, x, var_label_map), 'y': y} for x, y in
                              zip(group_data[x_idx], group_data['counts'])]
                 })
                 color += 1
@@ -210,7 +217,7 @@ class GetDataBarCountView(generics.GenericAPIView):
                 "data": df_count['counts'].tolist()
             })
         # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), config.VAR_LABEL_MAP)
+        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), var_label_map)
         # Store the count data values
         req_data_dict["datasets"] = temp
         return JsonResponse(req_data_dict, safe=True)
@@ -220,8 +227,11 @@ class GetDataBarCountView(generics.GenericAPIView):
     get=get_box_plot_schema
 )
 class GetDataBoxPlotView(generics.GenericAPIView):
-    @staticmethod
-    def get(request):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+
         # Fill NaN values with the NaN boxplot dictionary
         nan_boxplot = {
             'min': -100,
@@ -240,7 +250,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         x_idx = extract_var_id(x)  # Extract var_id from request var
         y_idx = extract_var_id(y)
 
-        box_plot_df = context_subset(request, config.all_data)
+        box_plot_df = context_subset(request, all_data)
 
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in box_plot_df.columns or y_idx not in box_plot_df.columns:
@@ -300,7 +310,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
                 dataset = {
-                    'label': var_label_mapping(c_idx, group_name, config.VAR_LABEL_MAP),
+                    'label': var_label_mapping(c_idx, group_name, var_label_map),
                     'backgroundColor': colormap_local[color],
                     'borderColor': bordercolor_map_local[color],
                     'padding': 10,
@@ -329,7 +339,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             temp.append(temp_style)
         # Store unique x_var values
         req_data_dict = {
-            'labels': var_label_mapping(x_idx, grouped.index.tolist(), config.VAR_LABEL_MAP),
+            'labels': var_label_mapping(x_idx, grouped.index.tolist(), var_label_map),
             'datasets': temp
         }
         return JsonResponse(req_data_dict, safe=True)
@@ -339,8 +349,10 @@ class GetDataBoxPlotView(generics.GenericAPIView):
     get=heatmap_schema
 )
 class GetDataHeatmapView(generics.GenericAPIView):
-    @staticmethod
-    def get(request):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
         # Get request vars
         x = request.GET.get("x")
         y = request.GET.get("y")
@@ -355,7 +367,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
-        heatmap_df = context_subset(request, config.all_data)
+        heatmap_df = context_subset(request, all_data)
 
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
@@ -370,8 +382,8 @@ class GetDataHeatmapView(generics.GenericAPIView):
 
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), config.VAR_LABEL_MAP)
-        req_data_dict["yCategories"] = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), config.VAR_LABEL_MAP)
+        req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), var_label_map)
+        req_data_dict["yCategories"] = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), var_label_map)
         contingency_tab_inverse = np.array(contingency_tab.values)
         req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
         req_data_dict["colors"] = colors

@@ -5,7 +5,6 @@ import pandas as pd
 from celery.result import AsyncResult
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.conf import settings
-from django.apps import apps
 from django.contrib.auth.mixins import LoginRequiredMixin
 
 from rest_framework import generics
@@ -27,16 +26,19 @@ env = environ.Env()
 environ.Env.read_env()
 logger = logging.getLogger('network')
 
-config = apps.get_app_config('network')
-
 
 @extend_schema_view(post=create_context_schema)
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
+    data_manager = None
 
     # redirect_field_name = None
     # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
+        # first we retrieve the data we need to process the request
+        all_data, layers, pheno_meta_label, phenotypes, proteins, metabolites = self.data_manager.get_df_copy(
+            ['all_data', 'layers', 'pheno_meta_label', 'phenotypes', 'proteins', 'metabolites'])
+
         params = request.data
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
@@ -65,10 +67,10 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"The user {request.user.username} can create another context.")
 
         # nullth step: remove all layers that are not wanted as per params['layers']
-        context_data = config.all_data.copy()
-        for layer in list(set(config.LAYERS.keys()) - set(params['layers'])):
+        context_data = all_data
+        for layer in list(set(layers.keys()) - set(params['layers'])):
             logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-            context_data = context_data.drop(config.LAYERS[layer], axis=1)
+            context_data = context_data.drop(layers[layer], axis=1)
 
         # first step: set a color for the context
         params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
@@ -84,7 +86,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
 
         # fourth step: separate the data into categorical and continuous data
-        cat_data, cont_data = separate_cat_cont(partial_data, config.PHENO_META_LABEL)
+        cat_data, cont_data = separate_cat_cont(partial_data, pheno_meta_label)
         logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
                     f"{cont_data.shape}")
 
@@ -100,9 +102,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         # seventh step: start the celery task
         task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
                                             context_name=context_id, user_id=request.user.id,
-                                            protein_set=list(config.PROTEINS.columns),
-                                            phenotype_set=list(config.PHENOTYPES.columns),
-                                            metabolite_set=list(config.METABOLITES.columns), variant_set=[])
+                                            protein_set=list(proteins.columns),
+                                            phenotype_set=list(phenotypes.columns),
+                                            metabolite_set=list(metabolites.columns), variant_set=[])
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)
@@ -129,17 +131,18 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
 
 @extend_schema_view(post=filter_context_schema)
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    # login_url = env("FRONTEND_HOME_URL")
+    data_manager = None
 
     def post(self, request, *args, **kwargs):
+        all_data, layers = self.data_manager.get_df_copy(['all_data', 'layers'])
         params = request.data
         if not params:
             return HttpResponseBadRequest('No subset parameters provided.', status=405)
         try:
-            context_data = config.all_data.copy()
-            for layer in list(set(config.LAYERS.keys()) - set(params['layers'])):
+            context_data = all_data
+            for layer in list(set(layers.keys()) - set(params['layers'])):
                 logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-                context_data = context_data.drop(config.LAYERS[layer], axis=1)
+                context_data = context_data.drop(layers[layer], axis=1)
             out_df = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
@@ -194,6 +197,7 @@ class DeleteUserContext(generics.GenericAPIView):
 class DeleteContext(generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
+    @staticmethod
     def delete(context_id):
         if context_id is None:
             return HttpResponseBadRequest('No data provided.', status=400)
@@ -210,28 +214,31 @@ class DeleteContext(generics.GenericAPIView):
 
 @extend_schema_view(get=variable_info_schema)
 class VariableInfoView(generics.GenericAPIView):
+    data_manager = None
+
     def get(self, request):
+        all_cat, all_cont, var_label_map = self.data_manager.get_df_copy(['all_cat', 'all_cont', 'var_label_map'])
         variable = request.GET.get("variableId")
         if variable is None:
             return HttpResponseBadRequest('No variableId provided.', status=400)
 
         # Get the variable information
-        if variable in config.ALL_CAT.columns:
-            var_info = [int(x) for x in config.ALL_CAT[variable].unique() if not pd.isna(x)]
-            var_info = [{'label': var_label_mapping(variable, x, config.VAR_LABEL_MAP), 'value': x} for x in var_info]
-            bins = config.ALL_CAT[variable].value_counts().sort_index()
+        if variable in all_cat.columns:
+            var_info = [int(x) for x in all_cat[variable].unique() if not pd.isna(x)]
+            var_info = [{'label': var_label_mapping(variable, x, var_label_map), 'value': x} for x in var_info]
+            bins = all_cat[variable].value_counts().sort_index()
 
-        elif variable in config.ALL_CONT.columns:
-            var_info = config.ALL_CONT[variable].min(), config.ALL_CONT[variable].max()
+        elif variable in all_cont.columns:
+            var_info = all_cont[variable].min(), all_cont[variable].max()
             var_info = [floor(var_info[0]), ceil(var_info[1])]
-            bins = pd.cut(config.ALL_CONT[variable], bins=20).value_counts().sort_index()
+            bins = pd.cut(all_cont[variable], bins=20).value_counts().sort_index()
         else:
             return HttpResponseBadRequest('Variable not found.', status=404)
 
         return JsonResponse({'result': var_info,
                              'distribution': {'values': [int(x) for x in bins.values],
                                               'labels': [str(x) for x in list(bins.index)]},
-                             'type': 'bar' if variable in config.ALL_CAT.columns else 'trend'})
+                             'type': 'bar' if variable in all_cat.columns else 'trend'})
 
 
 @extend_schema_view(get=retrieve_context_schema)

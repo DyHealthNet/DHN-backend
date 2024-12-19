@@ -2,7 +2,6 @@ import random
 
 import pandas as pd
 from django.http import JsonResponse, HttpResponse
-from django.apps import apps
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
@@ -11,22 +10,24 @@ from network.schemas.general_schemas import *
 from network.utils.utils import list_node_variables
 from network.utils.color_utils import define_context_color
 
-config = apps.get_app_config('network')
-
 
 @extend_schema_view(
     get=variables_schema
 )
 class GetVariablesView(generics.GenericAPIView):
+    data_manager = None
 
-    @staticmethod
-    def get(request):
+    def get(self, request):
+        pheno_meta, phenotypes = self.data_manager.get_df_copy(['pheno_meta', 'phenotypes'])
+        proteins_meta, proteins = self.data_manager.get_df_copy(['proteins_meta', 'proteins'])
+        metabolites = self.data_manager.get_df_copy('metabolites')
+
         def get_node_variables(meta, data, variable_type):
             return list_node_variables(meta, data, type=variable_type) if data is not None else None
 
-        phenotypes_values = get_node_variables(config.PHENO_META, config.PHENOTYPES, "phenotype")
-        protein_values = get_node_variables(config.PROTEINS_META, config.PROTEINS, "protein")
-        metabolite_values = get_node_variables(config.METABOLITES, config.METABOLITES, "metabolite")
+        phenotypes_values = get_node_variables(pheno_meta, phenotypes, "phenotype")
+        protein_values = get_node_variables(proteins_meta, proteins, "protein")
+        metabolite_values = get_node_variables(metabolites, metabolites, "metabolite")
 
         if request.GET.get('contextValue') and request.user.is_authenticated:
             context = get_context(request.user, request.GET.get('contextValue'))
