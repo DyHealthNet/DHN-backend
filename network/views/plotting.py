@@ -45,7 +45,10 @@ class GetTableView(generics.GenericAPIView):
 
         participants = subset_patients(all_data, context.params).shape[0]
         if settings.PRESERVE_PRIVACY:
-            participants = int(round(participants / 100) * 100)
+            if participants < settings.CRITICAL_NUMBER:
+                participants = 0
+            else:
+                participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
 
         phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
         for layer in context.params['layers']:
@@ -155,6 +158,8 @@ class GetDataBarCountView(generics.GenericAPIView):
     def get(self, request):
         all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
 
+        send_warning = False
+
         # Get request vars
         x = request.GET.get("x")
         c = request.GET.get("c")
@@ -189,6 +194,11 @@ class GetDataBarCountView(generics.GenericAPIView):
             # TODO Group combinations where c_idx is NaN will not be returned and therefore not appear ->
             #  return 0 instead?
             df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
+
+            if settings.PRESERVE_PRIVACY:
+                df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
+                send_warning = True
+
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
             color = 0
@@ -210,6 +220,10 @@ class GetDataBarCountView(generics.GenericAPIView):
         else:
             # Make df subset with x var and a count variable
             df_count = pd.DataFrame(bar_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
+            if settings.PRESERVE_PRIVACY:
+                df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
+                send_warning = True
+
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population",  # TODO rather empty label?
@@ -220,6 +234,8 @@ class GetDataBarCountView(generics.GenericAPIView):
         req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), var_label_map)
         # Store the count data values
         req_data_dict["datasets"] = temp
+        if send_warning:
+            req_data_dict["warning"] = "Some data points have been removed to protect privacy."
         return JsonResponse(req_data_dict, safe=True)
 
 

@@ -1,14 +1,6 @@
-import pickle
-import timeit
 import json
-
-import numpy as np
-import pandas as pd
-
 from network.score_calculation import separate_cat_cont
 from network.utils.startup_utils import *
-from django.conf import settings
-from django.core.cache import cache
 import environ
 
 env = environ.Env()

@@ -22,6 +22,7 @@ env = environ.Env(
     DROP_INSIGNIFICANT_EDGES=(bool, False),
     MAX_CONTEXT_PER_USER=(int, 5),
     PRESERVE_PRIVACY=(bool, True),
+    CRITICAL_NUMBER=(int, 10),
     NO_CACHE=(bool, False),
 )
 environ.Env.read_env()
@@ -311,6 +312,7 @@ NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
 PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
+CRITICAL_NUMBER = env("CRITICAL_NUMBER", cast=int)
 NO_CACHE = env("NO_CACHE", cast=bool)
 
 

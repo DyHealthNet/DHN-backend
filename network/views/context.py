@@ -150,7 +150,10 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         remaining_users = out_df.shape[0]
         # for settings that want to preserve privacy, we only return the number of remaining users in the subset
         if settings.PRESERVE_PRIVACY:
-            remaining_users = int(round(remaining_users / 100) * 100)
+            if remaining_users < settings.CRITICAL_NUMBER:
+                remaining_users = 0
+            else:
+                remaining_users = max(settings.CRITICAL_NUMBER, int(round(remaining_users / 100) * 100))
 
         logger.info(f"Remaining users after subsetting: {remaining_users}")
         return JsonResponse({'result': remaining_users})
