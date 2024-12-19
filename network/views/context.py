@@ -15,6 +15,7 @@ from network.models import UserContextLink, Context
 from network.score_calculation import separate_cat_cont
 from network.tasks import create_context_wrapper
 from network.schemas.context_schemas import *
+from network.utils.data_manager import DataManager
 
 from drf_spectacular.utils import extend_schema_view
 import logging
@@ -30,7 +31,7 @@ logger = logging.getLogger('network')
 @extend_schema_view(post=create_context_schema)
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
-    data_manager = None
+    data_manager: DataManager = None
 
     # redirect_field_name = None
     # permission_denied_message = "You are not allowed here."
@@ -131,7 +132,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
 
 @extend_schema_view(post=filter_context_schema)
 class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    data_manager = None
+    data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
         all_data, layers = self.data_manager.get_df_copy(['all_data', 'layers'])
@@ -196,7 +197,7 @@ class DeleteUserContext(generics.GenericAPIView):
 
 
 # In case you have accidentally deleted the UserContextLink but not the Context(s), not frontend accessible
-# Does this need OPENAPI specification if not accessible via API call?
+# Does this need OPENAPI specification if not accessible via API call? No.
 class DeleteContext(generics.GenericAPIView):
     login_url = env("FRONTEND_HOME_URL")
 
@@ -217,7 +218,7 @@ class DeleteContext(generics.GenericAPIView):
 
 @extend_schema_view(get=variable_info_schema)
 class VariableInfoView(generics.GenericAPIView):
-    data_manager = None
+    data_manager: DataManager = None
 
     def get(self, request):
         all_cat, all_cont, var_label_map = self.data_manager.get_df_copy(['all_cat', 'all_cont', 'var_label_map'])

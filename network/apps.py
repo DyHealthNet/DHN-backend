@@ -31,4 +31,5 @@ class NetworksConfig(AppConfig):
         else:
             start = timeit.default_timer()
             self.DATA_MANAGER = DataManager()
+            self.DATA_MANAGER.load_data()
             logger.info(f"Startup time: {timeit.default_timer() - start}")

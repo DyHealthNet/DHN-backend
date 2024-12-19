@@ -50,14 +50,14 @@ class GetTableView(generics.GenericAPIView):
             else:
                 participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
 
-        phenotypes, proteins, metabolites, variants = 0, 0, 0, 0
+        phenotypes_num, proteins_num, metabolites_num, variants_num = 0, 0, 0, 0
         for layer in context.params['layers']:
-            phenotypes = len(phenotypes.columns) if 'phenomics' in layer else phenotypes
-            proteins = len(proteins.columns) if 'proteomics' in layer else proteins
-            metabolites = len(metabolites.columns) if 'metabolomics' in layer else metabolites
-            variants = 0 if 'variants' in layer else variants
-        req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes, 'Proteins': proteins,
-                         'Metabolites': metabolites, 'Genetic Variants': variants}
+            phenotypes_num = len(phenotypes.columns) if 'phenomics' in layer else phenotypes_num
+            proteins_num = len(proteins.columns) if 'proteomics' in layer else proteins_num
+            metabolites_num = len(metabolites.columns) if 'metabolomics' in layer else metabolites_num
+            variants_num = 0 if 'variants' in layer else variants_num
+        req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes_num, 'Proteins': proteins_num,
+                         'Metabolites': metabolites_num, 'Genetic Variants': variants_num}
         return JsonResponse(req_data_dict, safe=True)
 
 
