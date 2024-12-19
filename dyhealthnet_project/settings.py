@@ -22,6 +22,7 @@ env = environ.Env(
     DROP_INSIGNIFICANT_EDGES=(bool, False),
     MAX_CONTEXT_PER_USER=(int, 5),
     PRESERVE_PRIVACY=(bool, True),
+    NO_CACHE=(bool, False),
 )
 environ.Env.read_env()
 
@@ -277,8 +278,19 @@ LOGGING = {
 
 # Redis settings
 
-CELERY_BROKER_URL = 'redis://localhost:6379'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379'
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://localhost:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+    }
+}
+
 
 # Custom DyHealthNet settings
 
@@ -299,6 +311,8 @@ NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
 PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
+NO_CACHE = env("NO_CACHE", cast=bool)
+
 
 # TODO add real email functionality
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

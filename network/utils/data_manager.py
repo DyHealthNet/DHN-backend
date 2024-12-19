@@ -1,11 +1,14 @@
+import pickle
 import timeit
 import json
 
+import numpy as np
 import pandas as pd
 
 from network.score_calculation import separate_cat_cont
 from network.utils.startup_utils import *
 from django.conf import settings
+from django.core.cache import cache
 import environ
 
 env = environ.Env()
@@ -73,6 +76,12 @@ class DataManager:
                 self._var_label_map = json.load(file)
 
     def get_df_copy(self, df: str | list) -> pd.DataFrame | dict | None:
+        """
+        Returns a copy of the requested dataframe(s) ensuring thread safety.
+        All data should be retrieved through here and never directly accessed.
+        :param df:
+        :return:
+        """
         switch = {
             'layers': self._layers,
             'all_cont': self._all_cont,
