@@ -296,36 +296,34 @@ CACHES = {
 # Custom DyHealthNet settings
 INPUT_FILES = {
     'proteins': {
-        'PATH': env("PROTEIN_PATH"),
-        'META_PATH': env("PROTEIN_META_PATH"),
-        'LABEL': env("PROTEIN_LABEL_COLUMN"),
-        'DESCRIPTION': env("PROTEIN_DESCRIPTION_COLUMN"),
+        'path': env("PROTEIN_PATH"),
+        'meta': env("PROTEIN_META_PATH"),
+        'label': env("PROTEIN_LABEL_COLUMN"),
+        'description': env("PROTEIN_DESCRIPTION_COLUMN"),
     },
     'phenotypes': {
-        'PATH': env("PHENOTYPE_PATH"),
-        'META_PATH': env("PHENOTYPE_META_PATH"),
-        'LABEL': env("PHENOTYPE_LABEL_COLUMN"),
-        'DESCRIPTION': env("PHENOTYPE_DESCRIPTION_COLUMN"),
-        'TYPE': env("PHENOTYPE_TYPE_COLUMN"),
+        'path': env("PHENOTYPE_PATH"),
+        'meta': env("PHENOTYPE_META_PATH"),
+        'label': env("PHENOTYPE_LABEL_COLUMN"),
+        'description': env("PHENOTYPE_DESCRIPTION_COLUMN"),
+        'type': env("PHENOTYPE_TYPE_COLUMN"),
     },
     'metabolites': {
-        'PATH': env("METABOLITE_PATH"),
+        'path': env("METABOLITE_PATH"),
+    },
+    'edges': {
+        'path': env("CALCULATED_EDGES_PATH"),
+    },
+    'labels': {
+        'path': env('VAR_LABEL_MAPPING')
     }
 }
+PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
+
+
 NAN_VALUE = -999.0
 ALPHA = 0.05
 DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
-
-PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
-
-PHENOTYPE_DESCRIPTION_COLUMN = env("PHENOTYPE_DESCRIPTION_COLUMN")
-PHENOTYPE_TYPE_COLUMN = env("PHENOTYPE_TYPE_COLUMN")
-PHENOTYPE_LABEL_COLUMN = env("PHENOTYPE_LABEL_COLUMN")
-
-PROTEIN_DESCRIPTION_COLUMN = env("PROTEIN_DESCRIPTION_COLUMN")
-PROTEIN_LABEL_COLUMN = env("PROTEIN_LABEL_COLUMN")
-
-CALCULATED_EDGES_PATH = env("CALCULATED_EDGES_PATH")
 
 NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)

@@ -1,9 +1,7 @@
-import pandas as pd
 from django.core.cache import cache
 from django.http import JsonResponse
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
-from django.apps import apps
 
 from drf_spectacular.utils import extend_schema_view
 
@@ -13,11 +11,6 @@ from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
 from network.utils.db_utils import get_context
 from network.utils.utils import *
-
-import environ
-
-env = environ.Env()
-environ.Env.read_env()
 
 
 @extend_schema_view(

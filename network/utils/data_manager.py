@@ -2,10 +2,21 @@ import json
 from network.score_calculation import separate_cat_cont
 from network.utils.startup_utils import *
 from django.conf import settings
-import environ
 
-env = environ.Env()
-environ.Env.read_env()
+
+def get_file_attr(path, default=None):
+    """
+    Helper function to make traversing through INPUT_FILES setting easier
+    :param path: dot-separated path to the desired attribute
+    :param default: default value to return if the attribute is not found
+    :return: attribute at the given path or the default value
+    """
+    current = settings.INPUT_FILES
+    for key in path.split('.'):
+        current = current.get(key, default)
+        if current is default:
+            break
+    return current
 
 
 def _load_single_file(file_path: str, id_column: str, column_list: list[str] = None) -> pd.DataFrame:
@@ -58,25 +69,25 @@ class DataManager:
             }
 
     def _load_all_data(self):
-        self._phenotypes = _load_single_file(env("PHENOTYPE_PATH"), id_column=env("PATIENT_ID_COLUMN"))
+        self._phenotypes = _load_single_file(get_file_attr('phenotypes.path'), id_column=settings.PATIENT_ID_COLUMN)
 
-        self._pheno_meta = _load_single_file(env("PHENOTYPE_META_PATH"),
-                                                  id_column=env("PHENOTYPE_LABEL_COLUMN"),
-                                                  column_list=[env("PHENOTYPE_TYPE_COLUMN"),
-                                                               env("PHENOTYPE_DESCRIPTION_COLUMN")])
+        self._pheno_meta = _load_single_file(get_file_attr('phenotypes.meta'),
+                                                  id_column=settings.PHENOTYPE_LABEL_COLUMN,
+                                                  column_list=[get_file_attr('phenotypes.type'),
+                                                               get_file_attr('phenotypes.description')])
 
-        self._pheno_meta_label = _load_single_file(env("PHENOTYPE_META_PATH"),
-                                                        id_column=env("PHENOTYPE_LABEL_COLUMN"),
-                                                        column_list=["type"],)
+        self._pheno_meta_label = _load_single_file(get_file_attr('phenotypes.meta'),
+                                                        id_column=settings.PHENOTYPE_LABEL_COLUMN,
+                                                        column_list=[get_file_attr('phenotypes.type')],)
         self._pheno_meta_label["label"] = self._pheno_meta_label.index
 
-        self._proteins = _load_single_file(env("PROTEIN_PATH"), id_column=env("PATIENT_ID_COLUMN"))
+        self._proteins = _load_single_file(get_file_attr('proteins.path'), id_column=settings.P)
 
-        self._proteins_meta = _load_single_file(env("PROTEIN_META_PATH"),
-                                                     id_column=env("PROTEIN_LABEL_COLUMN"),
-                                                     column_list=[env("PROTEIN_DESCRIPTION_COLUMN")])
+        self._proteins_meta = _load_single_file(get_file_attr('proteins.meta'),
+                                                     id_column=get_file_attr('proteins.label'),
+                                                     column_list=[get_file_attr('proteins.description'),])
 
-        self._metabolites = _load_single_file(env("METABOLITE_PATH"), id_column=env("PATIENT_ID_COLUMN"))
+        self._metabolites = _load_single_file(get_file_attr('metabolites.path'), id_column=settings.PATIENT_ID_COLUMN)
 
     def _create_combinations(self):
         self._all_data = join_dataframes([self._phenotypes, self._proteins, self._metabolites])
@@ -91,8 +102,8 @@ class DataManager:
 
         # If file exists open the file and load the JSON data
         # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
-        if os.path.isfile(env("VAR_LABEL_MAPPING")):
-            with open(env("VAR_LABEL_MAPPING"), 'r') as file:
+        if os.path.isfile(get_file_attr('labels.path')):
+            with open(get_file_attr('labels.path'), 'r') as file:
                 self._var_label_map = json.load(file)
 
     def get_valid_keys(self) -> list[str]:
@@ -113,7 +124,7 @@ class DataManager:
 
         if isinstance(df, str):
             dataframe = self.switch.get(df, None)
-            return dataframe.copy() if not isinstance(dataframe, type(None)) else None
+            return dataframe.copy() if isinstance(dataframe, pd.DataFrame) else None
         elif isinstance(df, list):
             return [self.switch[key].copy() if not isinstance(self.switch.get(key), type(None)) else None for key in df]
         else:

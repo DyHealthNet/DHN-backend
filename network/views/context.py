@@ -20,18 +20,15 @@ from network.utils.data_manager import DataManager
 
 from drf_spectacular.utils import extend_schema_view
 import logging
-import environ
 
 from network.utils.utils import var_label_mapping
 
-env = environ.Env()
-environ.Env.read_env()
 logger = logging.getLogger('network')
 
 
 @extend_schema_view(post=create_context_schema)
 class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = env("FRONTEND_HOME_URL")
+    login_url = settings.FRONTEND_HOME_URL
     data_manager: DataManager = None
 
     # redirect_field_name = None
@@ -119,7 +116,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
 @extend_schema_view(get=context_status_schema)
 class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = env("FRONTEND_HOME_URL")
+    login_url = settings.FRONTEND_HOME_URL
 
     @staticmethod
     def get(request):
@@ -168,7 +165,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
 @extend_schema_view(delete=delete_context_schema)
 class DeleteUserContext(generics.GenericAPIView):
-    login_url = env("FRONTEND_HOME_URL")
+    login_url = settings.FRONTEND_HOME_URL
 
     def delete(self, request, *args, **kwargs):
         try:
@@ -205,7 +202,7 @@ class DeleteUserContext(generics.GenericAPIView):
 # In case you have accidentally deleted the UserContextLink but not the Context(s), not frontend accessible
 # Does this need OPENAPI specification if not accessible via API call? No.
 class DeleteContext(generics.GenericAPIView):
-    login_url = env("FRONTEND_HOME_URL")
+    login_url = settings.FRONTEND_HOME_URL
 
     @staticmethod
     def delete(context_id):
