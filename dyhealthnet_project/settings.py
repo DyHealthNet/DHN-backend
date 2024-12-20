@@ -294,10 +294,29 @@ CACHES = {
 
 
 # Custom DyHealthNet settings
-
+INPUT_FILES = {
+    'proteins': {
+        'PATH': env("PROTEIN_PATH"),
+        'META_PATH': env("PROTEIN_META_PATH"),
+        'LABEL': env("PROTEIN_LABEL_COLUMN"),
+        'DESCRIPTION': env("PROTEIN_DESCRIPTION_COLUMN"),
+    },
+    'phenotypes': {
+        'PATH': env("PHENOTYPE_PATH"),
+        'META_PATH': env("PHENOTYPE_META_PATH"),
+        'LABEL': env("PHENOTYPE_LABEL_COLUMN"),
+        'DESCRIPTION': env("PHENOTYPE_DESCRIPTION_COLUMN"),
+        'TYPE': env("PHENOTYPE_TYPE_COLUMN"),
+    },
+    'metabolites': {
+        'PATH': env("METABOLITE_PATH"),
+    }
+}
 NAN_VALUE = -999.0
 ALPHA = 0.05
 DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
+
+PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
 
 PHENOTYPE_DESCRIPTION_COLUMN = env("PHENOTYPE_DESCRIPTION_COLUMN")
 PHENOTYPE_TYPE_COLUMN = env("PHENOTYPE_TYPE_COLUMN")

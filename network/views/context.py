@@ -3,6 +3,7 @@ from math import floor, ceil
 
 import pandas as pd
 from celery.result import AsyncResult
+from django.core.cache import cache
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -85,6 +86,11 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         # third step: get the context-name
         context_id = create_context_id()
         logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
+
+        try:
+            cache.set(f'participants_context_{context_id}', partial_data.shape[0], timeout=3600 * 24 * 30)
+        except Exception as ex:
+            logger.error(f"Could not save subset data to cache: {ex}, too large?")
 
         # fourth step: separate the data into categorical and continuous data
         cat_data, cont_data = separate_cat_cont(partial_data, pheno_meta_label)

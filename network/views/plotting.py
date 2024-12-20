@@ -1,4 +1,5 @@
 import pandas as pd
+from django.core.cache import cache
 from django.http import JsonResponse
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
@@ -35,7 +36,10 @@ class GetTableView(generics.GenericAPIView):
                              'Proteins': len(proteins.columns) if proteins is not None else 0,
                              'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
                              'Genetic Variants': CohortVariant.objects.count()}
-            return JsonResponse(req_data_dict, safe=True)
+            response = JsonResponse(req_data_dict, safe=True)
+            keep_alive = 3600 * 24 * 7
+            response['Cache-Control'] = f'max-age={keep_alive}, public'
+            return response
 
         # retrieve the context given the context value and user
         context = get_context(request.user, request.GET.get('contextValue'))
@@ -43,7 +47,11 @@ class GetTableView(generics.GenericAPIView):
         if not context:
             return HttpResponseBadRequest('Context not found', status=405)
 
-        participants = subset_patients(all_data, context.params).shape[0]
+        if f"subset_data_{context.context_id}" in cache:
+            logger.debug("Cache hit for subset data")
+            participants = cache.get(f"participants_context_{context.context_id}")
+        else:
+            participants = subset_patients(all_data, context.params).shape[0]
         if settings.PRESERVE_PRIVACY:
             if participants < settings.CRITICAL_NUMBER:
                 participants = 0

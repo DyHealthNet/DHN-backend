@@ -1,6 +1,7 @@
 import json
 from network.score_calculation import separate_cat_cont
 from network.utils.startup_utils import *
+from django.conf import settings
 import environ
 
 env = environ.Env()

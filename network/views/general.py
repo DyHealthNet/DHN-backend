@@ -9,11 +9,13 @@ from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
 from network.utils.utils import list_node_variables
 from network.utils.color_utils import define_context_color
+from django.conf import settings
+from django.core.cache import cache
+import logging
 
+logger = logging.getLogger('network')
 
-@extend_schema_view(
-    get=variables_schema
-)
+@extend_schema_view(get=variables_schema)
 class GetVariablesView(generics.GenericAPIView):
     data_manager = None
 
@@ -35,13 +37,23 @@ class GetVariablesView(generics.GenericAPIView):
             protein_values = protein_values if 'proteomics' in context.params['layers'] else None
             metabolite_values = metabolite_values if 'metabolomics' in context.params['layers'] else None
 
-        # Combine all data
-        existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]
+        if 'all_variables' not in cache or settings.NO_CACHE:
+            # Combine all data
+            existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]
 
-        # create output dict whit type as key and identifier as value and return it
-        combined_vals = pd.concat(existing_values, axis=0)
-        values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
-        return JsonResponse(values_dict, safe=True)
+            # create output dict whit type as key and identifier as value and return it
+            combined_vals = pd.concat(existing_values, axis=0)
+            values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            if not settings.NO_CACHE:
+                cache.set('all_variables', values_dict, timeout=None)
+        else:
+            logger.info(f"Cache hit: all_variables")
+            values_dict = cache.get('all_variables')
+
+        response = JsonResponse(values_dict, safe=True)
+        keep_alive = 3600 * 24 * 7
+        response['Cache-Control'] = f'max-age={keep_alive}, public'
+        return response
 
 
 class GetColorView(generics.GenericAPIView):
