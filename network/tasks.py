@@ -16,7 +16,7 @@ from network.models import UserContextLink
 #from network.views import DeleteContext
 
 @shared_task(bind=True)
-def create_context_wrapper(self,cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
+def create_context_wrapper(self, cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
     # extract relevant info from params and add it to db
     new_context = Context(context_id=context_name,
                           cat_cat_test=params['tests']['catCat']['value'],

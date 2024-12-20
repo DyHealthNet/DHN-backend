@@ -136,6 +136,13 @@ def plot_variables(request):
 
 
 def add_cache_header(response, is_default):
+    """
+    Adds a cache header to the response object if caching is enabled and the response is the default one.
+    is_default can be used to disable caching for specific responses.
+    :param response: Response object
+    :param is_default: Boolean value indicating if the response is the default one
+    :return: Response object with cache header
+    """
     if not settings.NO_CACHE and is_default:
         keep_alive = 3600 * 24 * 7
         response['Cache-Control'] = f'max-age={keep_alive}, public'

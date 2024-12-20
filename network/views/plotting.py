@@ -1,3 +1,5 @@
+import timeit
+
 from django.core.cache import cache
 from django.http import JsonResponse
 from rest_framework import generics
@@ -30,8 +32,7 @@ class GetTableView(generics.GenericAPIView):
                              'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
                              'Genetic Variants': CohortVariant.objects.count()}
             response = JsonResponse(req_data_dict, safe=True)
-            keep_alive = 3600 * 24 * 7
-            response['Cache-Control'] = f'max-age={keep_alive}, public'
+            response = add_cache_header(response, True)
             return response
 
         # retrieve the context given the context value and user
@@ -42,21 +43,24 @@ class GetTableView(generics.GenericAPIView):
 
         if f"subset_data_{context.context_id}" in cache:
             logger.debug("Cache hit for subset data")
+            start = timeit.default_timer()
             participants = cache.get(f"participants_context_{context.context_id}")
+            logger.debug(f"Retrieved participants from cache in {timeit.default_timer() - start} seconds")
         else:
+            start = timeit.default_timer()
             participants = subset_patients(all_data, context.params).shape[0]
+            logger.debug(f"Subsetted participants in {timeit.default_timer() - start} seconds")
         if settings.PRESERVE_PRIVACY:
             if participants < settings.CRITICAL_NUMBER:
                 participants = 0
             else:
                 participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
 
-        phenotypes_num, proteins_num, metabolites_num, variants_num = 0, 0, 0, 0
-        for layer in context.params['layers']:
-            phenotypes_num = len(phenotypes.columns) if 'phenomics' in layer else phenotypes_num
-            proteins_num = len(proteins.columns) if 'proteomics' in layer else proteins_num
-            metabolites_num = len(metabolites.columns) if 'metabolomics' in layer else metabolites_num
-            variants_num = 0 if 'variants' in layer else variants_num
+        phenotypes_num = len(phenotypes.columns) if 'phenomics' in context.params['layers'] else 0
+        proteins_num = len(proteins.columns) if 'proteomics' in context.params['layers'] else 0
+        metabolites_num = len(metabolites.columns) if 'metabolomics' in context.params['layers'] else 0
+        variants_num = 0 if 'variants' in context.params['layers'] else 0
+
         req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes_num, 'Proteins': proteins_num,
                          'Metabolites': metabolites_num, 'Genetic Variants': variants_num}
         return JsonResponse(req_data_dict, safe=True)

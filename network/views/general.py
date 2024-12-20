@@ -7,13 +7,14 @@ from drf_spectacular.utils import extend_schema_view
 
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-from network.utils.utils import list_node_variables
+from network.utils.utils import list_node_variables, add_cache_header
 from network.utils.color_utils import define_context_color
 from django.conf import settings
 from django.core.cache import cache
 import logging
 
 logger = logging.getLogger('network')
+
 
 @extend_schema_view(get=variables_schema)
 class GetVariablesView(generics.GenericAPIView):
@@ -23,6 +24,7 @@ class GetVariablesView(generics.GenericAPIView):
         pheno_meta, phenotypes = self.data_manager.get_df_copy(['pheno_meta', 'phenotypes'])
         proteins_meta, proteins = self.data_manager.get_df_copy(['proteins_meta', 'proteins'])
         metabolites = self.data_manager.get_df_copy('metabolites')
+        has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
         def get_node_variables(meta, data, variable_type):
             return list_node_variables(meta, data, type=variable_type) if data is not None else None
@@ -31,7 +33,7 @@ class GetVariablesView(generics.GenericAPIView):
         protein_values = get_node_variables(proteins_meta, proteins, "protein")
         metabolite_values = get_node_variables(metabolites, metabolites, "metabolite")
 
-        if request.GET.get('contextValue') and request.user.is_authenticated:
+        if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
             phenotypes_values = phenotypes_values if 'phenomics' in context.params['layers'] else None
             protein_values = protein_values if 'proteomics' in context.params['layers'] else None
@@ -44,15 +46,15 @@ class GetVariablesView(generics.GenericAPIView):
             # create output dict whit type as key and identifier as value and return it
             combined_vals = pd.concat(existing_values, axis=0)
             values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            response = JsonResponse(values_dict, safe=True)
             if not settings.NO_CACHE:
-                cache.set('all_variables', values_dict, timeout=None)
+                response = add_cache_header(response, not has_context)
+                cache.set('all_variables', response, timeout=None)
         else:
             logger.info(f"Cache hit: all_variables")
-            values_dict = cache.get('all_variables')
+            return cache.get('all_variables')
 
-        response = JsonResponse(values_dict, safe=True)
-        keep_alive = 3600 * 24 * 7
-        response['Cache-Control'] = f'max-age={keep_alive}, public'
+        response = add_cache_header(response, not has_context)
         return response
 
 
