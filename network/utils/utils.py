@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 import logging
 import re
+
+from django.conf import settings
+
 from network.utils.startup_utils import get_file_attr
 
 logger = logging.getLogger('network')
@@ -130,3 +133,12 @@ def plot_variables(request):
     if x == y:
         raise ValueError('Variable x and y must be different')
     return x, y, c
+
+
+def add_cache_header(response, is_default):
+    if not settings.NO_CACHE and is_default:
+        keep_alive = 3600 * 24 * 7
+        response['Cache-Control'] = f'max-age={keep_alive}, public'
+    else:
+        logger.debug(f"Found: {settings.NO_CACHE} and {is_default}")
+    return response

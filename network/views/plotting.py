@@ -2,7 +2,7 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
-
+from django.conf import settings
 from drf_spectacular.utils import extend_schema_view
 
 from network.contexts.contexts import subset_patients, context_subset
@@ -147,7 +147,9 @@ class GetDataLinePlotView(generics.GenericAPIView):
             'labels': var_label_mapping(x_idx, aggregated_df_mean[x_idx].unique().tolist(), var_label_map),
             'datasets': temp
         }
-        return JsonResponse(req_data_dict, safe=True)
+        response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
 
 
 @extend_schema_view(
@@ -237,7 +239,10 @@ class GetDataBarCountView(generics.GenericAPIView):
         req_data_dict["datasets"] = temp
         if send_warning:
             req_data_dict["warning"] = "Some data points have been removed to protect privacy."
-        return JsonResponse(req_data_dict, safe=True)
+
+        response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
 
 
 @extend_schema_view(
@@ -359,7 +364,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             'labels': var_label_mapping(x_idx, grouped.index.tolist(), var_label_map),
             'datasets': temp
         }
-        return JsonResponse(req_data_dict, safe=True)
+        response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
 
 
 @extend_schema_view(
@@ -404,4 +411,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
         contingency_tab_inverse = np.array(contingency_tab.values)
         req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
         req_data_dict["colors"] = colors
-        return JsonResponse(req_data_dict, safe=True)
+
+        response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
