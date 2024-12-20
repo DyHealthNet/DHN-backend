@@ -1,9 +1,8 @@
-import os
 import pandas as pd
 import numpy as np
-from django.conf import settings
 import logging
 import re
+from network.utils.startup_utils import get_file_attr
 
 logger = logging.getLogger('network')
 
@@ -28,42 +27,46 @@ def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
             return 'binaryCategorical'
         return 'nonbinaryCategorical'
 
+    type_col = get_file_attr('phenotypes.type')
+    desc_col = get_file_attr('phenotypes.description')
+
     # Get all variables with their type and a suitable identifier and put them in the same format
     # get Phenotype variables
     # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
     filtered_rows = pheno_meta_filtered[pheno_meta_filtered.index.isin(phenotypes_filtered.columns)]
-    phenotypes_values = filtered_rows[[settings.PHENOTYPE_TYPE_COLUMN, settings.PHENOTYPE_DESCRIPTION_COLUMN]].copy()
+    phenotypes_values = filtered_rows[[type_col, desc_col]].copy()
 
     phenotypes_values.loc[:, 'num_cat'] = pd.Series(phenotypes_filtered.nunique())
-    phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [settings.PHENOTYPE_TYPE_COLUMN, 'num_cat']].apply(
+    phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [type_col, 'num_cat']].apply(
         make_group, axis=1)
 
     # if description is NaN only return the index
     phenotypes_values.loc[:, 'identifier'] = np.where(
-        phenotypes_values[settings.PHENOTYPE_DESCRIPTION_COLUMN].isna(),
+        phenotypes_values[desc_col].isna(),
         phenotypes_values.index,
-        phenotypes_values.apply(lambda row: f'{row[settings.PHENOTYPE_DESCRIPTION_COLUMN]} ({row.name})', axis=1)
+        phenotypes_values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
     )
 
-    phenotypes_values.drop(columns=[settings.PHENOTYPE_DESCRIPTION_COLUMN, 'num_cat', settings.PHENOTYPE_TYPE_COLUMN],
+    phenotypes_values.drop(columns=[desc_col, 'num_cat', type_col],
                            inplace=True)
     return phenotypes_values
 
 
 def list_protein_variables(proteins_meta, proteins):
+    desc_col = get_file_attr('proteins.description')
     protein_values = proteins_meta[proteins_meta.index.isin(proteins.columns)][
-        [settings.PROTEIN_DESCRIPTION_COLUMN]].copy()
+        [desc_col]].copy()
 
     # Create 'identifier' column based on conditions
     # (if description is NaN only return the index)
     protein_values['identifier'] = np.where(
-        protein_values[settings.PROTEIN_DESCRIPTION_COLUMN].isna(),
+        protein_values[desc_col].isna(),
         protein_values.index,
-        protein_values.apply(lambda row: f'{row[settings.PROTEIN_DESCRIPTION_COLUMN]} / Protein ({row.name})',
+        protein_values.apply(lambda row: f'{row[desc_col]} / Protein ({row.name})',
                              axis=1)
     )
 
-    protein_values.drop(columns=[settings.PROTEIN_DESCRIPTION_COLUMN], inplace=True)
+    protein_values.drop(columns=[desc_col], inplace=True)
     protein_values.loc[:, 'group'] = 'continuous'
     return protein_values
 

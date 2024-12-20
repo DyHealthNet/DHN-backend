@@ -4,21 +4,6 @@ from network.utils.startup_utils import *
 from django.conf import settings
 
 
-def get_file_attr(path, default=None):
-    """
-    Helper function to make traversing through INPUT_FILES setting easier
-    :param path: dot-separated path to the desired attribute
-    :param default: default value to return if the attribute is not found
-    :return: attribute at the given path or the default value
-    """
-    current = settings.INPUT_FILES
-    for key in path.split('.'):
-        current = current.get(key, default)
-        if current is default:
-            break
-    return current
-
-
 def _load_single_file(file_path: str, id_column: str, column_list: list[str] = None) -> pd.DataFrame:
     return check_files_and_return(file_path, id_column=id_column, column_list=column_list, return_dataset=True)
 

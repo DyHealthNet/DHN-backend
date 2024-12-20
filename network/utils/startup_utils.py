@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import logging
+from django.conf import settings
 
 logger = logging.getLogger('network')
 
@@ -60,3 +61,18 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
 
     else:
         return True
+
+
+def get_file_attr(path, default=None):
+    """
+    Helper function to make traversing through INPUT_FILES setting easier
+    :param path: dot-separated path to the desired attribute
+    :param default: default value to return if the attribute is not found
+    :return: attribute at the given path or the default value
+    """
+    current = settings.INPUT_FILES
+    for key in path.split('.'):
+        current = current.get(key, default)
+        if current is default:
+            break
+    return current
