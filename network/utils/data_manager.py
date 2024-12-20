@@ -72,16 +72,16 @@ class DataManager:
         self._phenotypes = _load_single_file(get_file_attr('phenotypes.path'), id_column=settings.PATIENT_ID_COLUMN)
 
         self._pheno_meta = _load_single_file(get_file_attr('phenotypes.meta'),
-                                                  id_column=settings.PHENOTYPE_LABEL_COLUMN,
+                                                  id_column=get_file_attr('phenotypes.label'),
                                                   column_list=[get_file_attr('phenotypes.type'),
                                                                get_file_attr('phenotypes.description')])
 
         self._pheno_meta_label = _load_single_file(get_file_attr('phenotypes.meta'),
-                                                        id_column=settings.PHENOTYPE_LABEL_COLUMN,
+                                                        id_column=get_file_attr('phenotypes.label'),
                                                         column_list=[get_file_attr('phenotypes.type')],)
         self._pheno_meta_label["label"] = self._pheno_meta_label.index
 
-        self._proteins = _load_single_file(get_file_attr('proteins.path'), id_column=settings.P)
+        self._proteins = _load_single_file(get_file_attr('proteins.path'), id_column=settings.PATIENT_ID_COLUMN)
 
         self._proteins_meta = _load_single_file(get_file_attr('proteins.meta'),
                                                      id_column=get_file_attr('proteins.label'),
