@@ -147,5 +147,5 @@ def add_cache_header(response, is_default):
         keep_alive = 3600 * 24 * 7
         response['Cache-Control'] = f'max-age={keep_alive}, public'
     else:
-        logger.debug(f"Found: {settings.NO_CACHE} and {is_default}")
+        logger.debug(f"No cache header, found: {settings.NO_CACHE} and {is_default}")
     return response

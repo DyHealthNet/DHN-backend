@@ -2,6 +2,7 @@ import timeit
 
 from django.core.cache import cache
 from django.http import JsonResponse
+from matplotlib.colors import Normalize
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
 from django.conf import settings
@@ -118,11 +119,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
-            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(line_plot_df[c_idx].unique())
-            # check if more colors are needed than available, if yes enlarge palette to required size
-            if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(colormap_local, num_colors)
+            colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in aggregated_df_mean.groupby(c_idx):
                 temp.append({
@@ -209,11 +207,8 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
             color = 0
-            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(bar_plot_df[c_idx].unique())
-            # check if more colors are needed than available, if yes enlarge palette to required size
-            if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(colormap_local, num_colors)
+            colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name, group_data in df_count.groupby(c_idx):
                 temp.append({
@@ -327,11 +322,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
-            colormap_local = COLOR_PALETTES.get(request.GET.get('colors', 'tab10'))
             num_colors = len(box_plot_df[c_idx].unique())
+            colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             # check if more colors are needed than available, if yes enlarge palette to required size
-            if num_colors > len(colormap_local):
-                colormap_local = enlarge_palette(colormap_local, num_colors)
             bordercolor_map_local = [rgb_to_hex(darken_rgb(rgb)) for rgb in colormap_local]
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
             for group_name in grouped.columns:
@@ -402,19 +395,29 @@ class GetDataHeatmapView(generics.GenericAPIView):
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
         # compute contingency table
         contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
+        contingency_tab_inverse = np.array(contingency_tab.values).T
+        min_val, max_val = contingency_tab_inverse.min(), contingency_tab_inverse.max()
+        x_categories = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), var_label_map)
+        y_categories = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), var_label_map)
 
         # get colors for heatmap, 3 colors: low, medium, high
-        palette = COLOR_PALETTES.get(request.GET.get('colors', 'viridis'))
-        colors = [rgb_to_hex(rgb) for rgb in palette]
-        colors = [colors[0], colors[int(len(colors)/2)], colors[-1]]
+        palette = get_palette(request.GET.get('colors', 'viridis'), as_cmap=True)
+        norm_col = Normalize(vmin=min_val, vmax=max_val)
+
+        values = []
+        for i in range(len(contingency_tab.index)):
+            for j in range(len(contingency_tab.columns)):
+                x_value = x_categories[i]
+                y_value = y_categories[j]
+                value = contingency_tab_inverse[j][i]
+                color = rgb_to_hex(palette(norm_col(value)))
+                values.append({'x': x_value, 'y': y_value, 'v': f'{i+1}{j+1}', 'r': float(value), 'c': color})
 
         # save in dictionary and return in json format
         req_data_dict = {}
-        req_data_dict["xCategories"] = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), var_label_map)
-        req_data_dict["yCategories"] = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), var_label_map)
-        contingency_tab_inverse = np.array(contingency_tab.values)
-        req_data_dict["datasets"] = contingency_tab_inverse.T.tolist()
-        req_data_dict["colors"] = colors
+        req_data_dict["xCategories"] = x_categories
+        req_data_dict["yCategories"] = y_categories
+        req_data_dict["values"] = values
 
         response = JsonResponse(req_data_dict, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
