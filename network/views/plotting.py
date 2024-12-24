@@ -148,8 +148,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
 
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": "Whole Population",
-                "backgroundColor": "black",
+                "label": "Whole Cohort",
+                "backgroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
                 "data": agg_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
@@ -236,8 +236,8 @@ class GetDataBarCountView(generics.GenericAPIView):
 
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
-                "label": "Whole Population",  # TODO rather empty label?
-                "backgroundColor": "black",  # TODO change default color?
+                "label": "Whole Cohort",
+                "backgroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
                 "data": df_count['counts'].tolist()
             })
         # Store unique x_var values
@@ -349,9 +349,13 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             grouped = df.groupby(x_idx).apply(boxplot_stats)
             # Make a dict containing a background and darker border color, some styling parameters and
             # the box plot statistics in a data dictionary.
+            col = get_palette(request.GET.get('colors', 'tab10'), n_colors=1)
+            fill_col = rgb_to_hex(col[0])
+            border_col = rgb_to_hex(darken_rgb(col[0]))
             temp_style = {
-                "label": "Whole Population",
-                "backgroundColor": "black",
+                "label": "Whole Cohort",
+                "backgroundColor": fill_col,
+                "borderColor": border_col,
                 'padding': 10,
                 'itemRadius': 0,
                 'borderWidth': 1,
