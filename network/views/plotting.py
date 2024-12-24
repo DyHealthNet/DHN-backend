@@ -111,10 +111,15 @@ class GetDataLinePlotView(generics.GenericAPIView):
             df[c_idx] = line_plot_df[c_idx]
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
-            aggregated_df_mean = (df.groupby([x_idx, c_idx]).filter(lambda x:
-                                                                    x[y_idx].notna().sum() >= 5).groupby(
-                [x_idx, c_idx])[y_idx].mean().reset_index().
-                                  sort_values(x_idx, ascending=True))
+
+            agg_df_mean = df.groupby([x_idx, c_idx])
+
+            if settings.PRESERVE_PRIVACY:
+                agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+
+            agg_df_mean = (agg_df_mean.groupby([x_idx, c_idx])[y_idx].mean()
+                           .reset_index().sort_values(x_idx, ascending=True))
+
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
@@ -122,7 +127,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
             num_colors = len(line_plot_df[c_idx].unique())
             colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
-            for group_name, group_data in aggregated_df_mean.groupby(c_idx):
+            for group_name, group_data in agg_df_mean.groupby(c_idx):
                 temp.append({
                     "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
@@ -135,18 +140,21 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return something when there are 5 or more values =! NaN
             # (opposite is very unlikely)
-            aggregated_df_mean = df.groupby(x_idx).filter(lambda x:
-                                                          x[y_idx].notna().sum() >= 5).groupby(x_idx)[
-                y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            agg_df_mean = df.groupby(x_idx)
+            if settings.PRESERVE_PRIVACY:
+                agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+
+            agg_df_mean = agg_df_mean.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Population",
                 "backgroundColor": "black",
-                "data": aggregated_df_mean[y_idx].tolist()
+                "data": agg_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
         req_data_dict = {
-            'labels': var_label_mapping(x_idx, aggregated_df_mean[x_idx].unique().tolist(), var_label_map),
+            'labels': var_label_mapping(x_idx, agg_df_mean[x_idx].unique().tolist(), var_label_map),
             'datasets': temp
         }
         response = JsonResponse(req_data_dict, safe=True)
@@ -254,14 +262,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
 
         # Fill NaN values with the NaN boxplot dictionary
-        nan_boxplot = {
-            'min': -100,
-            'q1': -100,
-            'median': -100,
-            'mean': -100,
-            'q3': -100,
-            'max': -100
-        }
+        nan_boxplot = {'min': None, 'q1': None, 'median': None, 'mean': None, 'q3': None, 'max': None}
 
         try:
             x, y, c = plot_variables(request)
@@ -285,7 +286,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
 
         # helper function to calculate boxplot stats or return nan boxplot when privacy restrictions are violated
         def boxplot_stats(group):
-            if group[y_idx].notna().sum() >= 5:
+            if (settings.PRESERVE_PRIVACY and group[y_idx].notna().sum() >= settings.CRITICAL_NUMBER or
+                    not settings.PRESERVE_PRIVACY):
                 return {
                     'min': group[y_idx].min(),
                     'q1': group[y_idx].quantile(0.25),
