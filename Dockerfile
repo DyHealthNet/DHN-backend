@@ -9,7 +9,10 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # Copy the "requirements.txt" file from your host machine into the image's "/app" folder.
+COPY nanpy /modules/napy
 COPY backend/requirements.txt /app
+
+ENV PYTHONPATH="/modules:${PYTHONPATH}"
 
 # Install any needed packages specified in "requirements.txt".
 RUN pip3 install --no-cache-dir -r requirements.txt
