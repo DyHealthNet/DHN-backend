@@ -16,8 +16,10 @@ COPY backend/requirements.txt /app
 
 ENV PYTHONPATH="/modules/napy:${PYTHONPATH}"
 
-# Install any needed packages specified in "requirements.txt".
-RUN pip3 install --no-cache-dir --no-deps -r requirements.txt
+# Install any needed packages specified in "requirements.txt" plus numba-scipy forced since otherwise there'll be conflicts
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --no-deps numba-scipy==0.4.0
+RUN pip3 install --no-cache-dir gunicorn==22.0.0
 
 # Copy the Django project files to the container's "/app" directory, maintaining proper permissions and ownership.
 COPY backend/ /app/

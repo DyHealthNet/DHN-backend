@@ -13,7 +13,8 @@ COPY backend/requirements.txt /app/
 ENV PYTHONPATH="/modules/napy:${PYTHONPATH}"
 
 # Install the Python dependencies
-RUN pip install --no-cache-dir --no-deps -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --no-deps numba-scipy==0.4.0
 
 # Copy the Django project into the container
 COPY backend /app
