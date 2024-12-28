@@ -5,6 +5,8 @@ FROM python:3.11.9-slim
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
+RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory to /app in the container.
 WORKDIR /app
 
@@ -12,10 +14,10 @@ WORKDIR /app
 COPY nanpy /modules/napy
 COPY backend/requirements.txt /app
 
-ENV PYTHONPATH="/modules:${PYTHONPATH}"
+ENV PYTHONPATH="/modules/napy:${PYTHONPATH}"
 
 # Install any needed packages specified in "requirements.txt".
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --no-deps -r requirements.txt
 
 # Copy the Django project files to the container's "/app" directory, maintaining proper permissions and ownership.
 COPY backend/ /app/

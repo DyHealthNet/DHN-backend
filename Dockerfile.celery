@@ -1,5 +1,7 @@
 # Use the same base image as your Django app
-FROM python:3.10-slim
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -8,17 +10,16 @@ WORKDIR /app
 COPY nanpy /modules/napy
 COPY backend/requirements.txt /app/
 
+ENV PYTHONPATH="/modules/napy:${PYTHONPATH}"
+
 # Install the Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --no-deps -r requirements.txt
 
 # Copy the Django project into the container
 COPY backend /app
 
 # Set the environment variable for Django settings
 ENV DJANGO_SETTINGS_MODULE=dyhealthnet_project.settings
-
-# Add the /app directory to PYTHONPATH
-ENV PYTHONPATH="/modules:${PYTHONPATH}"
 
 # Default command for the Celery worker
 CMD ["celery", "-A", "dyhealthnet_project", "worker", "--loglevel=info"]

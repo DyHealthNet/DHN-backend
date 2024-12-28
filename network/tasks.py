@@ -34,10 +34,13 @@ def create_context_wrapper(self, cat_data: json, cont_data: json, params: dict, 
 
     cat_data = pd.read_pickle(cat_data)
     cont_data = pd.read_pickle(cont_data)
-    scores = calculate_association_scores(cat_data, cont_data, params['tests'])
-
-    # insert context to db
-    success = insert_context(scores, context_name, **kwargs)
+    try:
+        scores = calculate_association_scores(cat_data, cont_data, params['tests'])
+        # insert context to db
+        success = insert_context(scores, context_name, **kwargs)
+    except Exception as e:
+        print(e)
+        success = False
 
     # remove temp files created by my lack of RAM
     path_name = f"dyhealthnet-{context_name}"
@@ -49,7 +52,7 @@ def create_context_wrapper(self, cat_data: json, cont_data: json, params: dict, 
         UserContextLink.objects.filter(user_id=user_id, context_id=context_name, context_value=params['contextValue']).delete()
         Context.objects.filter(context_id=context_name).delete()
         # DeleteContext.delete(context_id=context_name) not needed if insertion is atomic / all or nothing
-        return HttpResponseServerError('Context creation did not work. Context and UserContextLink removed', status=500)
+        return False
 
     user_context_link.context_status = "Finished"
     user_context_link.save()

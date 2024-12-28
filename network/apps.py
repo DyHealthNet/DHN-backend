@@ -22,14 +22,14 @@ class NetworksConfig(AppConfig):
         self.DATA_MANAGER = None
 
     def ready(self):
-        # To avoid loading the files twice during server start
-        if os.environ.get("RUN_MAIN") != "true":
-            return  # Skip loading during autoreload
+        is_runserver = len(sys.argv) > 1 and sys.argv[1] == 'runserver'
+        logger.info('runserver:' + str(is_runserver))
 
-        if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
-            pass
-        else:
-            start = timeit.default_timer()
-            self.DATA_MANAGER = DataManager()
-            self.DATA_MANAGER.load_data()
-            logger.info(f"Startup time: {timeit.default_timer() - start}")
+        if is_runserver and os.environ.get("RUN_MAIN") != "true":
+            logger.info("Skipping loading data during autoreload in development")
+            return
+
+        start = timeit.default_timer()
+        self.DATA_MANAGER = DataManager()
+        self.DATA_MANAGER.load_data()
+        logger.info(f"Startup time: {timeit.default_timer() - start}")
