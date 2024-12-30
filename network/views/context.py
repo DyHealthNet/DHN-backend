@@ -103,12 +103,15 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         cat_file_name = f"/tmp/{folder_name}/cat.pkl"
         cat_data.to_pickle(cat_file_name)
 
+        columns = {'protein_set': list(proteins.columns) if isinstance(proteins, pd.DataFrame) else [],
+                   'phenotype_set': list(phenotypes.columns) if isinstance(phenotypes, pd.DataFrame) else [],
+                   'metabolite_set': list(metabolites.columns) if isinstance(metabolites, pd.DataFrame) else [],
+                   'variant_set': []}
+
         # seventh step: start the celery task
         task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
                                             context_name=context_id, user_id=request.user.id,
-                                            protein_set=list(proteins.columns),
-                                            phenotype_set=list(phenotypes.columns),
-                                            metabolite_set=list(metabolites.columns), variant_set=[])
+                                            **columns)
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)

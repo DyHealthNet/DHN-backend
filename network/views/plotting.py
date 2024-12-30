@@ -28,7 +28,8 @@ class GetTableView(generics.GenericAPIView):
 
         # build result dict in right format
         if not request.GET.get("contextValue") or not request.user.is_authenticated:
-            req_data_dict = {'Participants': len(all_data), 'Phenotypes': len(phenotypes.columns),
+            req_data_dict = {'Participants': len(all_data),
+                             'Phenotypes': len(phenotypes.columns) if phenotypes is not None else 0,
                              'Proteins': len(proteins.columns) if proteins is not None else 0,
                              'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
                              'Genetic Variants': CohortVariant.objects.count()}

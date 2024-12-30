@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema_view
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
 from network.utils.utils import list_node_variables, add_cache_header
-from network.utils.color_utils import define_context_color
+from network.utils.color_utils import define_context_color, get_palette, rgb_to_hex
 from django.conf import settings
 from django.core.cache import cache
 import logging
@@ -39,15 +39,20 @@ class GetVariablesView(generics.GenericAPIView):
             protein_values = protein_values if 'proteomics' in context.params['layers'] else None
             metabolite_values = metabolite_values if 'metabolomics' in context.params['layers'] else None
 
-        if 'all_variables' not in cache or settings.NO_CACHE:
-            # Combine all data
+        if 'all_variables' not in cache or settings.NO_CACHE or has_context:
             existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]
 
             # create output dict whit type as key and identifier as value and return it
             combined_vals = pd.concat(existing_values, axis=0)
             values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+
+            # ensure that all keys are present even if they are empty
+            for key in ['binaryCategorical', 'continuous', 'nonbinaryCategorical']:
+                if key not in values_dict:
+                    values_dict[key] = []
+
             response = JsonResponse(values_dict, safe=True)
-            if not settings.NO_CACHE:
+            if not settings.NO_CACHE and not has_context:
                 response = add_cache_header(response, not has_context)
                 cache.set('all_variables', response, timeout=None)
         else:
@@ -63,10 +68,17 @@ class GetColorView(generics.GenericAPIView):
     def get(request):
         if request.GET.get('base'):
             colors = [define_context_color(value=request.GET.get('value'), base_hue=request.GET.get('base'))]
+
+        elif request.GET.get('palette'):
+            colors = get_palette(request.GET.get('palette'), n_colors=5)
+            colors = [rgb_to_hex(col) for col in colors]
+            colors = {'colors': colors}
+            return JsonResponse(colors)
         else:
             colors = []
             for i in range(5):
                 colors.append(define_context_color(value=i))
+
 
         base = """
         <html>

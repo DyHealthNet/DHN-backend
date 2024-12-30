@@ -218,8 +218,16 @@ def order_categories(data: pd.DataFrame):
 
 
 def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
-    if isinstance(all_data, type(None)) or isinstance(phenotypes_meta, type(None)):
+    """
+    We separate the categorical and continuous phenotypes from the data. Any other input type is continuous anyway.
+    :param all_data: DataFrame with all data
+    :param phenotypes_meta: DataFrame with metadata of the phenotypes
+    :return: tuple with the categorical and continuous phenotypes
+    """
+    if isinstance(all_data, type(None)):
         return None, None
+    if isinstance(phenotypes_meta, type(None)):
+        return pd.DataFrame(), all_data.copy()
     logger.debug("Separating categorical and continuous phenotypes")
     cat_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
                                                       .isin(["categorical", "boolean"])].label)].copy()
