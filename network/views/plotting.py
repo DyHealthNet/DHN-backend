@@ -41,7 +41,7 @@ class GetTableView(generics.GenericAPIView):
         if not context:
             return HttpResponseBadRequest('Context not found', status=405)
 
-        if f"subset_data_{context.context_id}" in cache:
+        if f"participants_context_{context.context_id}" in cache:
             logger.debug("Cache hit for subset data")
             start = timeit.default_timer()
             participants = cache.get(f"participants_context_{context.context_id}")

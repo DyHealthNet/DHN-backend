@@ -120,7 +120,7 @@ class TypeaheadView(generics.GenericAPIView):
         # retrieve recommendations using the queries/typeahead_query function
         res = typeahead_query(s)
         # reformat and return as json
-        res_filtered = res.values('id', 'description', 'display_name', 'source_table')
+        res_filtered = res.values('id', 'description', 'display_name', 'source_table', 'xrefs')
         dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
-                                           'source_table': item['source_table']} for item in res_filtered}
+                                           'source_table': item['source_table'], 'x_refs': item['xrefs']} for item in res_filtered}
         return JsonResponse(dict_from_queryset, safe=True)
