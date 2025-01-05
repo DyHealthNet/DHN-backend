@@ -33,10 +33,13 @@ class DataManager:
         if self._data_loaded:
             raise RuntimeError("Data has already been loaded and should not be loaded again.")
 
-        self._load_all_data()
-        self._create_combinations()
-        self._initialize_switch()
-        self._data_loaded = True
+        try:
+            self._load_all_data()
+            self._create_combinations()
+            self._initialize_switch()
+            self._data_loaded = True
+        except Exception as e:
+            print(f"An error occurred while loading the data, make sure everything is loaded properly: {e}")
 
     def _initialize_switch(self):
         self.switch = {
@@ -61,10 +64,14 @@ class DataManager:
                                                   column_list=[get_file_attr('phenotypes.type'),
                                                                get_file_attr('phenotypes.description')])
 
-        self._pheno_meta_label = _load_single_file(get_file_attr('phenotypes.meta'),
-                                                        id_column=get_file_attr('phenotypes.label'),
-                                                        column_list=[get_file_attr('phenotypes.type')],)
-        self._pheno_meta_label["label"] = self._pheno_meta_label.index
+        assert isinstance(self._phenotypes, pd.DataFrame) == isinstance(self._pheno_meta, pd.DataFrame), \
+            f"Phenotypes and phenotypes meta data should both be either None or a DataFrame.\nFound: " \
+            f"{type(self._phenotypes)} and {type(self._pheno_meta)}"
+
+        if isinstance(self._pheno_meta, pd.DataFrame):
+            self._pheno_meta_label = self._pheno_meta.copy()
+            self._pheno_meta_label["label"] = self._pheno_meta_label.index
+            self._pheno_meta_label = self._pheno_meta_label[[get_file_attr('phenotypes.type'), "label"]]
 
         self._proteins = _load_single_file(get_file_attr('proteins.path'), id_column=settings.PATIENT_ID_COLUMN)
 
@@ -81,9 +88,9 @@ class DataManager:
         # maximum number of categories here is 29 for variable: x0pe05d
 
         # Associate the layers with their respective variables
-        self._layers = {'phenomics': self._phenotypes.columns,
-                        'proteomics': self._proteins.columns,
-                        'metabolomics': self._metabolites.columns}
+        self._layers = {'phenomics': self._phenotypes.columns if isinstance(self._phenotypes, pd.DataFrame) else [],
+                        'proteomics': self._proteins.columns if isinstance(self._proteins, pd.DataFrame) else [],
+                        'metabolomics': self._metabolites.columns if isinstance(self._metabolites, pd.DataFrame) else []}
 
         # If file exists open the file and load the JSON data
         # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
@@ -91,12 +98,27 @@ class DataManager:
             with open(get_file_attr('labels.path'), 'r') as file:
                 self._var_label_map = json.load(file)
 
+    def is_loaded(self) -> bool:
+        """
+        Gives info if the data has been loaded properly.
+        :return: True if the data has been loaded, False otherwise.
+        """
+        return self._data_loaded
+
     def get_valid_keys(self) -> list[str]:
         """
         Returns the keys for the available dataframes.
         :return: A list of keys for the available dataframes.
         """
         return list(self.switch.keys())
+
+    def is_available(self, key: str) -> bool:
+        """
+        Checks if the requested dataframe is available.
+        :param key: The key to check.
+        :return: True if the dataframe is available, False otherwise.
+        """
+        return key in self.switch and not isinstance(self.switch[key], type(None))
 
     def get_df_copy(self, df: str | list) -> pd.DataFrame | dict | None:
         """

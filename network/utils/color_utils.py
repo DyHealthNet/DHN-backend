@@ -105,7 +105,7 @@ def define_context_color(value, base_hue=None):
 
 
 # Colormaps for overview page plots
-COLOR_PALETTES = {'tab10': sns.color_palette('muted'),
-                  'rocket': sns.color_palette('rocket'),
-                  'husl': sns.color_palette('husl'),
-                  'viridis': sns.color_palette('viridis')}
+def get_palette(name, n_colors=2, as_cmap=False):
+    if as_cmap:
+        return sns.color_palette(name, as_cmap=True)
+    return sns.color_palette(name, n_colors)

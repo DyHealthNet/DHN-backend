@@ -12,15 +12,20 @@ def join_dataframes(dataframes: list):
     :param dataframes: list of dataframes
     :return: joined dataframe
     """
-    result = dataframes[0]
-    for df in dataframes[1:]:
+    filled_dfs = [df for df in dataframes if df is not None]
+    if not filled_dfs:
+        raise ValueError("No dataframes to join")
+
+    result = filled_dfs[0]
+
+    for df in filled_dfs[1:]:
         result = pd.merge(result, df, left_index=True, right_index=True, how='inner')
     return result
 
 
 def check_files_and_return(path, id_column=None, column_list=None, return_dataset=True):
     # Check that provided pathways are leading to a csv or tsv file
-    if path == "None" or path is None or path == "":
+    if path == "None" or path is None or path == "" or not os.path.exists(path):
         return None
 
     file_name, ending = os.path.splitext(path)

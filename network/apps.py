@@ -22,14 +22,21 @@ class NetworksConfig(AppConfig):
         self.DATA_MANAGER = None
 
     def ready(self):
-        # To avoid loading the files twice during server start
-        if os.environ.get("RUN_MAIN") != "true":
-            return  # Skip loading during autoreload
+        is_runserver = len(sys.argv) > 1 and sys.argv[1] == 'runserver'
 
-        if len(sys.argv) > 1 and sys.argv[1] != 'runserver':
-            pass
-        else:
-            start = timeit.default_timer()
-            self.DATA_MANAGER = DataManager()
-            self.DATA_MANAGER.load_data()
-            logger.info(f"Startup time: {timeit.default_timer() - start}")
+        if is_runserver and os.environ.get("RUN_MAIN") != "true":
+            logger.info("Skipping loading data during autoreload in development")
+            return
+
+        start = timeit.default_timer()
+        self.DATA_MANAGER = DataManager()
+        self.DATA_MANAGER.load_data()
+        if not self.DATA_MANAGER.is_loaded():
+            logger.error("Failed to load data, exiting")
+            sys.exit(1)
+
+        all_keys = self.DATA_MANAGER.get_valid_keys()
+        available_omics = [key for key in all_keys if self.DATA_MANAGER.is_available(key) and not key.startswith('all')]
+        for key in available_omics:
+            logger.info(f"Starting server with: {key}")
+        logger.info(f"Startup time: {timeit.default_timer() - start}")

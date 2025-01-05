@@ -12,6 +12,12 @@ Django backend for the DyHealthNet Masters project (2024) to build a prototype f
    ```bash
    conda env create -f environment.yml -n dyhealthnet_env
    conda activate dyhealthnet_env
+   
+   # if you encounter any issues with the environment.yml file, create a python 3.11 environment and install
+   # the required packages manually:
+   # pip install -r requirements.txt
+   # pip install --no-deps numba-scipy==0.4.0
+   ```
 
 3. Set the secret key in the .env.example file manually and rename the file afterwards:
    ```bash
