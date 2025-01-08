@@ -1,5 +1,8 @@
 from django.db.models import Q
 from django.apps import apps
+from django.db.models.functions import Coalesce
+from django.db.models import F
+
 
 CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
                'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',
@@ -23,13 +26,17 @@ CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
 # def getPvalueOfInterest(type1, type2, parametric=True, mult_test_corr= 'bh')
 
 
-def network_query(query_id, type, limit):
+def network_query(query_id, type, limit, thresh, test_columns):
     edges = {}
     node_ids = set()
     external_ids = set()
+    print(f"test columns {test_columns}")
+    print(f"significance thresh {thresh}")
+    print(f"limit {limit}")
 
     # Query edges
     for table in CHRIS_EDGES:
+        print(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(type.lower())
         if count == 0:
@@ -37,18 +44,35 @@ def network_query(query_id, type, limit):
 
         # Retrieve django model corresponding to current table
         table_model = apps.get_model('network', table)
-        column_to_order_by = None
-        # Find a column ending with '_p_bonferroni'
+
+        # Check which columns are available for the type and multiple testing correction
+        valid_columns = []
         for field in table_model._meta.get_fields():
-            if field.name.endswith('_p_bonferroni'):
-                column_to_order_by = field.name
-                break
+            if field.name in test_columns:
+                valid_columns.append(field.name)
+
+        # Sort valid_columns to prioritize binaryCatCont columns so that this columns value will be chosen if present
+        valid_columns.sort(key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+
+        if not valid_columns:
+            continue
+        elif len(valid_columns) == 1:
+            query = table_model.objects.annotate(
+                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+            )
+        else:
+            query = table_model.objects.all().annotate(
+                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+            )
 
         if count == 1:
 
             # Filter for query_id, order by p-value and limit
-            queryset = table_model.objects.filter(Q(**{type: query_id})
-                                                  ).order_by(column_to_order_by)[:limit].values()
+            queryset = query.filter(Q(**{type: query_id})
+                                                  ).order_by('final_p_value').filter(final_p_value__lte=thresh)
+            if limit is not None:
+                queryset = queryset[:limit]
+            queryset = queryset[:limit].values()
 
             # Find second type
             substring = table.split('Effects')[1]
@@ -63,8 +87,12 @@ def network_query(query_id, type, limit):
         else:
 
             # Filter for query_id, order by p-value and limit
-            queryset = table_model.objects.filter(Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
-                                                  ).order_by(column_to_order_by)[:limit].values()
+            queryset = query.filter(Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
+                                                  ).order_by('final_p_value').filter(final_p_value__lte=thresh)
+
+            if limit is not None:
+                queryset = queryset[:limit]
+            queryset = queryset[:limit].values()
 
             # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))

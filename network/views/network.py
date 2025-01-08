@@ -1,8 +1,14 @@
+import json
+
 from django.http import JsonResponse, HttpResponseBadRequest
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 from network.queries import *
 from network.schemas.network_schemas import *
+
+import logging
+
+logger = logging.getLogger('network')
 
 
 types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
@@ -18,6 +24,19 @@ class GetNetworkView(generics.GenericAPIView):
         query_id = request.GET.get("q")
         node_type = request.GET.get("t")
         limit = request.GET.get("l")
+        significance_thresh = request.GET.get("s")
+        try:
+            # Deserialize the JSON string into a Python dictionary
+            selected_options = json.loads(request.GET.get("o"))
+            logger.debug(f"Selected options: {selected_options}")
+        except json.JSONDecodeError:
+            logger.error("Failed to decode selected options JSON")
+            return HttpResponseBadRequest('The selected Options are not send as a valid Json', status=405)
+        logger.debug(selected_options)
+        test_columns = {f'{selected_options["contCont"]["value"]}_p_{selected_options["multTest"]["value"]}',
+                        f'{selected_options["catContB"]["value"]}_p_{selected_options["multTest"]["value"]}',
+                        f'{selected_options["catContM"]["value"]}_p_{selected_options["multTest"]["value"]}',
+                        f'{selected_options["catCat"]["value"]}_p_{selected_options["multTest"]["value"]}'}
 
         if query_id is None or query_id == "":
             return HttpResponseBadRequest('Query id q must be declared and non empty.', status=405)
@@ -25,19 +44,19 @@ class GetNetworkView(generics.GenericAPIView):
             return HttpResponseBadRequest(
                 'Query type t must be declared and either protein, metabolite, phenotype and variant', status=405)
         if limit is None or limit == "":
-            limit = 10
+            limit = None
         else:
             try:
                 limit = int(limit)
+                if limit > 50:
+                    return HttpResponseBadRequest(
+                        f'Limit l takes a maximal value of 50, not {limit}', status=405)
             except ValueError:
                 return HttpResponseBadRequest(
                     f'Limit l must be a valid integer, not {limit}', status=405)
 
-        if limit > 50:
-            return HttpResponseBadRequest(
-                f'Limit l takes a maximal value of 50, not {limit}', status=405)
         # retrieve chris nodes & edges + external edges using queries/network_queries function
-        edges, nodes, externals = network_query(query_id, node_type, limit)
+        edges, nodes, externals = network_query(query_id, node_type, limit, significance_thresh, test_columns)
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -57,6 +76,7 @@ class GetNetworkView(generics.GenericAPIView):
             'Edges': result_edges,
             'External Edges': list(externals)
         }
+        logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
 
 
