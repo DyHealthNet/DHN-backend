@@ -32,11 +32,14 @@ EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 def create_table_structure(table_name, context_id, label_table1, label_table2):
     column_info = DB_COLUMNS[table_name]
     context_table_name = f"{table_name}_{context_id}"
+    is_same = label_table1 == label_table2
+    label1_name = f"{label_table1.split('_')[1]}_id{'_1' if is_same else ''}"
+    label2_name = f"{label_table2.split('_')[1]}_id{'_2' if is_same else ''}"
     table_structure = f"""
     CREATE TABLE IF NOT EXISTS {context_table_name} (
     id SERIAL PRIMARY KEY,
-    label1 VARCHAR REFERENCES {label_table1}(cohort_id),
-    label2 VARCHAR REFERENCES {label_table2}(cohort_id),
+    {label1_name} VARCHAR REFERENCES {label_table1}(cohort_id),
+    {label2_name} VARCHAR REFERENCES {label_table2}(cohort_id),
     """
     for column in column_info[2:]:
         table_structure += f"{column} DOUBLE PRECISION,\n"
