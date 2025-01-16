@@ -30,8 +30,10 @@ RUN mkdir /app/staticfiles
 ENV DJANGO_SETTINGS_MODULE=dyhealthnet_project.settings
 # ENV STATIC_ROOT=/app/staticfiles
 
-# Run collectstatic command to prepare static files for production.
-# RUN python manage.py collectstatic --no-input
+# Run management commands
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Expose port 8000 for the WSGI server (you can change this if you use a different port).
 EXPOSE 8000
