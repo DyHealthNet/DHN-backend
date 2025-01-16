@@ -8,10 +8,7 @@ from network.models import create_dynamic_model
 from network.models import (
     EdgesProteinProtein, EdgesProteinMetabolite, EdgesProteinPhenotype,
     EdgesMetaboliteMetabolite, EdgesMetabolitePhenotype, EdgesPhenotypePhenotype,
-    EdgesVariantMetabolite, EdgesVariantPhenotype, EdgesVariantProtein,
-    EdgesProteinProteinContext, EdgesProteinMetaboliteContext, EdgesProteinPhenotypeContext,
-    EdgesMetaboliteMetaboliteContext, EdgesMetabolitePhenotypeContext, EdgesPhenotypePhenotypeContext,
-    EdgesVariantMetaboliteContext, EdgesVariantPhenotypeContext, EdgesVariantProteinContext
+    EdgesVariantMetabolite, EdgesVariantPhenotype, EdgesVariantProtein
 )
 
 
@@ -26,39 +23,59 @@ BASE_MODELS = {
     'EdgesVariantPhenotype': EdgesVariantPhenotype,
     'EdgesVariantProtein': EdgesVariantProtein,
 }
-BASE_MODELS_CONTEXT = {
-    'EdgesProteinProtein': EdgesProteinProteinContext,
-    'EdgesProteinMetabolite': EdgesProteinMetaboliteContext,
-    'EdgesProteinPhenotype': EdgesProteinPhenotypeContext,
-    'EdgesMetaboliteMetabolite': EdgesMetaboliteMetaboliteContext,
-    'EdgesMetabolitePhenotype': EdgesMetabolitePhenotypeContext,
-    'EdgesPhenotypePhenotype': EdgesPhenotypePhenotypeContext,
-    'EdgesVariantMetabolite': EdgesVariantMetaboliteContext,
-    'EdgesVariantPhenotype': EdgesVariantPhenotypeContext,
-    'EdgesVariantProtein': EdgesVariantProteinContext,
-}
 
-# standard_pvalue_dict = {
-#     ('protein', 'protein'):'pearson_p_bonferroni',
-#     ('protein','metabolite'):'pearson_p_bonferroni',
-#     'phenotype':'',
-#     'metabolite':'pearson_p_bonferroni',
-#     'gene':'',
-#     'vaiant':'',
-#
-# type_mapping={
-#     'protein':'continous'
-#
-# }
-#
-# def getPvalueOfInterest(type1, type2, parametric=True, mult_test_corr= 'bh')
+def get_dynamic_model(table, context_id=None):
+    """
+    Retrieve the dynamic model for a given table and context.
+    """
+    table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
+    model_name = f"{table_base}_{context_id}" if context_id else table_base
+    return create_dynamic_model(BASE_MODELS[table], model_name)
+
+def get_valid_columns(model, test_columns):
+    """
+    Get valid test columns from the model's fields, prioritizing certain prefixes.
+    """
+    valid_columns = [field.name for field in model._meta.get_fields() if field.name in test_columns]
+    return sorted(valid_columns, key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+
+def query_nodes(node_ids):
+    """
+    Retrieve nodes corresponding to the given IDs.
+    """
+    node_model = apps.get_model('network', 'ViewDescriptionFTS')
+    return list(node_model.objects.filter(id__in=node_ids).values())
+
+def query_refs(node_ids):
+    """
+    Query references and external edges for given node IDs.
+    """
+    ref_model = apps.get_model('network', 'ViewReferencesEdges')
+    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
+
+    refs = ref_model.objects.filter(cohort_id__in=node_ids).values()
+    external_ids = {ref['reference_id'] for ref in refs}
+    externals = external_edges_model.objects.filter(
+        Q(source_id__in=external_ids) & Q(target_id__in=external_ids)
+    ).values()
+
+    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
+    mapped_externals = [
+        {
+            'source_id': ext['source_id'],
+            'target_id': ext['target_id'],
+            'source_cohort_id': id_mapping.get(ext['source_id']),
+            'target_cohort_id': id_mapping.get(ext['target_id']),
+        }
+        for ext in externals
+    ]
+    return mapped_externals
 
 
 def network_query(query_id, type, limit, perType, thresh, test_columns, context_id=None):
     edges = {}
     all_edges = []
     node_ids = set()
-    external_ids = set()
     print(f"test columns {test_columns}")
     print(f"significance thresh {thresh}")
     print(f"limit {limit}")
@@ -72,29 +89,16 @@ def network_query(query_id, type, limit, perType, thresh, test_columns, context_
         if count == 0:
             continue
 
-        # Split before each uppercase letter except the first
-        split_name = re.sub(r'(?<!^)(?=[A-Z])', '_', table)
-        if context_id:
-            table_name = f"{split_name.lower()}_{context_id}"
-            table_model = create_dynamic_model(BASE_MODELS_CONTEXT[table], table_name)
-        else:
-            table_name = f"{split_name.lower()}"
-            table_model = create_dynamic_model(BASE_MODELS[table], table_name)
-
+        table_model = get_dynamic_model(table, context_id=context_id)
+        if not table_model.objects.exists():
+            continue
         row_count = table_model.objects.count()
         if row_count == 0:
-            print(f"Skipping empty table: {table_name}")
+            print(f"Skipping empty table: {table}")
             continue  # Skip processing for empty tables
 
         # Check which columns are available for the type and multiple testing correction
-        valid_columns = []
-        for field in table_model._meta.get_fields():
-            if field.name in test_columns:
-                valid_columns.append(field.name)
-
-        # Sort valid_columns to prioritize binaryCatCont columns so that this columns value will be chosen if present
-        valid_columns.sort(key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
-
+        valid_columns = get_valid_columns(table_model, test_columns)
         if not valid_columns:
             continue
         elif len(valid_columns) == 1:
@@ -107,36 +111,27 @@ def network_query(query_id, type, limit, perType, thresh, test_columns, context_
             )
 
         if count == 1:
+            filter_query = Q(**{type: query_id})
+            type_2 = table.split('Edges')[1].replace(type.capitalize(), '').lower()
+        else:
+            filter_query = Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
 
-            # Filter for query_id, order by p-value and limit
-            queryset = query.filter(Q(**{type: query_id})
-                                    ).order_by('final_p_value').filter(final_p_value__lte=thresh)
-            print(f"queryset: {queryset}")
-            if limit is not None and perType:
-                queryset = queryset[:limit]
-            queryset = queryset.values()
+        # Apply filters, order, and threshold
+        queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
+        # Apply limit if given
+        if limit is not None and perType:
+            queryset = queryset[:limit]
 
-            # Find second type
-            substring = table.split('Edges')[1]
-            if substring.index(type.capitalize()) == 0:
-                type_2 = substring.split(type.capitalize())[1].lower()
-            else:
-                type_2 = substring.split(type.capitalize())[0].lower()
+        queryset = queryset.values()
 
+        # Collect node IDs
+        if count == 1:
             node_ids.update(*zip(*queryset.values_list(f'{type}_id', f'{type_2}_id')))
         else:
-            queryset = query.filter(Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
-                                                  ).order_by('final_p_value').filter(final_p_value__lte=thresh)
-            print(f"queryset: {queryset}")
-
-            if limit is not None and perType:
-                queryset = queryset[:limit]
-            queryset = queryset.values()
-
-            # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))
 
+        # Add results to the correct container
         if perType:
             edges[table] = queryset
         else:
@@ -154,70 +149,35 @@ def network_query(query_id, type, limit, perType, thresh, test_columns, context_
                 edges[table_name] = []
             edges[table_name].append(edge)
 
-    # Query nodes
-    # Retrieve django model corresponding to current node
-    node_model = apps.get_model('network', 'ViewDescriptionFTS')
-    # Filter for collected unique node IDs
-    nodes = node_model.objects.filter(id__in=node_ids).values()
-
-    # Query external edges
-    # Retrieve all references from cohort nodes to external nodes
-    ref_model = apps.get_model('network', 'ViewReferencesEdges')
-    refs = ref_model.objects.filter(cohort_id__in=node_ids).values()
-    external_ids.update(*zip(*refs.values_list('reference_id')))
-
-    # Retrieve all edges between those referenced external nodes
-    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
-    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) &
-                                                    Q(target_id__in=external_ids)).values()
-
-    # Map externals back to original nodes
-    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
-    mapped_externals = [
-        {
-            'source_id': external['source_id'],
-            'target_id': external['target_id'],
-            'source_cohort_id': id_mapping.get(external['source_id']),
-            'target_cohort_id': id_mapping.get(external['target_id'])
-        }
-        for external in externals
-    ]
+    nodes = query_nodes(node_ids)
+    mapped_externals = query_refs(node_ids)
     return edges, nodes, mapped_externals
 
 def network_group_query(query_ids, thresh, test_columns, context_id=None):
     print(f"query_ids: {query_ids}")
     edges = {}
-    external_ids = set()
     print(f"test columns {test_columns}")
     print(f"significance thresh {thresh}")
 
     # Query edges
     for table in BASE_MODELS.keys():
         print(table.lower())
+        # Distinguish between 'within-type' tables and 'between-type' tables
+        splitted_table = re.findall(r'[A-Z][a-z]*', table)
+        count = table.lower().count(splitted_table[1].lower())
+        if count == 0:
+            continue
 
-        # Split before each uppercase letter except the first
-        split_name = re.sub(r'(?<!^)(?=[A-Z])', '_', table)
-        if context_id:
-            table_name = f"{split_name.lower()}_{context_id}"
-            table_model = create_dynamic_model(BASE_MODELS_CONTEXT[table], table_name)
-        else:
-            table_name = f"{split_name.lower()}"
-            table_model = create_dynamic_model(BASE_MODELS[table], table_name)
-
+        table_model = get_dynamic_model(table, context_id=context_id)
+        if not table_model.objects.exists():
+            continue
         row_count = table_model.objects.count()
         if row_count == 0:
-            print(f"Skipping empty table: {table_name}")
+            print(f"Skipping empty table: {table}")
             continue  # Skip processing for empty tables
 
         # Check which columns are available for the type and multiple testing correction
-        valid_columns = []
-        for field in table_model._meta.get_fields():
-            if field.name in test_columns:
-                valid_columns.append(field.name)
-
-        # Sort valid_columns to prioritize binaryCatCont columns so that this columns value will be chosen if present
-        valid_columns.sort(key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
-
+        valid_columns = get_valid_columns(table_model, test_columns)
         if not valid_columns:
             continue
         elif len(valid_columns) == 1:
@@ -229,52 +189,25 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None):
                 final_p_value=Coalesce(*[F(col) for col in valid_columns])
             )
 
-        count = table.lower().count(table_name.split("_")[1].lower())
-        # Create filter kwargs to search for edges between the given node IDs
+        # Create filter to search for edges between the given node IDs
         if count == 1:
             filter_by_nodes = {
-                f'{table_name.split("_")[1]}_id__in': query_ids,
-                f'{table_name.split("_")[2]}_id__in': query_ids
+                f'{splitted_table[1].lower()}_id__in': query_ids,
+                f'{splitted_table[2].lower()}_id__in': query_ids
             }
         else:
             filter_by_nodes = {
-                f'{table_name.split("_")[1]}_1_id__in': query_ids,
-                f'{table_name.split("_")[2]}_2_id__in': query_ids
-        }
+                f'{splitted_table[1].lower()}_1_id__in': query_ids,
+                f'{splitted_table[2].lower()}_2_id__in': query_ids
+            }
 
         # Query the edge tables for both node types
         queryset = query.filter(**filter_by_nodes).order_by('final_p_value').filter(final_p_value__lte=thresh).values()
 
         edges[table] = queryset
 
-    # Query nodes
-    # Retrieve django model corresponding to current node
-    node_model = apps.get_model('network', 'ViewDescriptionFTS')
-    # Filter for collected unique node IDs
-    nodes = node_model.objects.filter(id__in=query_ids).values()
-
-    # Query external edges
-    # Retrieve all references from cohort nodes to external nodes
-    ref_model = apps.get_model('network', 'ViewReferencesEdges')
-    refs = ref_model.objects.filter(cohort_id__in=query_ids).values()
-    external_ids.update(*zip(*refs.values_list('reference_id')))
-
-    # Retrieve all edges between those referenced external nodes
-    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
-    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) &
-                                                    Q(target_id__in=external_ids)).values()
-
-    # Map externals back to original nodes
-    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
-    mapped_externals = [
-        {
-            'source_id': external['source_id'],
-            'target_id': external['target_id'],
-            'source_cohort_id': id_mapping.get(external['source_id']),
-            'target_cohort_id': id_mapping.get(external['target_id'])
-        }
-        for external in externals
-    ]
+    nodes = query_nodes(query_ids)
+    mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
 
 
@@ -352,10 +285,7 @@ def external_query(query_id, cohort_node=True):
 # Search for 'query' in all fields of all cohort node tables
 def typeahead_query(query, tables=None, limit=20):
     model = apps.get_model('network', 'ViewDescriptionFTS')
-    print(query)
-    print(tables)
     if tables:
-        print("here")
         return model.objects.filter((Q(description__icontains=query) |
                                     Q(display_name__icontains=query) |
                                     Q(id__icontains=query) |
