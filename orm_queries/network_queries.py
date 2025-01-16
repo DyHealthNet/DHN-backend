@@ -8,11 +8,11 @@ import network.queries as queries
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
 django.setup()
 
-CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
-               'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',
-               'EffectsMetabolitePhenotype', 'EffectsPhenotypePhenotype',
-               'EffectsVariantMetabolite', 'EffectsVariantPhenotype',
-               'EffectsVariantProtein'}
+CHRIS_EDGES = {'EdgesProteinProtein', 'EdgesProteinMetabolite',
+               'EdgesProteinPhenotype', 'EdgesMetaboliteMetabolite',
+               'EdgesMetabolitePhenotype', 'EdgesPhenotypePhenotype',
+               'EdgesVariantMetabolite', 'EdgesVariantPhenotype',
+               'EdgesVariantProtein'}
 
 if __name__ == '__main__':
     start = timeit.default_timer()

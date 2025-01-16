@@ -30,9 +30,12 @@ EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
 
 
 def create_table_structure(table_name, context_id, label_table1, label_table2):
+    logger.debug(f"create_table_structure")
     column_info = DB_COLUMNS[table_name]
     context_table_name = f"{table_name}_{context_id}"
     is_same = label_table1 == label_table2
+    logger.debug(f"{label_table1.split('_')[1]}")
+    logger.debug(f"{label_table2.split('_')[1]}")
     label1_name = f"{label_table1.split('_')[1]}_id{'_1' if is_same else ''}"
     label2_name = f"{label_table2.split('_')[1]}_id{'_2' if is_same else ''}"
     table_structure = f"""

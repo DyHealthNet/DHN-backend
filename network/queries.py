@@ -1,14 +1,42 @@
+import re
+
 from django.db.models import Q
 from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
+from network.models import create_dynamic_model
+from network.models import (
+    EdgesProteinProtein, EdgesProteinMetabolite, EdgesProteinPhenotype,
+    EdgesMetaboliteMetabolite, EdgesMetabolitePhenotype, EdgesPhenotypePhenotype,
+    EdgesVariantMetabolite, EdgesVariantPhenotype, EdgesVariantProtein,
+    EdgesProteinProteinContext, EdgesProteinMetaboliteContext, EdgesProteinPhenotypeContext,
+    EdgesMetaboliteMetaboliteContext, EdgesMetabolitePhenotypeContext, EdgesPhenotypePhenotypeContext,
+    EdgesVariantMetaboliteContext, EdgesVariantPhenotypeContext, EdgesVariantProteinContext
+)
 
 
-CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
-               'EffectsProteinPhenotype', 'EffectsMetaboliteMetabolite',
-               'EffectsMetabolitePhenotype', 'EffectsPhenotypePhenotype',
-               'EffectsVariantMetabolite', 'EffectsVariantPhenotype',
-               'EffectsVariantProtein'}
+BASE_MODELS = {
+    'EdgesProteinProtein': EdgesProteinProtein,
+    'EdgesProteinMetabolite': EdgesProteinMetabolite,
+    'EdgesProteinPhenotype': EdgesProteinPhenotype,
+    'EdgesMetaboliteMetabolite': EdgesMetaboliteMetabolite,
+    'EdgesMetabolitePhenotype': EdgesMetabolitePhenotype,
+    'EdgesPhenotypePhenotype': EdgesPhenotypePhenotype,
+    'EdgesVariantMetabolite': EdgesVariantMetabolite,
+    'EdgesVariantPhenotype': EdgesVariantPhenotype,
+    'EdgesVariantProtein': EdgesVariantProtein,
+}
+BASE_MODELS_CONTEXT = {
+    'EdgesProteinProtein': EdgesProteinProteinContext,
+    'EdgesProteinMetabolite': EdgesProteinMetaboliteContext,
+    'EdgesProteinPhenotype': EdgesProteinPhenotypeContext,
+    'EdgesMetaboliteMetabolite': EdgesMetaboliteMetaboliteContext,
+    'EdgesMetabolitePhenotype': EdgesMetabolitePhenotypeContext,
+    'EdgesPhenotypePhenotype': EdgesPhenotypePhenotypeContext,
+    'EdgesVariantMetabolite': EdgesVariantMetaboliteContext,
+    'EdgesVariantPhenotype': EdgesVariantPhenotypeContext,
+    'EdgesVariantProtein': EdgesVariantProteinContext,
+}
 
 # standard_pvalue_dict = {
 #     ('protein', 'protein'):'pearson_p_bonferroni',
@@ -26,24 +54,37 @@ CHRIS_EDGES = {'EffectsProteinProtein', 'EffectsProteinMetabolite',
 # def getPvalueOfInterest(type1, type2, parametric=True, mult_test_corr= 'bh')
 
 
-def network_query(query_id, type, limit, thresh, test_columns):
+def network_query(query_id, type, limit, perType, thresh, test_columns, context_id=None):
     edges = {}
+    all_edges = []
     node_ids = set()
     external_ids = set()
     print(f"test columns {test_columns}")
     print(f"significance thresh {thresh}")
     print(f"limit {limit}")
+    print(f"perType {perType}")
 
     # Query edges
-    for table in CHRIS_EDGES:
+    for table in BASE_MODELS.keys():
         print(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(type.lower())
         if count == 0:
             continue
 
-        # Retrieve django model corresponding to current table
-        table_model = apps.get_model('network', table)
+        # Split before each uppercase letter except the first
+        split_name = re.sub(r'(?<!^)(?=[A-Z])', '_', table)
+        if context_id:
+            table_name = f"{split_name.lower()}_{context_id}"
+            table_model = create_dynamic_model(BASE_MODELS_CONTEXT[table], table_name)
+        else:
+            table_name = f"{split_name.lower()}"
+            table_model = create_dynamic_model(BASE_MODELS[table], table_name)
+
+        row_count = table_model.objects.count()
+        if row_count == 0:
+            print(f"Skipping empty table: {table_name}")
+            continue  # Skip processing for empty tables
 
         # Check which columns are available for the type and multiple testing correction
         valid_columns = []
@@ -69,35 +110,49 @@ def network_query(query_id, type, limit, thresh, test_columns):
 
             # Filter for query_id, order by p-value and limit
             queryset = query.filter(Q(**{type: query_id})
-                                                  ).order_by('final_p_value').filter(final_p_value__lte=thresh)
-            if limit is not None:
+                                    ).order_by('final_p_value').filter(final_p_value__lte=thresh)
+            print(f"queryset: {queryset}")
+            if limit is not None and perType:
                 queryset = queryset[:limit]
-            queryset = queryset[:limit].values()
+            queryset = queryset.values()
+
 
             # Find second type
-            substring = table.split('Effects')[1]
+            substring = table.split('Edges')[1]
             if substring.index(type.capitalize()) == 0:
                 type_2 = substring.split(type.capitalize())[1].lower()
             else:
                 type_2 = substring.split(type.capitalize())[0].lower()
 
-            # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_id', f'{type_2}_id')))
-
         else:
-
-            # Filter for query_id, order by p-value and limit
             queryset = query.filter(Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
                                                   ).order_by('final_p_value').filter(final_p_value__lte=thresh)
+            print(f"queryset: {queryset}")
 
-            if limit is not None:
+            if limit is not None and perType:
                 queryset = queryset[:limit]
-            queryset = queryset[:limit].values()
+            queryset = queryset.values()
 
             # Collect unique node IDs
             node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))
 
-        edges[table] = queryset
+        if perType:
+            edges[table] = queryset
+        else:
+            all_edges.extend(queryset)
+
+    if not perType:
+        all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
+
+        top_edges = all_edges_sorted[:limit]
+
+        # Sort the top edges back by table name
+        for edge in top_edges:
+            table_name = edge.get('table_name')  # Ensure 'table_name' is a field in the edge data
+            if table_name not in edges:
+                edges[table_name] = []
+            edges[table_name].append(edge)
 
     # Query nodes
     # Retrieve django model corresponding to current node
@@ -109,6 +164,99 @@ def network_query(query_id, type, limit, thresh, test_columns):
     # Retrieve all references from cohort nodes to external nodes
     ref_model = apps.get_model('network', 'ViewReferencesEdges')
     refs = ref_model.objects.filter(cohort_id__in=node_ids).values()
+    external_ids.update(*zip(*refs.values_list('reference_id')))
+
+    # Retrieve all edges between those referenced external nodes
+    external_edges_model = apps.get_model('network', 'ViewAssociationsEdges')
+    externals = external_edges_model.objects.filter(Q(source_id__in=external_ids) &
+                                                    Q(target_id__in=external_ids)).values()
+
+    # Map externals back to original nodes
+    id_mapping = {ref['reference_id']: ref['cohort_id'] for ref in refs}
+    mapped_externals = [
+        {
+            'source_id': external['source_id'],
+            'target_id': external['target_id'],
+            'source_cohort_id': id_mapping.get(external['source_id']),
+            'target_cohort_id': id_mapping.get(external['target_id'])
+        }
+        for external in externals
+    ]
+    return edges, nodes, mapped_externals
+
+def network_group_query(query_ids, thresh, test_columns, context_id=None):
+    print(f"query_ids: {query_ids}")
+    edges = {}
+    external_ids = set()
+    print(f"test columns {test_columns}")
+    print(f"significance thresh {thresh}")
+
+    # Query edges
+    for table in BASE_MODELS.keys():
+        print(table.lower())
+
+        # Split before each uppercase letter except the first
+        split_name = re.sub(r'(?<!^)(?=[A-Z])', '_', table)
+        if context_id:
+            table_name = f"{split_name.lower()}_{context_id}"
+            table_model = create_dynamic_model(BASE_MODELS_CONTEXT[table], table_name)
+        else:
+            table_name = f"{split_name.lower()}"
+            table_model = create_dynamic_model(BASE_MODELS[table], table_name)
+
+        row_count = table_model.objects.count()
+        if row_count == 0:
+            print(f"Skipping empty table: {table_name}")
+            continue  # Skip processing for empty tables
+
+        # Check which columns are available for the type and multiple testing correction
+        valid_columns = []
+        for field in table_model._meta.get_fields():
+            if field.name in test_columns:
+                valid_columns.append(field.name)
+
+        # Sort valid_columns to prioritize binaryCatCont columns so that this columns value will be chosen if present
+        valid_columns.sort(key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+
+        if not valid_columns:
+            continue
+        elif len(valid_columns) == 1:
+            query = table_model.objects.annotate(
+                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+            )
+        else:
+            query = table_model.objects.all().annotate(
+                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+            )
+
+        count = table.lower().count(table_name.split("_")[1].lower())
+        # Create filter kwargs to search for edges between the given node IDs
+        if count == 1:
+            filter_by_nodes = {
+                f'{table_name.split("_")[1]}_id__in': query_ids,
+                f'{table_name.split("_")[2]}_id__in': query_ids
+            }
+        else:
+            filter_by_nodes = {
+                f'{table_name.split("_")[1]}_1_id__in': query_ids,
+                f'{table_name.split("_")[2]}_2_id__in': query_ids
+        }
+
+        # Query the edge tables for both node types
+        queryset = query.filter(**filter_by_nodes).order_by('final_p_value').filter(final_p_value__lte=thresh).values()
+
+        edges[table] = queryset
+
+    # Query nodes
+    # Retrieve django model corresponding to current node
+    node_model = apps.get_model('network', 'ViewDescriptionFTS')
+    # Filter for collected unique node IDs
+    nodes = node_model.objects.filter(id__in=query_ids).values()
+
+    # Query external edges
+    # Retrieve all references from cohort nodes to external nodes
+    ref_model = apps.get_model('network', 'ViewReferencesEdges')
+    refs = ref_model.objects.filter(cohort_id__in=query_ids).values()
     external_ids.update(*zip(*refs.values_list('reference_id')))
 
     # Retrieve all edges between those referenced external nodes
@@ -202,9 +350,19 @@ def external_query(query_id, cohort_node=True):
 
 
 # Search for 'query' in all fields of all cohort node tables
-def typeahead_query(query, limit=20):
+def typeahead_query(query, tables=None, limit=20):
     model = apps.get_model('network', 'ViewDescriptionFTS')
-    return model.objects.filter(Q(description__icontains=query) |
-                                Q(display_name__icontains=query) |
-                                Q(id__icontains=query) |
-                                Q(xrefs__icontains=query))[:limit].values()
+    print(query)
+    print(tables)
+    if tables:
+        print("here")
+        return model.objects.filter((Q(description__icontains=query) |
+                                    Q(display_name__icontains=query) |
+                                    Q(id__icontains=query) |
+                                    Q(xrefs__icontains=query)) &
+                                    Q(source_table__in=tables))[:limit].values()
+    else:
+        return model.objects.filter(Q(description__icontains=query) |
+                                    Q(display_name__icontains=query) |
+                                    Q(id__icontains=query) |
+                                    Q(xrefs__icontains=query))[:limit].values()

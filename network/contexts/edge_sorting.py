@@ -38,30 +38,30 @@ DB_EDGES = {
 # Define the columns we need for each table so that we can order them later when we read the file
 DB_COLUMNS = {
     "edges_variant_phenotype": ['label1', 'label2'] +
-                               [field.name for field in EffectsVariantPhenotype._meta.get_fields()][3:],
+                               [field.name for field in EdgesVariantPhenotype._meta.get_fields()][3:],
     "edges_variant_metabolite": ['label1', 'label2'] +
-                                [field.name for field in EffectsVariantMetabolite._meta.get_fields()][3:],
+                                [field.name for field in EdgesVariantMetabolite._meta.get_fields()][3:],
 
     "edges_variant_protein": ['label1', 'label2'] +
-                             [field.name for field in EffectsVariantProtein._meta.get_fields()][3:],
+                             [field.name for field in EdgesVariantProtein._meta.get_fields()][3:],
 
     "edges_protein_protein": ['label1', 'label2'] +
-                             [field.name for field in EffectsProteinProtein._meta.get_fields()][3:],
+                             [field.name for field in EdgesProteinProtein._meta.get_fields()][3:],
 
     "edges_protein_metabolite": ['label1', 'label2'] +
-                                [field.name for field in EffectsProteinMetabolite._meta.get_fields()][3:],
+                                [field.name for field in EdgesProteinMetabolite._meta.get_fields()][3:],
 
     "edges_metabolite_metabolite": ['label1', 'label2'] +
-                                   [field.name for field in EffectsMetaboliteMetabolite._meta.get_fields()][3:],
+                                   [field.name for field in EdgesMetaboliteMetabolite._meta.get_fields()][3:],
 
     "edges_protein_phenotype": ['label1', 'label2'] +
-                               [field.name for field in EffectsProteinPhenotype._meta.get_fields()][3:],
+                               [field.name for field in EdgesProteinPhenotype._meta.get_fields()][3:],
 
     "edges_metabolite_phenotype": ['label1', 'label2'] +
-                                  [field.name for field in EffectsMetabolitePhenotype._meta.get_fields()][3:],
+                                  [field.name for field in EdgesMetabolitePhenotype._meta.get_fields()][3:],
 
     "edges_phenotype_phenotype": ['label1', 'label2'] +
-                                 [field.name for field in EffectsPhenotypePhenotype._meta.get_fields()][3:]
+                                 [field.name for field in EdgesPhenotypePhenotype._meta.get_fields()][3:]
 }
 
 
@@ -136,7 +136,6 @@ def process_file(edges: pd.DataFrame, protein_set: set, phenotype_set: set, meta
                 new_df[col_idx] = group.iloc[:, df_col_idx]
             else:
                 new_df[col_idx] = None
-
         result_dfs[table] = new_df
 
     all_edge_types = {edge_type: dataframe_to_buffer_arrow(result_dfs[edge_type]) for edge_type in result_dfs}
