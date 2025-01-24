@@ -1,20 +1,71 @@
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiTypes, OpenApiParameter, OpenApiExample, OpenApiResponse
 
 get_table_schema = extend_schema(
         summary="Returns data statistics to be plotted in the Overview Table",
-        description='Returns data statistics (of phenotype, metabolite and protein data) to be plotted in the Overview '
-                    'Table in JSON format.'
-                    'e.g. '
+        description='Returns data counts of the different omics data types found in the cohort. If a sessionid and '
+                    'contextValue is provided, the data will be filtered by the respective context.',
+        parameters=[
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Data statistics returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="Context not found",
+            ),
+        }
     )
 
 get_data_schema = extend_schema(
         summary="Returns averaged data for the given variables x and y grouped by c (optional) to produce a Line Plot",
         description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format 
             to produce a Line Plot. The optional parameter c (e.g. sex) allows for comparisons between different groups 
-            such as males and females.
+            such as males and females. If a sessionid and contextValue is provided, the data will be filtered by the
+            respective context.
             """,
         parameters=[
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
             OpenApiParameter(
                 name='x',
                 description='variable x',
@@ -37,6 +88,19 @@ get_data_schema = extend_schema(
                 location=OpenApiParameter.QUERY,
             )
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Data returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="The data could not be returned, possible errors:\n"
+                            "- No appropriate context found\n"
+                            "- x and y are not valid\n"
+                            "- y is not numerical and cannot be visualized in a line plot\n"
+                            "- c is not valid\n"
+                            "- x and y are the same"
+            )
+        }
     )
 
 get_bar_count_schema = extend_schema(
@@ -44,7 +108,8 @@ get_bar_count_schema = extend_schema(
                 "Bar Plot",
         description="""Returns averaged data for the given variables x (e.g. time) in JSON format to produce a 
             Variable Count Bar Plot. The optional parameter c (e.g. sex) allows for comparisons between different groups 
-            such as males and females.
+            such as males and females. If a sessionid and contextValue is provided, the data will be filtered by the
+            respective context.
             """,
         parameters=[
             OpenApiParameter(
@@ -60,8 +125,41 @@ get_bar_count_schema = extend_schema(
                 required=False,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-            )
+            ),
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Data returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="The data could not be returned, possible errors:\n"
+                            "- No appropriate context found\n"
+                            "- x is not valid\n"
+                            "- c is not valid\n"
+                            "- x and c are the same"
+            )
+        }
     )
 
 get_box_plot_schema = extend_schema(
@@ -69,7 +167,8 @@ get_box_plot_schema = extend_schema(
                 "Plot",
         description="""Returns boxplot statistics for the given variables x (e.g. time) and y (e.g. dosage) in JSON 
             format to produce a Box Plot. The optional parameter c (e.g. sex) allows for comparisons between different 
-            groups such as males and females.
+            groups such as males and females. If a sessionid and contextValue is provided, the data will be filtered by
+            the respective context.
             """,
         parameters=[
             OpenApiParameter(
@@ -92,8 +191,42 @@ get_box_plot_schema = extend_schema(
                 required=False,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-            )
+            ),
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Data returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="The data could not be returned, possible errors:\n"
+                            "- No appropriate context found\n"
+                            "- y is not numerical and cannot be visualized in a box plot\n"
+                            "- x and y are not valid\n"
+                            "- c is not valid\n"
+                            "- x and y are the same"
+            )
+        }
     )
 
 heatmap_schema = extend_schema(
@@ -114,6 +247,38 @@ heatmap_schema = extend_schema(
                 required=True,
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-            )
+            ),
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Data returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="The data could not be returned, possible errors:\n"
+                            "- No appropriate context found\n"
+                            "- x and y are not valid\n"
+                            "- x and y are the same"
+            )
+        }
     )
