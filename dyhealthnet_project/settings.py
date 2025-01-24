@@ -144,7 +144,7 @@ SPECTACULAR_SETTINGS = {
             'description': 'Development server'
         },
         {
-            'url': 'http://localhost:9999',
+            'url': 'http://127.0.0.1:9999',
             'description': 'Development server 2'
         }]
 }

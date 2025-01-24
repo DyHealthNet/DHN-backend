@@ -31,8 +31,6 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     login_url = settings.FRONTEND_HOME_URL
     data_manager: DataManager = None
 
-    # redirect_field_name = None
-    # permission_denied_message = "You are not allowed here."
     def post(self, request, *args, **kwargs):
         # first we retrieve the data we need to process the request
         all_data, layers, pheno_meta_label, phenotypes, proteins, metabolites = self.data_manager.get_df_copy(
@@ -182,7 +180,7 @@ class DeleteUserContext(generics.GenericAPIView):
 
         if not request.user.is_authenticated:
             return JsonResponse({'status': 'error', 'message': 'Permission denied. User not authenticated'},
-                                status=400)  # 401?
+                                status=401) 
 
         logger.debug(f"Delete UserContextLink and associates for user {request.user.id} "
                      f"and Context with value {context_value}")
@@ -237,17 +235,25 @@ class VariableInfoView(generics.GenericAPIView):
             var_info = [int(x) for x in all_cat[variable].unique() if not pd.isna(x)]
             var_info = [{'label': var_label_mapping(variable, x, var_label_map), 'value': x} for x in var_info]
             bins = all_cat[variable].value_counts().sort_index()
+            bin_labels = [str(x) for x in list(bins.index)]
 
         elif variable in all_cont.columns:
             var_info = all_cont[variable].min(), all_cont[variable].max()
             var_info = [floor(var_info[0]), ceil(var_info[1])]
             bins = pd.cut(all_cont[variable], bins=20).value_counts().sort_index()
+            first = [str(bins.index[0]).split(",")[0].strip("(")]
+            last = [str(bins.index[len(bins.index) - 1]).split(",")[1].strip("]")]
+            if settings.PRESERVE_PRIVACY:
+                first = [str(int(round(float(first[0]))))]
+                last = [str(int(round(float(last[0]))))]
+            # we're cheating here a little to make it better visible in the frontend
+            bin_labels = first + [""] * (len(bins.index) - 3) + last + [""]
         else:
             return HttpResponseBadRequest('Variable not found.', status=404)
 
         return JsonResponse({'result': var_info,
                              'distribution': {'values': [int(x) for x in bins.values],
-                                              'labels': [str(x) for x in list(bins.index)]},
+                                              'labels': bin_labels},
                              'type': 'bar' if variable in all_cat.columns else 'trend'})
 
 

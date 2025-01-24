@@ -1,67 +1,5 @@
-from drf_spectacular.utils import extend_schema, OpenApiTypes, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiTypes, OpenApiParameter, OpenApiExample, OpenApiResponse
 
-
-create_context_schema = extend_schema(
-    summary="Provided a combination of parameters, lets a user create a context-specific network",
-    description="Provided a combination of parameters with which the patients are subsampled, this endpoint will "
-                "start the calculation of a context-specific network.",
-    parameters=[
-        OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header',
-            required=True,
-            type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
-        ),
-        OpenApiParameter(
-            name='subset_params',
-            description='Custom filtering parameters as a JSON',
-            required=True,
-            type=OpenApiTypes.OBJECT,
-            location=OpenApiParameter.QUERY,
-            examples=[
-                OpenApiExample(
-                    name="Example of test_params_format",
-                    value={
-                        "connect": {
-                            "inside": "and",
-                            "outside": "or"
-                        },
-                        "conditions": {
-                            "0": [
-                                {
-                                    "column": "x0so5385",
-                                    "operator": "less",
-                                    "value": 4000
-                                },
-                                {
-                                    "column": "x0_sex",
-                                    "operator": "equal",
-                                    "value": 1
-                                }
-                            ],
-                            "1": [
-                                {
-                                    "column": "x0so5385",
-                                    "operator": "more",
-                                    "value": 6000
-                                }
-                            ]
-                        },
-                        "tests": {
-                            "cont_cont": "pearson",
-                            "cat_cat": "chi2",
-                            "cat_cont_m": "anova",
-                            "cat_cont_b": "ttest",
-                        },
-                        "layers": ['metabolomics', 'phenomics']
-                    },
-                    description="An example of the filtering parameters passed as a JSON string."
-                )
-            ]
-        ),
-    ]
-)
 
 context_status_schema = extend_schema(
     summary="Get the status of a context-specific network calculation",
@@ -69,11 +7,18 @@ context_status_schema = extend_schema(
                 "context-specific network calculation.",
     parameters=[
         OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header',
+            name='csrftoken',
+            description='CSRF token for authentication.',
             required=True,
             type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
+            location=OpenApiParameter.COOKIE,
+        ),
+        OpenApiParameter(
+            name="sessionid",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="Session cookie for authentication.",
+            type=OpenApiTypes.STR,
         ),
         OpenApiParameter(
             name='context_value',
@@ -81,20 +26,188 @@ context_status_schema = extend_schema(
             required=True,
             type=OpenApiTypes.STR,
         )
-    ]
+    ],
+    responses={
+        200: OpenApiResponse(
+            description="Successfully retrieved the status of the context\n"
+                        "Can either be 'PENDING', 'SUCCESS', 'ERROR' or 'null'",
+        )
+    }
 )
+
+create_context_schema = extend_schema(
+    summary="Provided a combination of parameters, lets a user create a context-specific network",
+    description="Provided a combination of parameters with which the patients are subsampled, this endpoint will "
+                "start the calculation of a context-specific network.",
+    parameters=[
+        OpenApiParameter(
+            name="sessionid",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="Session cookie for authentication.",
+            type=OpenApiTypes.STR,
+        ),
+        OpenApiParameter(
+            name="csrftoken",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="CSRF token for authentication.",
+            type=OpenApiTypes.STR,
+        ),
+        OpenApiParameter(
+            name='subset_params',
+            description='Custom filtering parameters as a JSON',
+            required=True,
+            type=OpenApiTypes.OBJECT,
+            location=OpenApiParameter.QUERY,
+            examples=[
+                OpenApiExample(
+                    name="Example of test_params_format",
+                    value={
+                      "connect": {
+                        "inside": "AND",
+                        "outside": "OR"
+                      },
+                      "conditions": {
+                        "group-0": [
+                          {
+                            "column": "Peptic/duodenal ulcer (treated last 12 months) (x0cd03d)",
+                            "operator": "equals (=)",
+                            "value": {
+                              "label": "Yes",
+                              "value": 1
+                            }
+                          },
+                          {
+                            "column": "Sex (x0_sex)",
+                            "operator": "equals (=)",
+                            "value": {
+                              "label": "Male",
+                              "value": 1
+                            }
+                          }
+                        ],
+                        "group-1": [
+                          {
+                            "column": "Type of diabetes (x0dm02)",
+                            "operator": "in",
+                            "value": [
+                              {
+                                "label": "Juvenile diabetes (type 1)",
+                                "value": 1
+                              },
+                              {
+                                "label": "Adult diabetes (type 2)",
+                                "value": 2
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "contextName": "example",
+                      "layers": [
+                        "phenomics",
+                        "metabolomics"
+                      ],
+                      "tests": {
+                        "catCat": {
+                          "label": "Chi-squared test",
+                          "value": "chi2"
+                        },
+                        "catContM": {
+                          "label": "ANOVA",
+                          "value": "anova"
+                        },
+                        "catContB": {
+                          "label": "T-test",
+                          "value": "ttest"
+                        },
+                        "contCont": {
+                          "label": "Pearson correlation",
+                          "value": "pearson"
+                        }
+                      },
+                      "contextValue": 2
+                    },
+                    description="An example of the filtering parameters passed as a JSON string."
+                )
+            ]
+        ),
+    ],
+    responses={
+        200: OpenApiResponse(
+            description="Context-specific network calculation started successfully",
+            examples={
+                "application/json": {
+                    "status": "success",
+                    "message": "Context creation started"
+                }
+            },
+        ),
+        405: OpenApiResponse(
+            description=(
+                "Request was not processed due to one of the following reasons:\n"
+                "1. No context parameters were provided.\n"
+                "2. Invalid context parameters were provided."
+            ),
+            examples={
+                "No parameters": {
+                    "value": {
+                        "status": "error",
+                        "message": "No context parameters provided"
+                    }
+                },
+                "Invalid parameters": {
+                    "value": {
+                        "status": "error",
+                        "message": "Invalid context parameters provided"
+                    }
+                },
+            },
+        ),
+        429: OpenApiResponse(
+            description="Request was not processed due to one of the following reasons:\n"
+                        "1. Only one context calculation is allowed at a time.\n"
+                        "2. Max number of contexts reached.",
+            examples={
+                "Only one context": {
+                    "value": {
+                        "status": "error",
+                        "message": "You can only start one context creation at a time."
+                    }
+                },
+                "Max number of contexts": {
+                    "value": {
+                        "status": "error",
+                        "message": "You can only create up to 5 objects."
+                    }
+                },
+            }
+        )
+    }
+)
+
+
 
 filter_context_schema = extend_schema(
     summary="Provided a combination of parameters, returns a number with the remaining users after subsetting",
     description="Provided a combination of parameters with which the patients are subsetted, this endpoint will "
-                "return the number of patients, a context-specific network would include.",
+                "return the number of patients, a context-specific network would include. Note that if, in the backend,"
+                "the option 'PRESERVE_PRIVACY' is set, the number of patients returned will be an approximation.",
     parameters=[
         OpenApiParameter(
-            name='X-CSRFToken',
+            name='csrftoken',
             description='The CSRF token provided in the request header',
             required=True,
             type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
+            location=OpenApiParameter.COOKIE,
+        ),
+        OpenApiParameter(
+            name="sessionid",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="Session cookie for authentication.",
+            type=OpenApiTypes.STR,
         ),
         OpenApiParameter(
             name='subset_params',
@@ -107,59 +220,174 @@ filter_context_schema = extend_schema(
                     name="Example of test_params_format",
                     value={
                         "connect": {
-                            "inside": "and",
-                            "outside": "or"
+                            "inside": "AND",
+                            "outside": "OR"
                         },
                         "conditions": {
-                            "0": [
+                            "group-0": [
                                 {
-                                    "column": "x0so5385",
-                                    "operator": "less",
-                                    "value": 4000
+                                    "column": "Peptic/duodenal ulcer (treated last 12 months) (x0cd03d)",
+                                    "operator": "equals (=)",
+                                    "value": {
+                                        "label": "Yes",
+                                        "value": 1
+                                    }
                                 },
                                 {
-                                    "column": "x0_sex",
-                                    "operator": "equal",
-                                    "value": 1
+                                    "column": "Sex (x0_sex)",
+                                    "operator": "equals (=)",
+                                    "value": {
+                                        "label": "Male",
+                                        "value": 1
+                                    }
                                 }
                             ],
-                            "1": [
+                            "group-1": [
                                 {
-                                    "column": "x0so5385",
-                                    "operator": "more",
-                                    "value": 6000
+                                    "column": "Type of diabetes (x0dm02)",
+                                    "operator": "in",
+                                    "value": [
+                                        {
+                                            "label": "Juvenile diabetes (type 1)",
+                                            "value": 1
+                                        },
+                                        {
+                                            "label": "Adult diabetes (type 2)",
+                                            "value": 2
+                                        }
+                                    ]
                                 }
                             ]
-                        }
+                        },
+                        "contextName": "example",
+                        "layers": [
+                            "phenomics",
+                            "metabolomics"
+                        ],
+                        "tests": {
+                            "catCat": {
+                                "label": "Chi-squared test",
+                                "value": "chi2"
+                            },
+                            "catContM": {
+                                "label": "ANOVA",
+                                "value": "anova"
+                            },
+                            "catContB": {
+                                "label": "T-test",
+                                "value": "ttest"
+                            },
+                            "contCont": {
+                                "label": "Pearson correlation",
+                                "value": "pearson"
+                            }
+                        },
+                        "contextValue": 2
                     },
                     description="An example of the filtering parameters passed as a JSON string."
                 )
             ]
         )
-    ]
+    ],
+    responses={
+        200: OpenApiResponse(
+            description="Successfully retrieved the number of patients after subsetting",
+            examples={
+                "application/json": {
+                    "result": 100
+                }
+            }
+        ),
+        405: OpenApiResponse(
+            description=(
+                "Request was not processed due to one of the following reasons:\n"
+                "1. No context parameters were provided.\n"
+                "2. Invalid context parameters were provided."
+            ),
+            examples={
+                "No parameters": {
+                    "value": {
+                        "status": "error",
+                        "message": "No context parameters provided"
+                    }
+                },
+                "Invalid parameters": {
+                    "value": {
+                        "status": "error",
+                        "message": "Invalid context parameters provided"
+                    }
+                },
+            },
+        ),
+    }
 )
 
 delete_context_schema = extend_schema(
         summary="Delete a context of a user",
         description=(
-                "Delete a context of a user from all related tables given its Tab value."
+                "Delete a context of a user from all related tables given the context value. User must be logged in."
         ),
         parameters=[
             OpenApiParameter(
-                name='X-CSRFToken',
+                name='csrftoken',
                 description='The CSRF token provided in the request header.',
                 required=True,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.HEADER,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=True,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
             ),
             OpenApiParameter(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=True,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.HEADER,
+                location=OpenApiParameter.QUERY,
             ),
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully deleted the context",
+                examples={
+                    "application/json": {
+                        "status": "success",
+                        "message": "Context deleted successfully"
+                    }
+                }
+            ),
+            400: OpenApiResponse(
+                description="No context value provided",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Bad request"
+                    }
+                }
+            ),
+            401: OpenApiResponse(
+                description="Unauthorized",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Permission denied. User not authenticated"
+                    }
+                }
+            ),
+            404: OpenApiResponse(
+                description="Context not found",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Context not found"
+                    }
+                }
+            ),
+        }
     )
 
 variable_info_schema = extend_schema(
@@ -174,9 +402,30 @@ variable_info_schema = extend_schema(
                 description='The variable ID for which the distribution is required',
                 required=True,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.HEADER,
+                location=OpenApiParameter.QUERY,
             ),
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved the distribution statistics",
+                examples={
+                    "application/json": {
+                        "result": [0, 5],
+                        "type": "bar",
+                        "distribution": {
+                            'values': [0, 1, 2, 3, 4, 5],
+                            'labels': ['0', '1', '2', '3', '4', '5']
+                        }
+                    }
+                }
+            ),
+            400: OpenApiResponse(
+                description="No variable ID provided",
+            ),
+            404: OpenApiResponse(
+                description="Variable not found",
+            )
+        }
     )
 
 retrieve_context_schema = extend_schema(
@@ -187,11 +436,18 @@ retrieve_context_schema = extend_schema(
         ),
         parameters=[
             OpenApiParameter(
-                name='X-CSRFToken',
-                description='The CSRF token provided in the request header.',
+                name='csrftoken',
+                description='The CSRF token for authentication.',
                 required=True,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.HEADER,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=True,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
             ),
         ],
     )
