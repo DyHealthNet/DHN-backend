@@ -51,7 +51,7 @@ TABLE_IDS = {
 def query_identity_table(session, table, id_names, base_table, query_id, limit):
     # to best understand this query, you should print it out or look at it in the debugger
     # open a psql terminal and convince yourself that this query works
-    order = f"ORDER BY {table}.p_value ASC" if table.startswith('effects') else ""
+    order = f"ORDER BY {table}.p_value ASC" if table.startswith('edges') else ""
     identity_query = f"""
     SELECT
         {table}.*,
@@ -76,7 +76,7 @@ def query_identity_table(session, table, id_names, base_table, query_id, limit):
 def get_remaining_tables(session, table, id_names, base_table, query_id, limit):
     # Determine the edge type from the table name
     # check if the table name is in the table_ids
-    table_parts = tuple([x for x in table.split('_') if x not in {'effects', 'associates', 'affects'}])
+    table_parts = tuple([x for x in table.split('_') if x not in {'edges', 'associates', 'affects'}])
     table_keys = TABLE_IDS.get(table_parts)
     if not table_keys:
         return {}
@@ -89,7 +89,7 @@ def get_remaining_tables(session, table, id_names, base_table, query_id, limit):
     if not second_base:
         return {}
 
-    order = f"ORDER BY {table}.p_value ASC" if table.startswith('effects') else ""
+    order = f"ORDER BY {table}.p_value ASC" if table.startswith('edges') else ""
 
     remaining_sql = f"""
             SELECT
@@ -150,8 +150,8 @@ def get_edges(session, node_type, query_id, limit=10):
     base_table, identity_tables, remaining_tables = get_tables(session, node_type)
 
     # base table is like ('proteins', 'uniprot_id')
-    # identity tables is like [('effects_protein_protein', ['uniprot_id_1', 'uniprot_id_2']), ...]
-    # remaining tables is like [('effects_protein_metabolite', ['uniprot_id']), ...]
+    # identity tables is like [('edges_protein_protein', ['uniprot_id_1', 'uniprot_id_2']), ...]
+    # remaining tables is like [('edges_protein_metabolite', ['uniprot_id']), ...]
 
     # query the identity tables
     results = {}
@@ -234,10 +234,10 @@ if __name__ == '__main__':
     start = timeit.default_timer()
     query = f"""
     EXPLAIN
-    SELECT "effects_protein_protein"."protein_id_1", "effects_protein_protein"."protein_id_2" 
-    FROM "effects_protein_protein" 
-    WHERE ("effects_protein_protein"."protein_id_1" = 'x0so0410' OR "effects_protein_protein"."protein_id_2" = 'x0so0410') 
-    ORDER BY "effects_protein_protein"."p_value" ASC 
+    SELECT "edges_protein_protein"."protein_id_1", "edges_protein_protein"."protein_id_2" 
+    FROM "edges_protein_protein" 
+    WHERE ("edges_protein_protein"."protein_id_1" = 'x0so0410' OR "edges_protein_protein"."protein_id_2" = 'x0so0410') 
+    ORDER BY "edges_protein_protein"."p_value" ASC 
     LIMIT 10;
     """
     result = session.execute(text(query)).fetchall()
