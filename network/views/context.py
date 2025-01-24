@@ -180,7 +180,7 @@ class DeleteUserContext(generics.GenericAPIView):
 
         if not request.user.is_authenticated:
             return JsonResponse({'status': 'error', 'message': 'Permission denied. User not authenticated'},
-                                status=401) 
+                                status=401)
 
         logger.debug(f"Delete UserContextLink and associates for user {request.user.id} "
                      f"and Context with value {context_value}")

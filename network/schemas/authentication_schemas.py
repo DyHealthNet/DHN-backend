@@ -6,26 +6,29 @@ from drf_spectacular.types import OpenApiTypes
 login_schema = extend_schema(
     summary="Logs in user",
     description="Logs a user in using their username and password.",
-    request={
-        'application/json': {
-            'type': 'object',
-            'properties': {
-                'username': {
-                    'type': 'string',
-                    'description': 'Name of the user.',
-                },
-                'password': {
-                    'type': 'string',
-                    'description': 'Password of the user.',
-                },
-            },
-            'required': ['username', 'password'],
-            'example': {
-                'username': 'example_user',
-                'password': 'example_password',
-            }
-        },
-    },
+    parameters=[
+        OpenApiParameter(
+            name='csrftoken',
+            description='The CSRF token provided in the request header.',
+            required=True,
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.COOKIE,
+        ),
+        OpenApiParameter(
+            name='username',
+            description='Name of user',
+            required=True,
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+        ),
+        OpenApiParameter(
+            name='password',
+            description='Password of user',
+            required=True,
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+        )
+    ],
     responses={
         200: {
             'description': 'Login successful.',
@@ -64,15 +67,6 @@ login_schema = extend_schema(
             }
         },
     },
-    parameters=[
-        OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header.',
-            required=True,
-            type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
-        ),
-    ],
 )
 
 register_schema = extend_schema(
@@ -81,11 +75,11 @@ register_schema = extend_schema(
                 "username already exists. If the registration is successful, the user is logged in.",
     parameters=[
         OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header',
+            name='csrftoken',
+            description='The CSRF token for authentication.',
             required=True,
             type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
+            location=OpenApiParameter.COOKIE,
         ),
         OpenApiParameter(
             name='username',
@@ -102,6 +96,44 @@ register_schema = extend_schema(
             location=OpenApiParameter.QUERY,
         ),
     ],
+    responses={
+        200: {
+            'description': 'Registration successful.',
+            'type': 'object',
+            'properties': {
+                'status': {
+                    'type': 'string',
+                    'description': 'Status of the registration attempt.',
+                },
+                'message': {
+                    'type': 'string',
+                    'description': 'Message of the registration attempt.',
+                },
+            },
+            'example': {
+                'status': 'success',
+                'message': 'Registered and logged in successfully'
+            }
+        },
+        401: {
+            'description': 'Invalid credentials or missing fields.',
+            'type': 'object',
+            'properties': {
+                'status': {
+                    'type': 'string',
+                    'description': 'Status of the registration attempt.',
+                },
+                'message': {
+                    'type': 'string',
+                    'description': 'Message of the registration attempt.',
+                },
+            },
+            'example': {
+                'status': 'error',
+                'message': 'Username already exists'
+            }
+        },
+    }
 )
 
 logout_schema = extend_schema(
@@ -109,13 +141,58 @@ logout_schema = extend_schema(
     description="Logs the current user out if they are logged in using the provided CSRF token as credentials",
     parameters=[
         OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header',
+            name='csrftoken',
+            description='The CSRF token for authentication.',
             required=True,
             type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
+            location=OpenApiParameter.COOKIE,
+        ),
+        OpenApiParameter(
+            name="sessionid",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="Session cookie for authentication.",
+            type=OpenApiTypes.STR,
         ),
     ],
+    responses={
+        200: {
+            'description': 'Logout successful.',
+            'type': 'object',
+            'properties': {
+                'status': {
+                    'type': 'string',
+                    'description': 'Status of the logout attempt.',
+                },
+                'message': {
+                    'type': 'string',
+                    'description': 'Message of the logout attempt.',
+                },
+            },
+            'example': {
+                'status': 'success',
+                'message': 'Logged out successfully'
+            }
+        },
+        400: {
+            'description': 'No active session to log out from.',
+            'type': 'object',
+            'properties': {
+                'status': {
+                    'type': 'string',
+                    'description': 'Status of the logout attempt.',
+                },
+                'message': {
+                    'type': 'string',
+                    'description': 'Message of the logout attempt.',
+                },
+            },
+            'example': {
+                'status': 'error',
+                'message': 'No active session to log out from'
+            }
+        }
+    }
 )
 
 check_login_schema = extend_schema(
@@ -126,12 +203,19 @@ check_login_schema = extend_schema(
     ),
     parameters=[
         OpenApiParameter(
-            name='X-CSRFToken',
-            description='The CSRF token provided in the request header.',
+            name='csrftoken',
+            description='The CSRF token for authentication.',
             required=True,
             type=OpenApiTypes.STR,
-            location=OpenApiParameter.HEADER,
-        )
+            location=OpenApiParameter.COOKIE,
+        ),
+        OpenApiParameter(
+            name="sessionid",
+            location=OpenApiParameter.COOKIE,
+            required=True,
+            description="Session cookie for authentication.",
+            type=OpenApiTypes.STR,
+        ),
     ],
     responses={
         200: {
