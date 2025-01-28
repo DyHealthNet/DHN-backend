@@ -1,5 +1,6 @@
 import json
 
+import networkx as nx
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
 from rest_framework import generics
@@ -33,7 +34,7 @@ class GetNetworkView(generics.GenericAPIView):
         query_id = request.GET.get("q")
         node_type = request.GET.get("t")
         limit = request.GET.get("l")
-        perType = request.GET.get("p")
+        per_type = request.GET.get("p")
         significance_thresh = request.GET.get("s")
         try:
             # Deserialize the JSON string into a Python dictionary
@@ -67,7 +68,7 @@ class GetNetworkView(generics.GenericAPIView):
                     f'Limit l must be a valid integer, not {limit}', status=405)
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
-        edges, nodes, externals = network_query(query_id, node_type, limit, perType, significance_thresh, test_columns)
+        edges, nodes, externals = network_query(query_id, node_type, limit, per_type, significance_thresh, test_columns)
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -100,6 +101,7 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         query_id = request.GET.get("q")
         node_type = request.GET.get("t")
         limit = request.GET.get("l")
+        per_type = request.GET.get("p")
         significance_thresh = request.GET.get("s")
         context_value = request.GET.get("c")
 
@@ -148,7 +150,8 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                     f'Limit l must be a valid integer, not {limit}', status=405)
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
-        edges, nodes, externals = network_query(query_id, node_type, limit, significance_thresh, test_columns, context_id)
+        edges, nodes, externals = network_query(query_id, node_type, limit, per_type, significance_thresh,
+                                                test_columns, context_id)
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -237,6 +240,7 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         # Get request vars and test valid input
         significance_thresh = request.GET.get("s")
         context_value = request.GET.get("c")
+        spanning_tree = request.GET.get("m")
         try:
             # Deserialize the JSON string into a Python dictionary
             query_ids = set(json.loads(request.GET.get("q")))
@@ -289,6 +293,47 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                 result_nodes[results['source_table']].append(results)
             else:
                 result_nodes[results['source_table']] = [results]
+
+        logger.debug(f"result_edges {result_edges}")
+        if spanning_tree == "true":
+            # Create a graph
+            graph = nx.Graph()
+
+            # Add nodes to the graph
+            for node_group in result_nodes:
+                for node in result_nodes[node_group]:
+                    logger.debug(f"node {node}")
+                    graph.add_node(node['id'], description=node['description'], display_name=node['display_name'])
+
+            logger.debug(f"result_edges {result_edges}")
+            # Add edges to the graph (use 'final_p_value' as the weight)
+            edge_lookup = {}
+            edge_group_lookup = {}
+            filtered_edges = {}
+            for edge_group in result_edges:
+                logger.debug(f"edge_group {edge_group}")
+                filtered_edges[edge_group] = []
+                for edge in result_edges[edge_group]:
+                    node_ids = [value for key, value in edge.items() if key.endswith('_id')]
+                    if len(node_ids) == 2:  # Ensure there are exactly two nodes (for an undirected edge)
+                        node_1, node_2 = node_ids
+                        edge_key = tuple(sorted([node_1, node_2]))
+                        edge_lookup[edge_key] = edge
+                        edge_group_lookup[edge_key] = edge_group
+                        weight = edge['final_p_value']  # Using final_p_value as the weight
+                        graph.add_edge(node_1, node_2, weight=weight)
+
+            # Calculate the minimum spanning tree (MST)
+            mst = nx.minimum_spanning_tree(graph)
+
+            # Prepare the filtered edges
+            for u, v, weight in mst.edges(data=True):
+                edge_key = tuple(sorted([u, v]))
+                orig_edge = edge_lookup[edge_key]
+                orig_edge_group = edge_group_lookup[edge_key]
+                filtered_edges[orig_edge_group].append(orig_edge)
+            logger.debug(f"filtered_edges {filtered_edges}")
+            result_edges = filtered_edges
 
         combined_query = {
             'Nodes': result_nodes,

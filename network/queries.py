@@ -72,20 +72,20 @@ def query_refs(node_ids):
     return mapped_externals
 
 
-def network_query(query_id, type, limit, perType, thresh, test_columns, context_id=None):
+def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
     all_edges = []
     node_ids = set()
     print(f"test columns {test_columns}")
     print(f"significance thresh {thresh}")
     print(f"limit {limit}")
-    print(f"perType {perType}")
+    print(f"per_type {per_type}")
 
     # Query edges
     for table in BASE_MODELS.keys():
         print(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
-        count = table.lower().count(type.lower())
+        count = table.lower().count(node_type.lower())
         if count == 0:
             continue
 
@@ -97,7 +97,7 @@ def network_query(query_id, type, limit, perType, thresh, test_columns, context_
             print(f"Skipping empty table: {table}")
             continue  # Skip processing for empty tables
 
-        # Check which columns are available for the type and multiple testing correction
+        # Check which columns are available for the node_type and multiple testing correction
         valid_columns = get_valid_columns(table_model, test_columns)
         if not valid_columns:
             continue
@@ -111,33 +111,33 @@ def network_query(query_id, type, limit, perType, thresh, test_columns, context_
             )
 
         if count == 1:
-            filter_query = Q(**{type: query_id})
-            type_2 = table.split('Edges')[1].replace(type.capitalize(), '').lower()
+            filter_query = Q(**{node_type: query_id})
+            type_2 = table.split('Edges')[1].replace(node_type.capitalize(), '').lower()
         else:
-            filter_query = Q(**{f'{type}_1': query_id}) | Q(**{f'{type}_2': query_id})
+            filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
         # Apply filters, order, and threshold
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
         # Apply limit if given
-        if limit is not None and perType:
+        if limit is not None and per_type:
             queryset = queryset[:limit]
 
         queryset = queryset.values()
 
         # Collect node IDs
         if count == 1:
-            node_ids.update(*zip(*queryset.values_list(f'{type}_id', f'{type_2}_id')))
+            node_ids.update(*zip(*queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
         else:
-            node_ids.update(*zip(*queryset.values_list(f'{type}_1_id', f'{type}_2_id')))
+            node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
 
         # Add results to the correct container
-        if perType:
+        if per_type:
             edges[table] = queryset
         else:
             all_edges.extend(queryset)
 
-    if not perType:
+    if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
 
         top_edges = all_edges_sorted[:limit]
@@ -253,12 +253,12 @@ def external_query(query_id, cohort_node=True):
         if not ref_ids:
             # If no cohort node can be mapped, it must be a purely external node
             # Get the node type of the external node
-            type = external_nodes_model.objects.filter(Q(node_id=ext_id)).values()[0]['source_table']
-            type_model = apps.get_model('network', type.capitalize())
+            node_type = external_nodes_model.objects.filter(Q(node_id=ext_id)).values()[0]['source_table']
+            type_model = apps.get_model('network', node_type.capitalize())
             # Retrieve the external node using the primary key
             unknown_nodes = type_model.objects.filter(Q(pk=ext_id)).values()
             for node in unknown_nodes:
-                node["source_table"] = "external_" + type
+                node["source_table"] = "external_" + node_type
             external_nodes.append(unknown_nodes)
             id_mapping.update({ext_id: [ext_id]})  # map to itself if no cohort node is available
         else:
