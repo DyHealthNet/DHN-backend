@@ -330,7 +330,10 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
     # Get Limit for node count retrival
     if get_limit:
         limit = request.GET.get("l")
-        if limit:
+        # limit can be set to None if request is based on significance filtering instead of Node count
+        if limit == "" or limit is None:
+            limit = None
+        else:
             try:
                 limit = int(limit)
                 if limit > 50:
