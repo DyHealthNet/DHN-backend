@@ -1,7 +1,8 @@
-import json
 from network.score_calculation import separate_cat_cont
 from network.utils.startup_utils import *
 from django.conf import settings
+import csv
+from collections import defaultdict
 
 
 def _load_single_file(file_path: str, id_column: str, column_list: list[str] = None) -> pd.DataFrame:
@@ -81,6 +82,15 @@ class DataManager:
 
         self._metabolites = _load_single_file(get_file_attr('metabolites.path'), id_column=settings.PATIENT_ID_COLUMN)
 
+    @staticmethod
+    def _load_label_map(file_path: str):
+        full_map = defaultdict(dict)
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
+            for key, subkey, value in csv.reader(lines):
+                full_map[key][subkey] = value
+        return full_map
+
     def _create_combinations(self):
         self._all_data = join_dataframes([self._phenotypes, self._proteins, self._metabolites])
 
@@ -95,8 +105,7 @@ class DataManager:
         # If file exists open the file and load the JSON data
         # Get the mapping of values (e.g. 0:female, 1:male) for a nicer representation
         if os.path.isfile(get_file_attr('labels.path')):
-            with open(get_file_attr('labels.path'), 'r') as file:
-                self._var_label_map = json.load(file)
+            self._var_label_map = self._load_label_map(get_file_attr('labels.path'))
 
     def is_loaded(self) -> bool:
         """
