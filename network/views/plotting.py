@@ -7,6 +7,7 @@ from rest_framework import generics
 from django.http import HttpResponseBadRequest
 from django.conf import settings
 from drf_spectacular.utils import extend_schema_view
+from scipy.stats import gaussian_kde
 
 from network.contexts.contexts import subset_patients, context_subset
 from network.models import CohortVariant
@@ -16,9 +17,7 @@ from network.utils.db_utils import get_context
 from network.utils.utils import *
 
 
-@extend_schema_view(
-    get=get_table_schema
-)
+@extend_schema_view(get=get_table_schema)
 class GetTableView(generics.GenericAPIView):
     data_manager = None
 
@@ -163,9 +162,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
         return response
 
 
-@extend_schema_view(
-    get=get_bar_count_schema
-)
+@extend_schema_view(get=get_bar_count_schema)
 class GetDataBarCountView(generics.GenericAPIView):
     data_manager = None
 
@@ -252,10 +249,119 @@ class GetDataBarCountView(generics.GenericAPIView):
         response = add_cache_header(response, request.GET.get('default'))
         return response
 
+#@extend_schema_view(get=get_density_plot_schema)
+class GetDataDensityPlotView(generics.GenericAPIView):
+    data_manager = None
 
-@extend_schema_view(
-    get=get_box_plot_schema
-)
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+
+        send_warning = False
+
+        # Get request vars
+        x = request.GET.get("x")
+        c = request.GET.get("c")
+        bw_method = float(request.GET.get("bandwidth"))
+
+        # Check if x is provided
+        if x is None or x == "":
+            return HttpResponseBadRequest('Variable x must be declared.', status=405)
+
+        # Extract var_id from x (for phenotype or protein)
+        x_idx = extract_var_id(x)
+
+        density_plot_df = context_subset(request, all_data)
+
+        # Check if there is in general enough data != nan to ensure privacy protection
+        if settings.PRESERVE_PRIVACY:
+            if len(density_plot_df[x_idx].dropna()) < settings.CRITICAL_NUMBER:
+                return {
+                    'labels': [],
+                    'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
+                                  'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
+                    "warning" : "Not enough data available to ensure privacy protection."
+                }
+
+        if x_idx not in density_plot_df.columns:
+            return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
+
+        min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
+
+        kde = gaussian_kde(density_plot_df[x_idx], bw_method=bw_method)
+
+        x_vals = np.linspace(min_val, max_val, 100)
+        y_vals = kde(x_vals)  # Get the density for these x values
+
+        # Ensure y_vals is normalized to fit your chart (integral = 1 for proper normalization)
+        y_vals /= np.sum(y_vals) * (x_vals[1] - x_vals[0])  # Normalize
+
+        temp = []
+
+        if c is not None and c != "":
+            # Extract color variable
+            c_idx = extract_var_id(c)
+
+            if c_idx not in density_plot_df.columns:
+                return HttpResponseBadRequest('Variable c must be a valid variable of the data', status=405)
+
+            if c == x:
+                return HttpResponseBadRequest('Variable x and c must be different', status=405)
+
+            # Group by color variable
+            grouped_data = density_plot_df.groupby(c_idx)[x_idx]
+
+            num_colors = len(density_plot_df[c_idx].unique())
+            colormap_local = [tuple(map(lambda x: round(x * 255), color)) for color in
+                              get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)]
+
+            for idx, (group_name, data) in enumerate(grouped_data):
+                # Check per group if there is enough data != nan to ensure privacy protection
+                # if not skip this group
+                if settings.PRESERVE_PRIVACY:
+                    if len(data.dropna()) < settings.CRITICAL_NUMBER:
+                        send_warning = True
+                        continue
+                # KDE for each group
+                kde_group = gaussian_kde(data, bw_method=0.1)
+                y_vals_group = kde_group(x_vals)
+                y_vals_group /= np.sum(y_vals_group) * (x_vals[1] - x_vals[0])  # Normalize
+
+                r, g, b = colormap_local[idx]
+                temp.append({
+                    "label": var_label_mapping(c_idx, group_name, var_label_map),
+                    "borderColor": f"rgb({r},{g},{b})",
+                    "backgroundColor": f"rgba({r},{g},{b}, 0.4)",
+                    "data": y_vals_group.tolist(),
+                    "fill": True,
+                    "tension": 0.3,
+                })
+        else:
+            # KDE for whole cohort (if no color variable is provided)
+            r, g, b = [tuple(map(lambda x: round(x * 255), color)) for color in
+                       get_palette(request.GET.get('colors', 'tab10'), n_colors=1)][0]
+            temp.append({
+                "label": "Whole Cohort",
+                "borderColor": f"rgb({r},{g},{b})",
+                "backgroundColor": f"rgba({r},{g},{b}, 0.4)",
+                "data": y_vals.tolist(),
+                "fill": True,
+                "tension": 0.3,
+            })
+
+        # Prepare data for the response
+        req_data = {
+            'labels': np.round(x_vals, 2).tolist(),
+            'datasets': temp,
+        }
+        if send_warning:
+            req_data["warning"] = "Some groups have been removed to protect privacy."
+
+        response = JsonResponse(req_data, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
+
+
+@extend_schema_view(get=get_box_plot_schema)
 class GetDataBoxPlotView(generics.GenericAPIView):
     data_manager = None
 
@@ -373,9 +479,7 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         return response
 
 
-@extend_schema_view(
-    get=heatmap_schema
-)
+@extend_schema_view(get=heatmap_schema)
 class GetDataHeatmapView(generics.GenericAPIView):
     data_manager = None
 
@@ -427,5 +531,125 @@ class GetDataHeatmapView(generics.GenericAPIView):
         req_data_dict["values"] = values
 
         response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
+
+#@extend_schema_view(get=get_density_plot_schema)
+class GetDataDensityHistogramPlotView(generics.GenericAPIView):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+
+        send_warning = False
+
+        # Get request vars
+        x = request.GET.get("x")
+        c = request.GET.get("c")
+        try:
+            num_bins = int(request.GET.get("bins", 50))  # Default to 50 if 'bins' is not provided
+        except ValueError:
+            num_bins = 50  # If the conversion fails, fallback to 50
+
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "":
+            return HttpResponseBadRequest('Variable x must be declared.', status=405)
+        # Get var_id from request var (stored in brackets at the end of the request var which is built
+        # from description + (var_id) (in case of phenotypes and proteins))
+        x_idx = extract_var_id(x)
+
+        density_plot_df = context_subset(request, all_data)
+
+        # Check if there is in general enough data != nan to ensure privacy protection
+        if settings.PRESERVE_PRIVACY:
+            if len(density_plot_df[x_idx].dropna()) < settings.CRITICAL_NUMBER:
+                return {
+                    'labels': [],
+                    'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
+                                  'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
+                    "warning" : "Not enough data available to ensure privacy protection."
+                }
+
+        if x_idx not in density_plot_df.columns:
+            return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
+
+        min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
+        bin_width = (max_val - min_val) / num_bins
+
+        # Create histogram bins and bin centers for the entire data
+        bins = np.linspace(min_val, max_val, num_bins + 1)
+        bin_centers = (bins[:-1] + bins[1:]) / 2  # Compute the bin centers
+
+        def compute_density(data):
+
+            # Count the number of values in each bin
+            hist, _ = np.histogram(data, bins=bins)
+
+            # Normalize the histogram to get the density (integral of density should be 1)
+            total = len(data)
+            density = hist / (total * bin_width)
+
+            return density.tolist()
+
+        temp = []
+
+        if c is not None and c != "":
+            # Get var_id from request var (stored in brackets at the end of the requents var which is built
+            # from description + (var_id) (in case of phenotypes and proteins))
+            c_idx = extract_var_id(c)
+            # Check if c var is present in our data -> else throw HttpResponseBadRequest
+            if c_idx not in density_plot_df.columns:
+                return HttpResponseBadRequest(
+                    'Variable c, if declared, must be a valid variable of the data', status=405)
+            # Check if variables are equal because this will not return meaningful results and can throw an error later
+            if c == x:
+                return HttpResponseBadRequest('Variable x and c must be different', status=405)
+
+            # Group by the color variable and calculate density for each group
+            grouped_data = density_plot_df.groupby(c_idx)[x_idx]
+
+            num_colors = len(density_plot_df[c_idx].unique())
+            colormap_local = [tuple(map(lambda x: round(x * 255), color)) for color
+                            in get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)]
+            print(f"colormap_local: {colormap_local}")
+
+            for idx, (group_name, data) in enumerate(grouped_data):
+                # Check per group if there is enough data != nan to ensure privacy protection
+                # if not skip this group
+                if settings.PRESERVE_PRIVACY:
+                    if len(data.dropna()) < settings.CRITICAL_NUMBER:
+                        send_warning = True
+                        continue
+                r, g, b = colormap_local[idx]
+                logger.debug(f"compute_density(data): {compute_density(data)}")
+                temp.append({"label": var_label_mapping(c_idx, group_name, var_label_map),
+                                "borderColor": f"rgb({r},{g},{b})",
+                                "backgroundColor": f"rgba({r},{g},{b}, 0.4)",
+                                "data": compute_density(data),
+                                "fill": True,
+                                "tension": 0.3,}),
+
+        # if no color var c is given only group by x var
+        else:
+            # Add dict for y axis containing the y label, black as the color and the aggregated values
+            r,g,b = [tuple(map(lambda x: round(x * 255), color)) for color
+                            in get_palette(request.GET.get('colors', 'tab10'), n_colors=1)][0]
+            temp.append({
+                "label": "Whole Cohort",
+                "borderColor": f"rgba({r},{g},{b})",
+                "backgroundColor": f"rgba({r},{g},{b}, 0.4)",
+                "data": compute_density(density_plot_df[x_idx]),
+                "fill": True,
+                "tension": 0.3,
+            })
+        # Store unique x_var values
+        req_data = {
+            'labels': np.round(bin_centers,2).tolist(),
+            'datasets': temp,
+        }
+        if send_warning:
+            req_data["warning"] = "Some groups have been removed to protect privacy."
+
+        response = JsonResponse(req_data, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
         return response
