@@ -249,6 +249,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         response = add_cache_header(response, request.GET.get('default'))
         return response
 
+
 #@extend_schema_view(get=get_density_plot_schema)
 class GetDataDensityPlotView(generics.GenericAPIView):
     data_manager = None
@@ -287,7 +288,7 @@ class GetDataDensityPlotView(generics.GenericAPIView):
 
         min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
 
-        kde = gaussian_kde(density_plot_df[x_idx], bw_method=bw_method)
+        kde = gaussian_kde(density_plot_df[x_idx].dropna(), bw_method=bw_method)
 
         x_vals = np.linspace(min_val, max_val, 100)
         y_vals = kde(x_vals)  # Get the density for these x values
