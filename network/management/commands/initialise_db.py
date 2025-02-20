@@ -15,11 +15,15 @@ logger = logging.getLogger('network')
 
 
 class Command(BaseCommand):
+
+    def add_arguments(self, parser):
+        parser.add_argument('-f', '--force', action='store_true', help='Force the initialization of the database')
+
     def handle(self, *args, **options):
         try:
             # check if the database is already initialized
             logger.debug(f"Total cohort rows: {db_utils.get_total_cohort_rows()}")
-            if db_utils.get_total_cohort_rows() > 0:
+            if db_utils.get_total_cohort_rows() > 0 and not options['force']:
                 logger.info("Database is already filled. Skipping the initialization.")
                 return
 
