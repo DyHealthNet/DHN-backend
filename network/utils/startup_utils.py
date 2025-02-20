@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import logging
 from django.conf import settings
+import numpy as np
 
 logger = logging.getLogger('network')
 
@@ -19,7 +20,8 @@ def join_dataframes(dataframes: list):
     result = filled_dfs[0]
 
     for df in filled_dfs[1:]:
-        result = pd.merge(result, df, left_index=True, right_index=True, how='inner')
+        result = pd.merge(result, df, left_index=True, right_index=True, how='outer')
+    logger.debug(f"Joined dataframes has shape: {result.shape}")
     return result
 
 
@@ -44,6 +46,9 @@ def check_files_and_return(path, id_column=None, column_list=None, return_datase
 
     logger.debug(f"Reading file {parquet_file}")
     dataset = pd.read_parquet(parquet_file)
+
+    # NA_value to real nan
+    dataset.replace(settings.NAN_VALUE, np.nan, inplace=True)
 
     # Check that id_column exists if provided
     if id_column:

@@ -16,7 +16,7 @@ EXCLUDED_EFFECTS = {'chi2', 't', 'F', 'U', 'H'}
 def df_to_numpy(df: pd.DataFrame):
     cols = df.columns
     df = df.fillna(settings.NAN_VALUE)
-    df_np = df.to_numpy().astype(np.float64)
+    df_np = df.to_numpy(dtype=np.float64).copy()
     return df_np, cols
 
 
@@ -74,30 +74,26 @@ def combine_tests(cat_cat, cont_cont, cat_cont_b, cat_cont_m) -> pd.DataFrame:
     :param p_results: the parametric results
     :return: results with both tests combined
     """
-    merge_needed = False
-    id_pairs = set()
     all_results = []
     start = timeit.default_timer()
 
     for results in [cat_cat, cont_cont, cat_cont_b, cat_cont_m]:
+        merged = None
         for test in results:
             if test is None:
                 continue
-            all_results.append(test)
-            test_pairs = set(zip(test['label1'], test['label2']))
-            if id_pairs & test_pairs:
-                merge_needed = True
-            id_pairs.update(test_pairs)
+            # Convert all columns except 'label1' and 'label2' to float32
+            cols_to_convert = test.columns.difference(['label1', 'label2'])
+            test[cols_to_convert] = test[cols_to_convert].astype('float32')
 
-    # Merge or concatenate results
-    if merge_needed:
-        logger.debug("Merging all results")
-        out = reduce(lambda left, right: pd.merge(left, right, on=['label1', 'label2'], how='outer'), all_results)
-    else:
-        out = pd.concat(all_results, ignore_index=True)
+            if merged is None:
+                merged = test
+                continue
+            merged = pd.merge(merged, test, on=['label1', 'label2'], how='outer')
+        all_results.append(merged)
 
+    out = pd.concat(all_results, ignore_index=True)
     logger.debug(f"Finished combining of all results in {timeit.default_timer() - start:2f} seconds")
-
     return out
 
 
@@ -114,7 +110,7 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
     # than two unique values
     if cat_phenotypes.shape[1] < 2:
         return [None, None]
-    cat_phenotypes_more = cat_phenotypes.loc[:, cat_phenotypes.nunique() > 2]
+    cat_phenotypes_more = cat_phenotypes.loc[:, cat_phenotypes.nunique() > 2].copy()
 
     cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
     cat_phenotypes_more, cat_cols_more = df_to_numpy(cat_phenotypes_more)
@@ -122,14 +118,14 @@ def nanpy_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.DataFrame, 
     more_cont_out_a, more_cont_out_k = None, None
     done_test_a, done_test_k = None, None
 
-    if tests in ['parametric', 'anova']:
+    if tests in ['all', 'anova']:
         more_cont_out_a = nanpy.anova(cat_phenotypes_more, cont_phenotypes, axis=1,
-                                      threads=settings.NUM_WORKERS)
+                                      threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
         done_test_a = "anova"
 
-    if tests in ['non-parametric', 'kruskal-wallis']:
+    if tests in ['all', 'kruskal-wallis']:
         more_cont_out_k = nanpy.kruskal_wallis(cat_phenotypes_more, cont_phenotypes, axis=1,
-                                               threads=settings.NUM_WORKERS)
+                                               threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
         done_test_k = "kruskal"
 
     return [nanpy_formatting(more_cont_out_a, [cat_cols_more, cont_cols], done_test_a),
@@ -149,7 +145,7 @@ def nanpy_binary_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.Data
     """
     if cat_phenotypes.shape[1] < 2:
         return [None, None, None, None]
-    cat_phenotypes_two = cat_phenotypes.loc[:, cat_phenotypes.nunique() == 2]
+    cat_phenotypes_two = cat_phenotypes.loc[:, cat_phenotypes.nunique() == 2].copy()
     cont_phenotypes, cont_cols = df_to_numpy(cont_phenotypes)
     cat_phenotypes_two, cat_cols_two = df_to_numpy(cat_phenotypes_two)
 
@@ -157,24 +153,26 @@ def nanpy_binary_cat_cont(cont_phenotypes: pd.DataFrame, cat_phenotypes: pd.Data
     done_test_t, done_test_a, done_test_m, done_test_k = None, None, None, None
 
     if test in ['all', 't-test']:
-        logger.info("Doing parametric tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
+        logger.debug("Doing t-test with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         two_cont_out_t = nanpy.ttest(cat_phenotypes_two, cont_phenotypes, axis=1,
-                                     threads=settings.NUM_WORKERS)
+                                     threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
         done_test_t = "ttest"
-    if test in ['anova', 'all']:
-        logger.info("Doing ANOVA tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
+    if test in ['all', 'anova']:
+        logger.debug("Doing ANOVA tests with shapes: %s and %s", cat_phenotypes_two.shape, cont_phenotypes.shape)
         two_cont_out_a = nanpy.anova(cat_phenotypes_two, cont_phenotypes, axis=1,
-                                     threads=settings.NUM_WORKERS)
+                                     threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE)
         done_test_a = "anova"
 
     if test in ['all', 'mann-whitney u']:
-        logger.debug("Doing non-parametric tests with shape: %s", cat_phenotypes_two.shape)
-        two_cont_out_m = nanpy.mwu(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS)
+        logger.debug("Doing mwu tests with shape: %s", cat_phenotypes_two.shape)
+        two_cont_out_m = nanpy.mwu(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS,
+                                   nan_value=settings.NAN_VALUE)
         done_test_m = "mwu"
 
-    if test in ['kruskal-wallis', 'all']:
+    if test in ['all', 'kruskal-wallis']:
         logger.debug("Doing Kruskal-Wallis tests with shape: %s", cat_phenotypes_two.shape)
-        two_cont_out_k = nanpy.kruskal_wallis(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS)
+        two_cont_out_k = nanpy.kruskal_wallis(cat_phenotypes_two, cont_phenotypes, axis=1, threads=settings.NUM_WORKERS,
+                                              nan_value=settings.NAN_VALUE)
         done_test_k = "kruskal"
 
     return [nanpy_formatting(two_cont_out_t, [cat_cols_two, cont_cols], done_test_t),
@@ -190,15 +188,16 @@ def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
     cont_out_p, cont_out_s = None, None
     test_p, test_s = None, None
 
-    if test in ['pearson', 'all']:
+    if test in ['all', 'pearson']:
         logger.debug("Doing Pearson correlation with shape: %s", cont_phenotypes.shape)
         cont_out_p = nanpy.pearsonr(cont_phenotypes, nan_value=settings.NAN_VALUE, threads=settings.NUM_WORKERS,
                                     axis=1)
         test_p = "pearson"
 
-    if test in ['spearman', 'all']:
+    if test in ['all', 'pearson']:
         logger.debug("Doing Spearman correlation with shape: %s", cont_phenotypes.shape)
-        cont_out_s = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, axis=1)
+        cont_out_s = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE,
+                                     axis=1)
         test_s = "spearman"
     return [nanpy_formatting(cont_out_p, [cont_cols], test_p),
             nanpy_formatting(cont_out_s, [cont_cols], test_s)]
@@ -211,9 +210,9 @@ def order_categories(data: pd.DataFrame):
     :return: the ordered dataframe
     """
     data = data.copy()
-    order_table = {col: {o: n for n, o in enumerate(sorted(data[col].unique()))} for col in data.columns}
+    order_table = {col: {o: n for n, o in enumerate(sorted(data[col].dropna().unique()))} for col in data.columns}
     for col, mapping in order_table.items():
-        data[col] = data[col].map(mapping).fillna(settings.NAN_VALUE).astype(int)
+        data[col] = data[col].map(mapping).astype(pd.Int64Dtype())
     return data
 
 
@@ -266,16 +265,18 @@ def calculate_association_scores(cat_data, cont_data, tests: dict[str, dict] | s
 
     start = timeit.default_timer()
 
+    # Continuous-Categorical association testing
+    cat_cont_more = nanpy_cat_cont(cont_data, cat_data, tests.get('catContM'))
+    logger.info("Finished continuous-categorical score creation")
+
+    cat_cont_two = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('catContB'))
+    logger.info("Finished continuous-binary score creation")
+
     cat_cat_results = nanpy_cat_cat(cat_data)
     logger.info("Finished categorical-categorical score creation")
 
     cont_cont_results = nanpy_cont_cont(cont_data, tests.get('contCont'))
     logger.info("Finished continuous-continuous score creation")
-
-    # Continuous-Categorical association testing
-    cat_cont_more = nanpy_cat_cont(cont_data, cat_data, tests.get('catContM'))
-    cat_cont_two = nanpy_binary_cat_cont(cont_data, cat_data, tests.get('catContB'))
-    logger.info("Finished continuous-categorical score creation")
 
     scores = combine_tests(cat_cat_results, cont_cont_results, cat_cont_two, cat_cont_more)
     logger.debug("%s pairwise association scores were calculated in %s seconds", scores.shape[0],

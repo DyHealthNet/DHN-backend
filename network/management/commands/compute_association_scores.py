@@ -41,28 +41,32 @@ class Command(BaseCommand):
                            f"These variables will be ignored.")
 
         # Extract categorical phenotypes
-        phenotypes_cat = phenotypes.iloc[:, phenotypes.columns.isin(
-            phenotypes_meta[phenotypes_meta.type.str.lower().isin(["categorical", "boolean"])].label)].copy()
-        cat_data = phenotypes_cat.copy()
+        cat_columns = phenotypes_meta[phenotypes_meta.type.str.lower().isin(["categorical", "boolean"])]["label"].tolist()
+        cat_data = phenotypes.loc[:, phenotypes.columns.isin(cat_columns)].copy()
 
         # Extract continuous phenotypes
-        phenotypes_cont = phenotypes.iloc[:, phenotypes.columns.isin(
-            phenotypes_meta[phenotypes_meta.type.str.lower().isin(["integer", "float"])].label)].copy()
-        phenotypes_cont = phenotypes_cont.reset_index()
-        phenotypes_cont[id_column] = phenotypes.index
+        cont_columns = phenotypes_meta[phenotypes_meta.type.str.lower().isin(["integer", "float"])]["label"].tolist()
+        cont_data = phenotypes.loc[:, phenotypes.columns.isin(cont_columns)].copy()
+
+        cat_data.reset_index(inplace=True)
+        cont_data.reset_index(inplace=True)
 
         # Merge metabolites and proteins to continuous phenotypes if provided
-        cont_data = phenotypes_cont
         if metabolites is not None:
             logger.debug(f"Metabolite data: {metabolites.shape[0]} samples, {metabolites.shape[1]} variables.")
-            cont_data = pd.merge(metabolites, cont_data, on=id_column)
+            cont_data = pd.merge(metabolites, cont_data, on=id_column, how='outer')
         if proteins is not None:
             logger.debug(f"Protein data: {proteins.shape[0]} samples, {proteins.shape[1]} variables.")
-            cont_data = pd.merge(proteins, cont_data, on=id_column)
+            cont_data = pd.merge(proteins, cont_data, on=id_column, how='outer')
 
-        # make ID column the index
+        # Check if all samples of cat_data are in cont_data and vice versa
+        all_sample_ids = pd.DataFrame({id_column: pd.concat([cont_data[id_column], cat_data[id_column]]).unique()})
+        cont_data = pd.merge(cont_data, all_sample_ids, on=id_column, how='outer')
+        cat_data = pd.merge(cat_data, all_sample_ids, on=id_column, how='outer')
+
+        cat_data.set_index(id_column, inplace=True)
         cont_data.set_index(id_column, inplace=True)
-        logger.debug(f"Total data: {phenotypes.shape[0]} samples, {phenotypes.shape[1]} variables.")
+
         return cat_data, cont_data
 
 

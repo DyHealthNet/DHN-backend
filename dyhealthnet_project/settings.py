@@ -25,6 +25,7 @@ env = environ.Env(
     CRITICAL_NUMBER=(int, 10),
     NO_CACHE=(bool, False),
     REDIS_URL=(str, 'localhost:6379'),
+    NAN_VALUE=(int, -89),
 
     PROTEIN_PATH=(str, None),
     PROTEIN_META_PATH=(str, None),
@@ -340,7 +341,7 @@ INPUT_FILES = {
 PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
 
 
-NAN_VALUE = -999.0
+NAN_VALUE = env("NAN_VALUE", cast=int)
 ALPHA = 0.05
 DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
 
