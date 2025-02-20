@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 import sys
 import pandas as pd
-import network.utils as utils
+import network.utils.db_utils as db_utils
 import environ
 import subprocess
 import traceback
@@ -17,6 +17,12 @@ logger = logging.getLogger('network')
 class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
+            # check if the database is already initialized
+            logger.debug(f"Total cohort rows: {db_utils.get_total_cohort_rows()}")
+            if db_utils.get_total_cohort_rows() > 0:
+                logger.info("Database is already filled. Skipping the initialization.")
+                return
+
             logger.info("Initializing the database. This will probably take multiple hours.")
             self.init_db()
 
