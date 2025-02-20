@@ -194,7 +194,7 @@ def nanpy_cont_cont(cont_phenotypes: pd.DataFrame, test: str):
                                     axis=1)
         test_p = "pearson"
 
-    if test in ['all', 'pearson']:
+    if test in ['all', 'spearman']:
         logger.debug("Doing Spearman correlation with shape: %s", cont_phenotypes.shape)
         cont_out_s = nanpy.spearmanr(cont_phenotypes, threads=settings.NUM_WORKERS, nan_value=settings.NAN_VALUE,
                                      axis=1)

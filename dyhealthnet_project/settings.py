@@ -342,6 +342,7 @@ PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
 
 
 NAN_VALUE = env("NAN_VALUE", cast=int)
+# These can be used to filter out insignificant edges
 ALPHA = 0.05
 DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
 

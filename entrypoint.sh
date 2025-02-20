@@ -3,10 +3,6 @@
 # Exit on error
 set -e
 
-# Run migrations
-python manage.py makemigrations
-python manage.py migrate
-
 # print the value of CALCULATED_EDGES_PATH
 echo "CALCULATED_EDGES_PATH: $CALCULATED_EDGES_PATH"
 
@@ -21,6 +17,10 @@ fi
 
 # Initialize the database
 python manage.py initialise_db
+
+# Run migrations
+python manage.py makemigrations
+python manage.py migrate
 
 # Create a superuser if it doesn’t exist
 python manage.py shell <<EOF

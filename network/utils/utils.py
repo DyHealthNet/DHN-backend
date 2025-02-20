@@ -117,9 +117,9 @@ def var_label_mapping(var_id, label, var_label_map_dict):
     # -> when the label is not contained in the dict (e.g. for proteins, metabolites and some phenotypes)
     # the original label is returned
     if isinstance(label, list):
-        return [curr_var_label_dict.get(str(la), str(la)) for la in label]
+        return [curr_var_label_dict.get(str(int(la)), str(int(la))) for la in label]
     else:
-        return curr_var_label_dict.get(str(label), str(label))
+        return curr_var_label_dict.get(str(int(label)), str(int(label)))
 
 
 def plot_variables(request):
