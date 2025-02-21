@@ -16,4 +16,7 @@ def get_total_cohort_rows():
     # and return the total number of rows
     cursor = connection.cursor()
     cursor.execute("SELECT SUM(n_live_tup) FROM pg_stat_user_tables WHERE relname LIKE '%cohort%'")
-    return cursor.fetchone()[0]
+    result = cursor.fetchone()[0]
+    if not result:
+        return 0
+    return result
