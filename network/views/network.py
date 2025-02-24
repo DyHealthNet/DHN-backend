@@ -1,4 +1,5 @@
 import json
+import timeit
 
 import networkx as nx
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -33,9 +34,11 @@ class GetNetworkView(generics.GenericAPIView):
         request_load = read_in_network_request(request, get_node_type=True, get_limit=True, get_per_type=True)
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
+        start = timeit.default_timer()
         edges, nodes, externals = network_query(request_load["query_id"], request_load["node_type"],
                                                 request_load["limit"], request_load["per_type"],
                                                 request_load["significance_thresh"], request_load["test_columns"])
+        logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
 
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -71,10 +74,12 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                                                get_context_value=True)
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
+        start = timeit.default_timer()
         edges, nodes, externals = network_query(request_load["query_id"], request_load["node_type"],
                                                 request_load["limit"], request_load["per_type"],
                                                 request_load["significance_thresh"], request_load["test_columns"],
                                                 request_load["context_id"])
+        logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -94,7 +99,7 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
             'Edges': result_edges,
             'External Edges': list(externals)
         }
-        logger.debug(f"Combined Query {combined_query}")
+        #logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
 
 
@@ -109,8 +114,10 @@ class GetGroupNetworkView(generics.GenericAPIView):
         request_load = read_in_network_request(request, query_indiv_node=False, get_spanning_tree=True)
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
+        start = timeit.default_timer()
         edges, nodes, externals = network_group_query(request_load["query_ids"], request_load["significance_thresh"],
                                                       request_load["test_columns"])
+        logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -135,7 +142,7 @@ class GetGroupNetworkView(generics.GenericAPIView):
             'External Edges': list(externals),
             'message': message,
         }
-        logger.debug(f"Combined Query {combined_query}")
+        #logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
 
 
@@ -148,8 +155,10 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         request_load = read_in_network_request(request, query_indiv_node=False,
                                                get_context_value=True, get_spanning_tree=True)
         # retrieve chris nodes & edges + external edges using queries/network_queries function
+        start = timeit.default_timer()
         edges, nodes, externals = network_group_query(request_load["query_ids"], request_load["significance_thresh"],
                                                       request_load["test_columns"], request_load["context_id"])
+        logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
         for table, results in edges.items():
@@ -174,7 +183,7 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
             'External Edges': list(externals),
             'message': message,
         }
-        logger.debug(f"Combined Query {combined_query}")
+        #logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
 
 

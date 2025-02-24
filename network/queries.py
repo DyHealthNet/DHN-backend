@@ -10,6 +10,10 @@ from network.models import (
     EdgesMetaboliteMetabolite, EdgesMetabolitePhenotype, EdgesPhenotypePhenotype,
     EdgesVariantMetabolite, EdgesVariantPhenotype, EdgesVariantProtein
 )
+from pprint import pformat
+import logging
+
+logger = logging.getLogger('network')
 
 
 BASE_MODELS = {
@@ -24,13 +28,23 @@ BASE_MODELS = {
     'EdgesVariantProtein': EdgesVariantProtein,
 }
 
+# A registry to track dynamic model names
+dynamic_model_registry = {}
+
 def get_dynamic_model(table, context_id=None):
     """
     Retrieve the dynamic model for a given table and context.
     """
     table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
     model_name = f"{table_base}_{context_id}" if context_id else table_base
-    return create_dynamic_model(BASE_MODELS[table], model_name)
+
+    # Check if the model is already registered in the custom registry
+    if model_name in dynamic_model_registry:
+        logger.debug(f"Model '{model_name}' is already registered.")
+        return dynamic_model_registry[model_name]  # Return the already registered model
+
+    # Create and register the dynamic model
+    return create_dynamic_model(BASE_MODELS[table], model_name, dynamic_model_registry)
 
 def get_valid_columns(model, test_columns):
     """
@@ -76,25 +90,28 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
     edges = {}
     all_edges = []
     node_ids = set()
-    print(f"test columns {test_columns}")
-    print(f"significance thresh {thresh}")
-    print(f"limit {limit}")
-    print(f"per_type {per_type}")
+    logger.info(f"node_type {node_type}")
+    logger.info(f"test columns {test_columns}")
+    logger.info(f"significance thresh {thresh}")
+    logger.info(f"limit {limit}")
+    logger.info(f"per_type {per_type}")
 
     # Query edges
     for table in BASE_MODELS.keys():
-        print(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(node_type.lower())
         if count == 0:
+            logger.info(f"Table {table} irrelevant for this node")
             continue
+
+        logger.info(f"Table {table}")
 
         table_model = get_dynamic_model(table, context_id=context_id)
         if not table_model.objects.exists():
             continue
         row_count = table_model.objects.count()
         if row_count == 0:
-            print(f"Skipping empty table: {table}")
+            logger.info(f"Skipping empty table: {table}")
             continue  # Skip processing for empty tables
 
         # Check which columns are available for the node_type and multiple testing correction
@@ -124,12 +141,16 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
             queryset = queryset[:limit]
 
         queryset = queryset.values()
+        logger.info(f"queryset:\n{queryset}")
+        #logger.info(f"queryset:\n{pformat(list(queryset))}")
 
         # Collect node IDs
         if count == 1:
             node_ids.update(*zip(*queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
         else:
             node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
+
+        logger.info(f"updated node_ids: {node_ids}")
 
         # Add results to the correct container
         if per_type:
