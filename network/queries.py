@@ -85,7 +85,6 @@ def query_refs(node_ids):
     ]
     return mapped_externals
 
-
 def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
     all_edges = []
@@ -133,6 +132,7 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
+
         # Apply filters, order, and threshold
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
@@ -140,8 +140,8 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         if limit is not None and per_type:
             queryset = queryset[:limit]
 
-        queryset = queryset.values()
-        logger.info(f"queryset:\n{queryset}")
+        #queryset = queryset.values()
+        logger.info(f"queryset:\n{queryset.values()}")
         #logger.info(f"queryset:\n{pformat(list(queryset))}")
 
         # Collect node IDs
@@ -154,9 +154,9 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
 
         # Add results to the correct container
         if per_type:
-            edges[table] = queryset
+            edges[table] = queryset.values()
         else:
-            all_edges.extend(queryset)
+            all_edges.extend(queryset.values())
 
     if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
@@ -231,7 +231,6 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None):
     mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
 
-
 def external_query(query_id, cohort_node=True):
     id_mapping = {}
     external_ids = set()
@@ -301,7 +300,6 @@ def external_query(query_id, cohort_node=True):
     ]
 
     return mapped_externals, cohort_nodes, external_nodes
-
 
 # Search for 'query' in all fields of all cohort node tables
 def typeahead_query(query, tables=None, limit=20):
