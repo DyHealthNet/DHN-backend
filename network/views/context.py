@@ -130,7 +130,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
-            return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
+            return JsonResponse({'status': 'error', 'result': 'Something went wrong!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
 

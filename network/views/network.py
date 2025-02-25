@@ -352,7 +352,13 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
         response_data["limit"] = limit
     # Get option for node count retrival (per node type or overall)
     if get_per_type:
-        response_data["per_type"] = request.GET.get("p")
+        per_type_str = request.GET.get("p")
+        if per_type_str is None:
+            return HttpResponseBadRequest('per type parameter must be declared and non empty.', status=400)
+        if per_type_str.lower() not in ["true", "false"]:
+            return HttpResponseBadRequest('per type parameter must be either true or false', status=400)
+        per_type = per_type_str.lower() == "true"
+        response_data["per_type"] = per_type  # Store as a proper boolean
     # Get context value -> context Id
     if get_context_value:
         context_value = request.GET.get("c")

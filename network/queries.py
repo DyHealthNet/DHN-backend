@@ -1,6 +1,6 @@
 import re
 
-from django.db.models import Q
+from django.db.models import Q, Value
 from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
@@ -29,6 +29,7 @@ BASE_MODELS = {
 }
 
 # A registry to track dynamic model names
+# #TODO registery is always recreated when backend stops running but django models are still registered
 dynamic_model_registry = {}
 
 def get_dynamic_model(table, context_id=None):
@@ -37,6 +38,7 @@ def get_dynamic_model(table, context_id=None):
     """
     table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
     model_name = f"{table_base}_{context_id}" if context_id else table_base
+    logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
 
     # Check if the model is already registered in the custom registry
     if model_name in dynamic_model_registry:
@@ -89,11 +91,11 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
     edges = {}
     all_edges = []
     node_ids = set()
-    logger.info(f"node_type {node_type}")
-    logger.info(f"test columns {test_columns}")
-    logger.info(f"significance thresh {thresh}")
-    logger.info(f"limit {limit}")
-    logger.info(f"per_type {per_type}")
+    logger.debug(f"node_type {node_type}")
+    logger.debug(f"test columns {test_columns}")
+    logger.debug(f"significance thresh {thresh}")
+    logger.debug(f"limit {limit}")
+    logger.debug(f"per_type {per_type}")
 
     # Query edges
     for table in BASE_MODELS.keys():
@@ -141,7 +143,7 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
             queryset = queryset[:limit]
 
         #queryset = queryset.values()
-        logger.info(f"queryset:\n{queryset.values()}")
+        #logger.debug(f"queryset:\n{queryset.values()}")
         #logger.info(f"queryset:\n{pformat(list(queryset))}")
 
         # Collect node IDs
@@ -150,24 +152,35 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
 
-        logger.info(f"updated node_ids: {node_ids}")
+        logger.debug(f"updated node_ids: {node_ids}")
 
         # Add results to the correct container
         if per_type:
             edges[table] = queryset.values()
         else:
+            queryset = queryset.annotate(table_name=Value(table))
             all_edges.extend(queryset.values())
 
     if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
-
         top_edges = all_edges_sorted[:limit]
 
-        # Sort the top edges back by table name
+        node_ids = set()  # Use a set to avoid duplicates
+        # Sort the top edges back by table name and get the node_ids
         for edge in top_edges:
             table_name = edge.get('table_name')  # Ensure 'table_name' is a field in the edge data
+            count = table_name.lower().count(node_type.lower())
+            if count == 1:
+                type_2 = table_name.split('Edges')[1].replace(node_type.capitalize(), '').lower()
+                node_ids.add(edge.get(f'{node_type}_id'))
+                node_ids.add(edge.get(f'{type_2}_id'))
+            else:
+                node_ids.add(edge.get(f'{node_type}_1_id'))
+                node_ids.add(edge.get(f'{node_type}_2_id'))
+
             if table_name not in edges:
                 edges[table_name] = []
+            edge.pop('table_name')
             edges[table_name].append(edge)
 
     nodes = query_nodes(node_ids)
