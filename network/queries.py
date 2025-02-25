@@ -29,8 +29,23 @@ BASE_MODELS = {
 }
 
 # A registry to track dynamic model names
-# #TODO registery is always recreated when backend stops running but django models are still registered
-dynamic_model_registry = {}
+# #TODO check if this can work somehow
+#dynamic_model_registry = {}
+
+def check_table_name_key(edges):
+    """
+    Check if each element in the list has the 'table_name' key.
+
+    Parameters:
+    edges (list): List of dictionaries to check.
+
+    Returns:
+    bool: True if all elements have the 'table_name' key, False otherwise.
+    """
+    for edge in edges:
+        if 'table_name' not in edge:
+            return False
+    return True
 
 def get_dynamic_model(table, context_id=None):
     """
@@ -38,15 +53,15 @@ def get_dynamic_model(table, context_id=None):
     """
     table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
     model_name = f"{table_base}_{context_id}" if context_id else table_base
-    logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
-
-    # Check if the model is already registered in the custom registry
-    if model_name in dynamic_model_registry:
-        logger.debug(f"Model '{model_name}' is already registered.")
-        return dynamic_model_registry[model_name]  # Return the already registered model
+    # logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
+    #
+    # # Check if the model is already registered in the custom registry
+    # if model_name in dynamic_model_registry:
+    #     logger.debug(f"Model '{model_name}' is already registered.")
+    #     return dynamic_model_registry[model_name]  # Return the already registered model
 
     # Create and register the dynamic model
-    return create_dynamic_model(BASE_MODELS[table], model_name, dynamic_model_registry)
+    return create_dynamic_model(BASE_MODELS[table], model_name) # dynamic_model_registry
 
 def get_valid_columns(model, test_columns):
     """
@@ -89,8 +104,11 @@ def query_refs(node_ids):
 
 def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
-    all_edges = []
     node_ids = set()
+    all_edges = []
+    if limit is None:
+        logger.info(f"limit is None")
+        return
     logger.debug(f"node_type {node_type}")
     logger.debug(f"test columns {test_columns}")
     logger.debug(f"significance thresh {thresh}")
@@ -99,6 +117,8 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
 
     # Query edges
     for table in BASE_MODELS.keys():
+        if table is None:
+            continue
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(node_type.lower())
         if count == 0:
@@ -139,36 +159,77 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
         # Apply limit if given
-        if limit is not None and per_type:
-            queryset = queryset[:limit]
+        if not queryset.exists():
+            logger.info(f"queryset was empty")
+            continue
+        queryset_temp = queryset[:limit]
+        # get potentially cut edges with the same pvalue
+        final_p_values = list(queryset_temp.values_list('final_p_value', flat=True))  # Convert to list
+        last_edge_final_p_value = final_p_values[-1] if final_p_values else None
+        # Retrieve all edges with the same final p-value
+        additional_edges = queryset.filter(final_p_value=last_edge_final_p_value)
+        combined_queryset = queryset_temp.union(additional_edges)
 
         #queryset = queryset.values()
         #logger.debug(f"queryset:\n{queryset.values()}")
         #logger.info(f"queryset:\n{pformat(list(queryset))}")
 
         # Collect node IDs
-        if count == 1:
-            node_ids.update(*zip(*queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
-        else:
-            node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
+        if count == 1 and per_type:
+            node_ids.update(*zip(*combined_queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
+        elif count > 1 and per_type:
+            node_ids.update(*zip(*combined_queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
 
         logger.debug(f"updated node_ids: {node_ids}")
 
         # Add results to the correct container
         if per_type:
-            edges[table] = queryset.values()
+            edges[table] = combined_queryset.values()
         else:
-            queryset = queryset.annotate(table_name=Value(table))
-            all_edges.extend(queryset.values())
+            logger.info(f"Table List {table}")
+            # Create a temporary list to hold the modified results
+            modified_edges = [{'table_name': table, **edge} for edge in combined_queryset.values()]
+            # Example usage
+            has_table_name = check_table_name_key(modified_edges)
+            logger.debug(f"All elements have 'table_name' key: {has_table_name}")
 
+            # Extend all_edges with the modified edges
+            all_edges.extend(modified_edges)
+
+    node_ids = set()
     if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
+
+        has_table_name = check_table_name_key(all_edges_sorted)
+        logger.debug(f"All elements of all_edges_sorted have 'table_name' key: {has_table_name}")
+
         top_edges = all_edges_sorted[:limit]
 
-        node_ids = set()  # Use a set to avoid duplicates
-        # Sort the top edges back by table name and get the node_ids
+        # Extract the last final_p_value from the top edges
+        last_edge_final_p_value = top_edges[-1]['final_p_value'] if top_edges else None
+
+        # Get additional edges with the same final_p_value
+        additional_overall_edges = [edge for edge in all_edges if edge['final_p_value'] == last_edge_final_p_value]
+
+        has_table_name = check_table_name_key(additional_overall_edges)
+        logger.debug(f"All elements of additional_overall_edges have 'table_name' key: {has_table_name}")
+
+        # Combine top edges with additional edges
+        top_edges = top_edges + additional_overall_edges
+
+        # TODO somehow remove dublicates because this wouldn't work different tables have their own id col its not unique
+        #top_edges = list({v['id']: v for v in top_edges}.values())
+
+        has_table_name = check_table_name_key(top_edges)
+        logger.debug(f"All elements of top_edges have 'table_name' key: {has_table_name}")
+        # Sort the top edges back by table name
         for edge in top_edges:
             table_name = edge.get('table_name')  # Ensure 'table_name' is a field in the edge data
+            if table_name is None:
+                logger.debug(f"table_name of the following edge is None: {edge}")
+                continue
+            logger.debug(f"edge: {edge}")
+            logger.debug(f"table list: {table_name}")
             count = table_name.lower().count(node_type.lower())
             if count == 1:
                 type_2 = table_name.split('Edges')[1].replace(node_type.capitalize(), '').lower()

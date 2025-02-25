@@ -619,7 +619,7 @@ class UserContextLink(models.Model):
         db_table = 'user_context'
 
 
-def create_dynamic_model(base_model, table_name, registry):
+def create_dynamic_model(base_model, table_name): #registry
     """
     Create a dynamic model based on the specified base model and table name.
     :param base_model: The base model class to inherit from.
@@ -632,7 +632,5 @@ def create_dynamic_model(base_model, table_name, registry):
             db_table = table_name
             managed = False
 
-    # Store the model in the registry
-    registry[table_name] = DynamicModel
 
     return DynamicModel
