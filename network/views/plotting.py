@@ -323,7 +323,7 @@ class GetDataDensityPlotView(generics.GenericAPIView):
                         send_warning = True
                         continue
                 # KDE for each group
-                kde_group = gaussian_kde(data, bw_method=0.1)
+                kde_group = gaussian_kde(data.dropna(), bw_method=0.1)
                 y_vals_group = kde_group(x_vals)
                 y_vals_group /= np.sum(y_vals_group) * (x_vals[1] - x_vals[0])  # Normalize
 

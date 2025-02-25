@@ -4,6 +4,7 @@ from django.db.models import Q, Value
 from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
+from django.forms.models import model_to_dict
 from network.models import create_dynamic_model
 from network.models import (
     EdgesProteinProtein, EdgesProteinMetabolite, EdgesProteinPhenotype,
@@ -134,32 +135,34 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
-
         # Apply filters, order, and threshold
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
+        # Evaluate the queryset to apply filters and order
+        evaluated_queryset = queryset.values()  # This retrieves all filtered and ordered records
+        logger.debug("evaluated queryset: " + str(evaluated_queryset))
+
         # Apply limit if given
         if limit is not None and per_type:
-            queryset = queryset[:limit]
+            evaluated_queryset = evaluated_queryset[:limit]  # Now slice the evaluated list
 
-        #queryset = queryset.values()
-        #logger.debug(f"queryset:\n{queryset.values()}")
-        #logger.info(f"queryset:\n{pformat(list(queryset))}")
+        logger.debug("limited evaluated queryset: " + str(evaluated_queryset))
 
         # Collect node IDs
         if count == 1:
-            node_ids.update(*zip(*queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
+            node_ids.update(*zip(*[(item[f'{node_type}_id'], item[f'{type_2}_id']) for item in evaluated_queryset]))
         else:
-            node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
+            node_ids.update(*zip(*[(item[f'{node_type}_1_id'], item[f'{node_type}_2_id']) for item in evaluated_queryset]))
 
-        logger.debug(f"updated node_ids: {node_ids}")
+
+        logger.debug(f"node_ids: {node_ids}")
 
         # Add results to the correct container
         if per_type:
-            edges[table] = queryset.values()
+            edges[table] = evaluated_queryset
         else:
-            queryset = queryset.annotate(table_name=Value(table))
-            all_edges.extend(queryset.values())
+            new_queryset = new_queryset.annotate(table_name=Value(table)) # attention: two times applied something to new_queryset
+            all_edges.extend(new_queryset.values())
 
     if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
