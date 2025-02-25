@@ -1,6 +1,6 @@
 import re
 
-from django.db.models import Q
+from django.db.models import Q, Value
 from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
@@ -10,6 +10,10 @@ from network.models import (
     EdgesMetaboliteMetabolite, EdgesMetabolitePhenotype, EdgesPhenotypePhenotype,
     EdgesVariantMetabolite, EdgesVariantPhenotype, EdgesVariantProtein
 )
+from pprint import pformat
+import logging
+
+logger = logging.getLogger('network')
 
 
 BASE_MODELS = {
@@ -24,13 +28,25 @@ BASE_MODELS = {
     'EdgesVariantProtein': EdgesVariantProtein,
 }
 
+# A registry to track dynamic model names
+# #TODO registery is always recreated when backend stops running but django models are still registered
+dynamic_model_registry = {}
+
 def get_dynamic_model(table, context_id=None):
     """
     Retrieve the dynamic model for a given table and context.
     """
     table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
     model_name = f"{table_base}_{context_id}" if context_id else table_base
-    return create_dynamic_model(BASE_MODELS[table], model_name)
+    logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
+
+    # Check if the model is already registered in the custom registry
+    if model_name in dynamic_model_registry:
+        logger.debug(f"Model '{model_name}' is already registered.")
+        return dynamic_model_registry[model_name]  # Return the already registered model
+
+    # Create and register the dynamic model
+    return create_dynamic_model(BASE_MODELS[table], model_name, dynamic_model_registry)
 
 def get_valid_columns(model, test_columns):
     """
@@ -71,30 +87,32 @@ def query_refs(node_ids):
     ]
     return mapped_externals
 
-
 def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
     all_edges = []
     node_ids = set()
-    print(f"test columns {test_columns}")
-    print(f"significance thresh {thresh}")
-    print(f"limit {limit}")
-    print(f"per_type {per_type}")
+    logger.debug(f"node_type {node_type}")
+    logger.debug(f"test columns {test_columns}")
+    logger.debug(f"significance thresh {thresh}")
+    logger.debug(f"limit {limit}")
+    logger.debug(f"per_type {per_type}")
 
     # Query edges
     for table in BASE_MODELS.keys():
-        print(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(node_type.lower())
         if count == 0:
+            logger.info(f"Table {table} irrelevant for this node")
             continue
+
+        logger.info(f"Table {table}")
 
         table_model = get_dynamic_model(table, context_id=context_id)
         if not table_model.objects.exists():
             continue
         row_count = table_model.objects.count()
         if row_count == 0:
-            print(f"Skipping empty table: {table}")
+            logger.info(f"Skipping empty table: {table}")
             continue  # Skip processing for empty tables
 
         # Check which columns are available for the node_type and multiple testing correction
@@ -116,6 +134,7 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
+
         # Apply filters, order, and threshold
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
@@ -123,7 +142,9 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         if limit is not None and per_type:
             queryset = queryset[:limit]
 
-        queryset = queryset.values()
+        #queryset = queryset.values()
+        #logger.debug(f"queryset:\n{queryset.values()}")
+        #logger.info(f"queryset:\n{pformat(list(queryset))}")
 
         # Collect node IDs
         if count == 1:
@@ -131,22 +152,35 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             node_ids.update(*zip(*queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
 
+        logger.debug(f"updated node_ids: {node_ids}")
+
         # Add results to the correct container
         if per_type:
-            edges[table] = queryset
+            edges[table] = queryset.values()
         else:
-            all_edges.extend(queryset)
+            queryset = queryset.annotate(table_name=Value(table))
+            all_edges.extend(queryset.values())
 
     if not per_type:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
-
         top_edges = all_edges_sorted[:limit]
 
-        # Sort the top edges back by table name
+        node_ids = set()  # Use a set to avoid duplicates
+        # Sort the top edges back by table name and get the node_ids
         for edge in top_edges:
             table_name = edge.get('table_name')  # Ensure 'table_name' is a field in the edge data
+            count = table_name.lower().count(node_type.lower())
+            if count == 1:
+                type_2 = table_name.split('Edges')[1].replace(node_type.capitalize(), '').lower()
+                node_ids.add(edge.get(f'{node_type}_id'))
+                node_ids.add(edge.get(f'{type_2}_id'))
+            else:
+                node_ids.add(edge.get(f'{node_type}_1_id'))
+                node_ids.add(edge.get(f'{node_type}_2_id'))
+
             if table_name not in edges:
                 edges[table_name] = []
+            edge.pop('table_name')
             edges[table_name].append(edge)
 
     nodes = query_nodes(node_ids)
@@ -209,7 +243,6 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None):
     nodes = query_nodes(query_ids)
     mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
-
 
 def external_query(query_id, cohort_node=True):
     id_mapping = {}
@@ -280,7 +313,6 @@ def external_query(query_id, cohort_node=True):
     ]
 
     return mapped_externals, cohort_nodes, external_nodes
-
 
 # Search for 'query' in all fields of all cohort node tables
 def typeahead_query(query, tables=None, limit=20):

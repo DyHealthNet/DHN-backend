@@ -59,6 +59,10 @@ SECRET_KEY = env('SECRET_KEY')
 
 FRONTEND_HOME_URL = env('FRONTEND_HOME_URL')
 
+OAUTH_GITHUB_CLIENT_ID = env('OAUTH_GITHUB_CLIENT_ID')
+
+OAUTH_GITHUB_SECRET = env('OAUTH_GITHUB_SECRET')
+
 ALLOWED_HOSTS = ['*']
 
 SITE_ID = 1 # Django’s Sites framework is required for django-allauth
@@ -94,8 +98,8 @@ SOCIALACCOUNT_PROVIDERS = {
         # (''socialaccount'' app) containing the required client
         # credentials, or list them here:
         'APP': {
-            'client_id': 'Iv23liAv6MBm8L4qyxpO',  # TODO to do this correctly for a user app?
-            'secret': 'e9a34c4966ad6eb051e32fd101f623681f160209',
+            'client_id': OAUTH_GITHUB_CLIENT_ID,
+            'secret': OAUTH_GITHUB_SECRET,
             'key': ''
         },
         'AUTH_PARAMS': {'access_type': 'online'},
