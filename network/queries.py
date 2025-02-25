@@ -4,6 +4,7 @@ from django.db.models import Q, Value
 from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
+from django.forms.models import model_to_dict
 from network.models import create_dynamic_model
 from network.models import (
     EdgesProteinProtein, EdgesProteinMetabolite, EdgesProteinPhenotype,
@@ -154,44 +155,34 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         else:
             filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
-
         # Apply filters, order, and threshold
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
-        # Apply limit if given
-        if not queryset.exists():
-            logger.info(f"queryset was empty")
-            continue
-        queryset_temp = queryset[:limit]
-        # get potentially cut edges with the same pvalue
-        final_p_values = list(queryset_temp.values_list('final_p_value', flat=True))  # Convert to list
-        last_edge_final_p_value = final_p_values[-1] if final_p_values else None
-        # Retrieve all edges with the same final p-value
-        additional_edges = queryset.filter(final_p_value=last_edge_final_p_value)
-        combined_queryset = queryset_temp.union(additional_edges)
+        # Evaluate the queryset to apply filters and order
+        evaluated_queryset = queryset.values()  # This retrieves all filtered and ordered records
+        logger.debug("evaluated queryset: " + str(evaluated_queryset))
 
-        #queryset = queryset.values()
-        #logger.debug(f"queryset:\n{queryset.values()}")
-        #logger.info(f"queryset:\n{pformat(list(queryset))}")
+        # Apply limit if given
+        if limit is not None and per_type:
+            evaluated_queryset = evaluated_queryset[:limit]  # Now slice the evaluated list
+
+        logger.debug("limited evaluated queryset: " + str(evaluated_queryset))
 
         # Collect node IDs
-        if count == 1 and per_type:
-            node_ids.update(*zip(*combined_queryset.values_list(f'{node_type}_id', f'{type_2}_id')))
-        elif count > 1 and per_type:
-            node_ids.update(*zip(*combined_queryset.values_list(f'{node_type}_1_id', f'{node_type}_2_id')))
+        if count == 1:
+            node_ids.update(*zip(*[(item[f'{node_type}_id'], item[f'{type_2}_id']) for item in evaluated_queryset]))
+        else:
+            node_ids.update(*zip(*[(item[f'{node_type}_1_id'], item[f'{node_type}_2_id']) for item in evaluated_queryset]))
 
-        logger.debug(f"updated node_ids: {node_ids}")
+
+        logger.debug(f"node_ids: {node_ids}")
 
         # Add results to the correct container
         if per_type:
-            edges[table] = combined_queryset.values()
+            edges[table] = evaluated_queryset
         else:
-            logger.info(f"Table List {table}")
-            # Create a temporary list to hold the modified results
-            modified_edges = [{'table_name': table, **edge} for edge in combined_queryset.values()]
-            # Example usage
-            has_table_name = check_table_name_key(modified_edges)
-            logger.debug(f"All elements have 'table_name' key: {has_table_name}")
+            new_queryset = new_queryset.annotate(table_name=Value(table)) # attention: two times applied something to new_queryset
+            all_edges.extend(new_queryset.values())
 
             # Extend all_edges with the modified edges
             all_edges.extend(modified_edges)
