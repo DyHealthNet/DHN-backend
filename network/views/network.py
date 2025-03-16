@@ -76,7 +76,7 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
         start = timeit.default_timer()
-        edges, nodes, externals = network_query(request_load["query_id"], request_load["node_type"],
+        edges, nodes, externals, message = network_query(request_load["query_id"], request_load["node_type"],
                                                 request_load["limit"], request_load["per_type"],
                                                 request_load["significance_thresh"], request_load["test_columns"],
                                                 request_load["context_id"])
@@ -94,8 +94,6 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                 result_nodes[results['source_table']].append(results)
             else:
                 result_nodes[results['source_table']] = [results]
-
-        message = check_limit_exceeded(result_nodes, request_load["per_type"],request_load["limit"])
 
         combined_query = {
             'Nodes': result_nodes,

@@ -116,9 +116,9 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
     node_ids = set()
     all_edges = []
     message = ""
-    if limit is None:
-        logger.info(f"limit is None")
-        return {}, {}, {}, ""
+    #if limit is None:
+     #   logger.info(f"limit is None")
+      #  return {}, {}, {}, ""
     logger.debug(f"node_type {node_type}")
     logger.debug(f"test columns {test_columns}")
     logger.debug(f"significance thresh {thresh}")
@@ -167,13 +167,14 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         evaluated_queryset = list(queryset.values())  # This retrieves all filtered and ordered records
 
         # Cut evaluated_edges by limit (while being aware of same significance nodes)
-        evaluated_queryset = apply_soft_limit(evaluated_queryset, limit)
-        if per_type and len(evaluated_queryset) > limit:
-            message = (f"For certain types, more than {limit} nodes have been returned because some nodes share the "
-                       f"same significance level")
+        if limit is not None:
+            evaluated_queryset = apply_soft_limit(evaluated_queryset, limit)
+            if per_type and len(evaluated_queryset) > limit:
+                message = (f"For certain types, more than {limit} nodes have been returned because some nodes share the "
+                           f"same significance level")
 
         # Add results to the correct container
-        if per_type:
+        if per_type or limit is None:
             # Collect node IDs
             for item in evaluated_queryset:
                 if count == 1:
@@ -188,7 +189,7 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
             # Save all edges together for overall option
             all_edges.extend(modified_edges)
 
-    if not per_type:
+    if not per_type and limit is not None:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
 
         # Cut evaluated_edges by limit (while being aware of same significance nodes)
