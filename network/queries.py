@@ -30,8 +30,31 @@ BASE_MODELS = {
 }
 
 # A registry to track dynamic model names
-# #TODO registery is always recreated when backend stops running but django models are still registered
-dynamic_model_registry = {}
+# #TODO check if this can work somehow
+#dynamic_model_registry = {}
+
+def apply_soft_limit(sorted_edges, limit):
+    """
+    Retrieve the top limit edges from a list of edges sorted by the 'final_p_value' column. If any edges are excluded
+    due to the limit but share the same 'final_p_value' as the last included edge, they are also retained and returned.
+    """
+    top_edges = sorted_edges[:limit]
+
+    # Extract the last final_p_value from the top edges
+    last_edge_final_p_value = top_edges[-1]['final_p_value'] if top_edges else None
+
+    # Get additional edges with the same final_p_value
+    additional_overall_edges = [edge for edge in sorted_edges if edge['final_p_value'] == last_edge_final_p_value]
+
+    # Filter additional edges that already exist in top_edges
+    existing_ids = {edge['id'] for edge in top_edges}
+    filtered_additional_edges = [
+        edge for edge in additional_overall_edges if edge['id'] not in existing_ids
+    ]
+
+    # Combine top edges with additional edges
+    top_edges = top_edges + filtered_additional_edges
+    return top_edges
 
 def get_dynamic_model(table, context_id=None):
     """
@@ -39,15 +62,15 @@ def get_dynamic_model(table, context_id=None):
     """
     table_base = re.sub(r'(?<!^)(?=[A-Z])', '_', table).lower()
     model_name = f"{table_base}_{context_id}" if context_id else table_base
-    logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
-
-    # Check if the model is already registered in the custom registry
-    if model_name in dynamic_model_registry:
-        logger.debug(f"Model '{model_name}' is already registered.")
-        return dynamic_model_registry[model_name]  # Return the already registered model
+    # logger.debug(f"dynamic_model_registry '{dynamic_model_registry}'")
+    #
+    # # Check if the model is already registered in the custom registry
+    # if model_name in dynamic_model_registry:
+    #     logger.debug(f"Model '{model_name}' is already registered.")
+    #     return dynamic_model_registry[model_name]  # Return the already registered model
 
     # Create and register the dynamic model
-    return create_dynamic_model(BASE_MODELS[table], model_name, dynamic_model_registry)
+    return create_dynamic_model(BASE_MODELS[table], model_name) # dynamic_model_registry
 
 def get_valid_columns(model, test_columns):
     """
@@ -90,8 +113,12 @@ def query_refs(node_ids):
 
 def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
-    all_edges = []
     node_ids = set()
+    all_edges = []
+    message = ""
+    #if limit is None:
+     #   logger.info(f"limit is None")
+      #  return {}, {}, {}, ""
     logger.debug(f"node_type {node_type}")
     logger.debug(f"test columns {test_columns}")
     logger.debug(f"significance thresh {thresh}")
@@ -100,21 +127,19 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
 
     # Query edges
     for table in BASE_MODELS.keys():
+        if table is None:
+            continue
         # Distinguish between 'within-type' tables and 'between-type' tables
         count = table.lower().count(node_type.lower())
         if count == 0:
-            logger.info(f"Table {table} irrelevant for this node")
+            logger.debug(f"Table {table} irrelevant for this node")
             continue
 
-        logger.info(f"Table {table}")
+        logger.debug(f"Table {table}")
 
         table_model = get_dynamic_model(table, context_id=context_id)
         if not table_model.objects.exists():
             continue
-        row_count = table_model.objects.count()
-        if row_count == 0:
-            logger.info(f"Skipping empty table: {table}")
-            continue  # Skip processing for empty tables
 
         # Check which columns are available for the node_type and multiple testing correction
         valid_columns = get_valid_columns(table_model, test_columns)
@@ -139,66 +164,69 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
         queryset = query.filter(filter_query).order_by('final_p_value').filter(final_p_value__lte=thresh)
 
         # Evaluate the queryset to apply filters and order
-        evaluated_queryset = queryset.values()  # This retrieves all filtered and ordered records
-        logger.debug("evaluated queryset: " + str(evaluated_queryset))
+        evaluated_queryset = list(queryset.values())  # This retrieves all filtered and ordered records
 
-        # Apply limit if given
-        if limit is not None and per_type:
-            evaluated_queryset = evaluated_queryset[:limit]  # Now slice the evaluated list
-
-        logger.debug("limited evaluated queryset: " + str(evaluated_queryset))
-
-        # Collect node IDs
-        if count == 1:
-            node_ids.update(*zip(*[(item[f'{node_type}_id'], item[f'{type_2}_id']) for item in evaluated_queryset]))
-        else:
-            node_ids.update(*zip(*[(item[f'{node_type}_1_id'], item[f'{node_type}_2_id']) for item in evaluated_queryset]))
-
-
-        logger.debug(f"node_ids: {node_ids}")
+        # Cut evaluated_edges by limit (while being aware of same significance nodes)
+        if limit is not None:
+            evaluated_queryset = apply_soft_limit(evaluated_queryset, limit)
+            if per_type and len(evaluated_queryset) > limit:
+                message = (f"For certain types, more than {limit} nodes have been returned because some nodes share the "
+                           f"same significance level")
 
         # Add results to the correct container
-        if per_type:
+        if per_type or limit is None:
+            # Collect node IDs
+            for item in evaluated_queryset:
+                if count == 1:
+                    node_ids.update({item[f'{node_type}_id'], item[f'{type_2}_id']})
+                else:
+                    node_ids.update({item[f'{node_type}_1_id'], item[f'{node_type}_2_id']})
+            logger.debug(f"node_ids: {node_ids}")
             edges[table] = evaluated_queryset
         else:
-            new_queryset = new_queryset.annotate(table_name=Value(table)) # attention: two times applied something to new_queryset
-            all_edges.extend(new_queryset.values())
+            # Add table type to results to split overall results back into right format/ per type dictionary
+            modified_edges = [{'table_name': table, **edge} for edge in evaluated_queryset]
+            # Save all edges together for overall option
+            all_edges.extend(modified_edges)
 
-    if not per_type:
+    if not per_type and limit is not None:
         all_edges_sorted = sorted(all_edges, key=lambda x: x['final_p_value'])
-        top_edges = all_edges_sorted[:limit]
 
-        node_ids = set()  # Use a set to avoid duplicates
-        # Sort the top edges back by table name and get the node_ids
+        # Cut evaluated_edges by limit (while being aware of same significance nodes)
+        top_edges = apply_soft_limit(all_edges_sorted, limit)
+        if len(top_edges) > limit:
+            message = (f"More than {limit} nodes have been returned because some nodes share the same "
+                   f"significance level")
+
+        # Sort the top edges back by table name
         for edge in top_edges:
             table_name = edge.get('table_name')  # Ensure 'table_name' is a field in the edge data
+            if table_name is None:
+                logger.debug(f"table_name of the following edge is None: {edge}")
+                continue
             count = table_name.lower().count(node_type.lower())
             if count == 1:
                 type_2 = table_name.split('Edges')[1].replace(node_type.capitalize(), '').lower()
-                node_ids.add(edge.get(f'{node_type}_id'))
-                node_ids.add(edge.get(f'{type_2}_id'))
+                node_ids.update({edge.get(f'{node_type}_id'), edge.get(f'{type_2}_id')})
             else:
-                node_ids.add(edge.get(f'{node_type}_1_id'))
-                node_ids.add(edge.get(f'{node_type}_2_id'))
+                node_ids.update({edge.get(f'{node_type}_1_id'), edge.get(f'{node_type}_2_id')})
 
-            if table_name not in edges:
-                edges[table_name] = []
             edge.pop('table_name')
-            edges[table_name].append(edge)
+            edges.setdefault(table_name, []).append(edge)
 
     nodes = query_nodes(node_ids)
     mapped_externals = query_refs(node_ids)
-    return edges, nodes, mapped_externals
+    return edges, nodes, mapped_externals, message
 
 def network_group_query(query_ids, thresh, test_columns, context_id=None):
-    print(f"query_ids: {query_ids}")
+    logger.debug(f"query_ids: {query_ids}")
     edges = {}
-    print(f"test columns {test_columns}")
-    print(f"significance thresh {thresh}")
+    logger.debug(f"test columns {test_columns}")
+    logger.debug(f"significance thresh {thresh}")
 
     # Query edges
     for table in BASE_MODELS.keys():
-        print(table.lower())
+        logger.debug(table.lower())
         # Distinguish between 'within-type' tables and 'between-type' tables
         splitted_table = re.findall(r'[A-Z][a-z]*', table)
         count = table.lower().count(splitted_table[1].lower())
