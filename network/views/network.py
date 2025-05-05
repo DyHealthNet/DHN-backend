@@ -106,9 +106,9 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
 
 
 ######### Group of Nodes Network Queries ###########
-# @extend_schema_view(
-#   get=get_group_network_schema
-# )
+@extend_schema_view(
+   get=get_group_network_schema
+)
 class GetGroupNetworkView(generics.GenericAPIView):
     @staticmethod
     def get(request):
@@ -148,9 +148,9 @@ class GetGroupNetworkView(generics.GenericAPIView):
         return JsonResponse(combined_query, safe=False, status=200)
 
 
-# @extend_schema_view(
-#    get=get_group_network_context_schema
-# )
+@extend_schema_view(
+   get=get_group_network_context_schema
+)
 class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
     @staticmethod
     def get(request):

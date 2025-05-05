@@ -62,7 +62,7 @@ class GetVariablesView(generics.GenericAPIView):
         response = add_cache_header(response, not has_context)
         return response
 
-
+#TODO is this júnction still needed
 class GetColorView(generics.GenericAPIView):
     @staticmethod
     def get(request):

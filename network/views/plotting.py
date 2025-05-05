@@ -250,7 +250,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         return response
 
 
-#@extend_schema_view(get=get_density_plot_schema)
+@extend_schema_view(get=get_density_plot_schema)
 class GetDataDensityPlotView(generics.GenericAPIView):
     data_manager = None
 
