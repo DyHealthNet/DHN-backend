@@ -162,7 +162,7 @@ get_bar_count_schema = extend_schema(
         }
     )
 
-get_data_schema = get_density_plot_schema(
+get_density_plot_schema = extend_schema(
         summary="Returns gaussian kde density values for the variable x grouped by c (optional) to produce a "
                 "Density Plot",
         description="""Returns gaussian kde density values for the given variable x (e.g. bmi) in JSON format 

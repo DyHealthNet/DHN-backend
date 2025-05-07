@@ -1,5 +1,5 @@
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 
 typeahead_schema = extend_schema(
         summary="Returns node id/name recommendations depending on the input request typed by the user",
@@ -16,6 +16,39 @@ typeahead_schema = extend_schema(
                 location=OpenApiParameter.QUERY,
             )
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved node recommendations",
+            ),
+            400: OpenApiResponse(
+                description="No context value provided",
+                examples={
+                    "application/json": {
+                        'status': 'error',
+                        'message': 'Search failed. User not authenticated and '
+                                     'cannot inneract with a context'
+                    }
+                }
+            ),
+            401: OpenApiResponse(
+                description="Unauthorized",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Permission denied. User not authenticated"
+                    }
+                }
+            ),
+            404: OpenApiResponse(
+                description="Context not found",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Context not found"
+                    }
+                }
+            ),
+        }
     )
 
 all_externals_schema = extend_schema(
@@ -33,6 +66,11 @@ all_externals_schema = extend_schema(
                 location=OpenApiParameter.QUERY,
             )
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved external nodes",
+            )
+        }
     )
 
 get_network_schema = extend_schema(
@@ -89,6 +127,19 @@ get_network_schema = extend_schema(
             )
 
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved nodes and edges",
+            ),
+            405: OpenApiResponse(
+                description=(
+                    "Request was not processed due to one of the following reasons:\n"
+                    "1. query nodes q, limit l or per type variable p was not provided.\n"
+                    "2. Missing key in selected options parameter o.\n"
+                    "3. l > 50 or p is neither true or false. "
+                ),
+            )
+        }
     )
 
 get_network_context_schema = extend_schema(
@@ -170,6 +221,37 @@ get_network_context_schema = extend_schema(
             )
 
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved nodes and edges",
+            ),
+            401: OpenApiResponse(
+                description="Unauthorized",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Permission denied. User not authenticated"
+                    }
+                }
+            ),
+            404: OpenApiResponse(
+                description="Context not found",
+                examples={
+                    "application/json": {
+                        "status": "error",
+                        "message": "Context not found"
+                    }
+                }
+            ),
+            405: OpenApiResponse(
+                description=(
+                    "Request was not processed due to one of the following reasons:\n"
+                    "1. query node q, limit l, per type variable p or context value c was not provided.\n"
+                    "2. Missing key in selected options parameter o.\n"
+                    "3. l > 50 or p is neither true or false. "
+                ),
+            )
+        }
     )
 
 get_group_network_schema = extend_schema(
@@ -213,8 +295,19 @@ get_group_network_schema = extend_schema(
                 type=OpenApiTypes.OBJECT,
                 location=OpenApiParameter.QUERY,
             )
-
         ],
+        responses={
+            200: OpenApiResponse(
+                description="Successfully retrieved nodes and edges",
+            ),
+            405: OpenApiResponse(
+                description=(
+                    "Request was not processed due to one of the following reasons:\n"
+                    "1. query nodes q was not provided.\n"
+                    "2. Missing key in selected options parameter o."
+                ),
+            )
+        }
     )
 get_group_network_context_schema = extend_schema(
         summary="Returns the significant network edges connecting the input nodes q for a given context",
@@ -282,6 +375,35 @@ get_group_network_context_schema = extend_schema(
             type=OpenApiTypes.OBJECT,
             location=OpenApiParameter.QUERY,
         )
-
     ],
+    responses={
+        200: OpenApiResponse(
+            description="Successfully retrieved nodes and edges",
+        ),
+        401: OpenApiResponse(
+            description="Unauthorized",
+            examples={
+                "application/json": {
+                    "status": "error",
+                    "message": "Permission denied. User not authenticated"
+                }
+            }
+        ),
+        404: OpenApiResponse(
+            description="Context not found",
+            examples={
+                "application/json": {
+                    "status": "error",
+                    "message": "Context not found"
+                }
+            }
+        ),
+        405: OpenApiResponse(
+            description=(
+                "Request was not processed due to one of the following reasons:\n"
+                "1. query nodes q or context value c was not provided.\n"
+                "2. Missing key in selected options parameter o."
+            ),
+        )
+    }
 )
