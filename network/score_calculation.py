@@ -228,12 +228,19 @@ def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataF
     if isinstance(phenotypes_meta, type(None)):
         return pd.DataFrame(), all_data.copy()
     logger.debug("Separating categorical and continuous phenotypes")
+    #TODO include Time variable type somewhere here
+    allowed_types = ['boolean', 'categorical', 'float', 'integer']
+    # Check if all types of phenotype variables are in the allowed list
+    invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
+    if not invalid_types.empty:
+        logger.warning(f"Invalid variable types were found: {invalid_types.type.unique()}. "
+                       f"These variables will be ignored.")
     cat_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
                                                       .isin(["categorical", "boolean"])].label)].copy()
 
     # Extract continuous phenotypes
-    cont_data = all_data.iloc[:, ~all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
-                                                        .isin(["categorical", "boolean", "time"])].label)].copy()
+    cont_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
+                                                        .isin(["integer", "float"])].label)].copy()
     return cat_data, cont_data
 
 

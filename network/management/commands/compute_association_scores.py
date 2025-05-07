@@ -5,6 +5,7 @@ import sys
 import pandas as pd
 import network.utils.startup_utils as utils
 from network.score_calculation import calculate_association_scores
+from django.apps import apps
 import environ
 import traceback
 import logging
@@ -16,12 +17,14 @@ env = environ.Env(
 environ.Env.read_env()
 
 logger = logging.getLogger("network")
+config = apps.get_app_config('network')
 
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             logger.info("Starting association score testing.")
+            #self.check_score_files()
             self.compute_association_scores()
             logger.info(f'Finished association score testing successfully. '
                         f'The results were saved in {env("CALCULATED_EDGES_PATH")}')
@@ -72,30 +75,12 @@ class Command(BaseCommand):
 
     @staticmethod
     def compute_association_scores():
-        id_column = env("PATIENT_ID_COLUMN")
-
-        phenotypes = utils.check_files_and_return(env("PHENOTYPE_PATH"), id_column=id_column)
-        phenotypes_meta = utils.check_files_and_return(env("PHENOTYPE_META_PATH"))
-        # rename the column PHENOTYPE_TYPE_COLUMN to "type" to work with the calculate_association_scores function
-        phenotypes_meta = phenotypes_meta.rename(columns={env("PHENOTYPE_TYPE_COLUMN"): "type"})
-
-        if env("METABOLITE_PATH") is not None:
-            metabolites = utils.check_files_and_return(env("METABOLITE_PATH"), id_column=id_column)
-        else:
-            metabolites = None
-            logger.warning("No metabolite file was provided.")
-
-        if env("PROTEIN_PATH") is not None:
-            proteins = utils.check_files_and_return(env("PROTEIN_PATH"), id_column=id_column)
-        else:
-            proteins = None
-            logger.warning("No protein file was provided.")
+        data_manager = config.DATA_MANAGER
+        cat_data, cont_data = data_manager.get_df_copy(['all_cat', 'all_cont'])
 
         logger.debug(f"Using {env('NUMBER_OF_WORKERS')} workers for the calculation.")
 
         test_type = env("TEST_TYPE")
-
-        cat_data, cont_data = Command().preprocess_data(phenotypes, phenotypes_meta, id_column, metabolites, proteins)
 
         results = calculate_association_scores(cat_data, cont_data, test_type)
         results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, lineterminator='\n')
