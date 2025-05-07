@@ -162,17 +162,21 @@ get_bar_count_schema = extend_schema(
         }
     )
 
-get_density_plot_schema = extend_schema(
-        summary="Returns gaussian kde density values for the variable x grouped by c (optional) to produce a "
-                "Density Plot",
-        description="""Returns gaussian kde density values for the given variable x (e.g. bmi) in JSON format 
-            to produce a Density Plot. The optional parameter c (e.g. sex) allows for comparisons between different 
-            groups such as males and females and the optional parameter bandwidth allows adjusting the smoothness of 
-            the curves. If a sessionid and contextValue is provided, the data will be filtered by the respective 
-            context.
+get_pie_count_schema = extend_schema(
+        summary="Returns the count for the given variable x to produce a Pie Chart"
+                "Pie Plot",
+        description="""Returns count data for the given variable x (e.g. sex) in JSON format to produce a 
+            Variable Pie Plot. If a sessionid and contextValue is provided, the data will be filtered by the
+            respective context.
             """,
         parameters=[
-            #TODO is this required though?
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
             OpenApiParameter(
                 name='csrftoken',
                 description='The CSRF token provided in the request header.',
@@ -191,29 +195,7 @@ get_density_plot_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name='x',
-                description='variable x',
-                required=True,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name='c',
-                description='colour variable',
-                required=False,
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name='bandwidth',
-                description='bandwidth is used to scale the standard deviation of the kernel, it expects a positive '
-                            'float while a higher number results in a smoother curve',
-                required=False,
-                type=OpenApiTypes.FLOAT,
                 location=OpenApiParameter.QUERY,
             ),
         ],

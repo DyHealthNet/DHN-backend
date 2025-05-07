@@ -249,6 +249,58 @@ class GetDataBarCountView(generics.GenericAPIView):
         response = add_cache_header(response, request.GET.get('default'))
         return response
 
+@extend_schema_view(get=get_pie_count_schema)
+class GetDataPieCountView(generics.GenericAPIView):
+    data_manager = None
+
+    def get(self, request):
+        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+
+        send_warning = False
+
+        # Get request vars
+        x = request.GET.get("x")
+
+        # build result dict in right format
+        req_data_dict = {}
+        # Check if x and y var are given -> else throw HttpResponseBadRequest
+        if x is None or x == "":
+            return HttpResponseBadRequest('Variable x must be declared.', status=405)
+        # Get var_id from request var (stored in brackets at the end of the request var which is built
+        # from description + (var_id) (in case of phenotypes and proteins))
+        x_idx = extract_var_id(x)
+
+        pie_plot_df = context_subset(request, all_data)
+
+        if x_idx not in pie_plot_df.columns:
+            return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
+        temp = []
+
+        # Make df subset with x var and a count variable
+        df_count = pd.DataFrame(pie_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
+        if settings.PRESERVE_PRIVACY:
+            df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
+            send_warning = True
+
+        num_colors = len(df_count["counts"].tolist())
+        colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
+        colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
+        temp.append({
+            "backgroundColor": colormap_local,
+            "data": df_count['counts'].tolist()
+        })
+        # Store unique x_var values
+        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), var_label_map)
+        # Store the count data values
+        req_data_dict["datasets"] = temp
+        if send_warning:
+            req_data_dict["warning"] = "Some data points have been removed to protect privacy."
+
+        response = JsonResponse(req_data_dict, safe=True)
+        response = add_cache_header(response, request.GET.get('default'))
+        return response
+
+
 
 @extend_schema_view(get=get_density_plot_schema)
 class GetDataDensityPlotView(generics.GenericAPIView):
@@ -288,7 +340,7 @@ class GetDataDensityPlotView(generics.GenericAPIView):
 
         min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
 
-        kde = gaussian_kde(density_plot_df[x_idx].dropna(), bw_method=bw_method)
+        kde = gaussian_kde(density_plot_df[x_idx].dropna(), bw_method=0.1)
 
         x_vals = np.linspace(min_val, max_val, 100)
         y_vals = kde(x_vals)  # Get the density for these x values
@@ -323,7 +375,7 @@ class GetDataDensityPlotView(generics.GenericAPIView):
                         send_warning = True
                         continue
                 # KDE for each group
-                kde_group = gaussian_kde(data.dropna(), bw_method=0.1)
+                kde_group = gaussian_kde(data.dropna(), bw_method=bw_method)
                 y_vals_group = kde_group(x_vals)
                 y_vals_group /= np.sum(y_vals_group) * (x_vals[1] - x_vals[0])  # Normalize
 

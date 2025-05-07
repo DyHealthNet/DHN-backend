@@ -113,7 +113,7 @@ def query_refs(node_ids):
 
 def network_query(query_id, node_type, limit, per_type, thresh, test_columns, context_id=None):
     edges = {}
-    node_ids = set()
+    node_ids = {query_id}
     all_edges = []
     message = ""
     #if limit is None:
