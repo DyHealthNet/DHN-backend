@@ -53,6 +53,13 @@ class GetNetworkView(generics.GenericAPIView):
                 result_nodes[results['source_table']].append(results)
             else:
                 result_nodes[results['source_table']] = [results]
+        # if edges is empty and nodes not the query went through but did not return any results
+        logger.debug(f'result_edges: {result_edges}')
+        logger.debug(f'all(not v for v in result_edges.values()): {all(not v for v in result_edges.values())}')
+        logger.debug(f'result_nodes: {result_nodes}')
+        logger.debug(f'nodes: {nodes}')
+        if all(not v for v in result_edges.values()) and result_nodes:
+            message = "No edges are found by the request"
 
         combined_query = {
             'Nodes': result_nodes,
@@ -94,6 +101,9 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                 result_nodes[results['source_table']].append(results)
             else:
                 result_nodes[results['source_table']] = [results]
+        # if edges is empty and nodes not the query went through but did not return any results
+        if all(not v for v in result_edges.values()) and result_nodes:
+            message = "No edges are found by the request"
 
         combined_query = {
             'Nodes': result_nodes,
@@ -137,6 +147,10 @@ class GetGroupNetworkView(generics.GenericAPIView):
         message = ""
         if request_load["spanning_tree"] == "true":
             result_edges, message = calculate_minium_spanning_tree(result_nodes=result_nodes, result_edges=result_edges)
+        else:
+            # if edges is empty and nodes not the query went through but did not return any results
+            if all(not v for v in result_edges.values()) and result_nodes:
+                message = "No edges are found by the request"
 
         combined_query = {
             'Nodes': result_nodes,
@@ -178,6 +192,10 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         message = ""
         if request_load["spanning_tree"] == "true":
             result_edges, message = calculate_minium_spanning_tree(result_nodes=result_nodes, result_edges=result_edges)
+        else:
+            # if edges is empty and nodes not the query went through but did not return any results
+            if all(not v for v in result_edges.values()) and result_nodes:
+                message = "No edges are found by the request"
 
         combined_query = {
             'Nodes': result_nodes,
