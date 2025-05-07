@@ -53,8 +53,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                 return JsonResponse({'status': 'error',
                                      'message': 'You can only start one context creation at a time.'}, status=429)
 
-        # Probably not needed in the end as user can only have 5 Context tabs, but they might just call the API so we
-        # should check here as well
+        # Check if user has not yet created all settings.MAX_CONTEXT_PER_USER contexts
         user_objects_count = UserContextLink.objects.filter(user=request.user).count()
         if user_objects_count >= settings.MAX_CONTEXT_PER_USER:
             return JsonResponse({'status': 'error',
@@ -130,7 +129,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
-            return JsonResponse({'status': 'error', 'result': 'Something went wrong!'}, status=200)
+            return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
 
