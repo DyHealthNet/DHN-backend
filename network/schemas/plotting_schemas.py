@@ -162,6 +162,57 @@ get_bar_count_schema = extend_schema(
         }
     )
 
+
+get_pie_count_schema = extend_schema(
+        summary="Returns the count for the given variable x to produce a Pie Chart"
+                "Pie Plot",
+        description="""Returns count data for the given variable x (e.g. sex) in JSON format to produce a 
+            Variable Pie Plot. If a sessionid and contextValue is provided, the data will be filtered by the
+            respective context.
+            """,
+        parameters=[
+            OpenApiParameter(
+                name='x',
+                description='variable x',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Data returned successfully",
+            ),
+            405: OpenApiResponse(
+                description="The data could not be returned, possible errors:\n"
+                            "- No appropriate context found\n"
+                            "- x is not valid\n"
+            )
+        }
+    )
+
+
 get_box_plot_schema = extend_schema(
         summary="Returns boxplot statistics for the given variables x and y grouped by c (optional) to produce a Box "
                 "Plot",

@@ -11,4 +11,5 @@ urlpatterns = [
     path("api/plotDataBarCount/", views.GetDataBarCountView.as_view(data_manager=config.DATA_MANAGER), name="get_barcount_data"),
     path("api/plotDataBoxPlot/", views.GetDataBoxPlotView.as_view(data_manager=config.DATA_MANAGER), name="get_boxplot_data"),
     path("api/plotDataHeatmap/", views.GetDataHeatmapView.as_view(data_manager=config.DATA_MANAGER), name="get_heatmap_data"),
+    path("api/plotDataPieCount/", views.GetDataPieCountView.as_view(data_manager=config.DATA_MANAGER), name="get_piecount_data"),
 ]
