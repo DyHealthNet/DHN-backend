@@ -35,7 +35,7 @@ class GetNetworkView(generics.GenericAPIView):
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
         start = timeit.default_timer()
-        edges, nodes, externals = network_query(request_load["query_id"], request_load["node_type"],
+        edges, nodes, externals, message = network_query(request_load["query_id"], request_load["node_type"],
                                                 request_load["limit"], request_load["per_type"],
                                                 request_load["significance_thresh"], request_load["test_columns"])
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
@@ -57,7 +57,8 @@ class GetNetworkView(generics.GenericAPIView):
         combined_query = {
             'Nodes': result_nodes,
             'Edges': result_edges,
-            'External Edges': list(externals)
+            'External Edges': list(externals),
+            'message': message
         }
         # logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
@@ -75,7 +76,7 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
 
         # retrieve chris nodes & edges + external edges using queries/network_queries function
         start = timeit.default_timer()
-        edges, nodes, externals = network_query(request_load["query_id"], request_load["node_type"],
+        edges, nodes, externals, message = network_query(request_load["query_id"], request_load["node_type"],
                                                 request_load["limit"], request_load["per_type"],
                                                 request_load["significance_thresh"], request_load["test_columns"],
                                                 request_load["context_id"])
@@ -97,7 +98,8 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         combined_query = {
             'Nodes': result_nodes,
             'Edges': result_edges,
-            'External Edges': list(externals)
+            'External Edges': list(externals),
+            'message': message
         }
         #logger.debug(f"Combined Query {combined_query}")
         return JsonResponse(combined_query, safe=False, status=200)
