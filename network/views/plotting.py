@@ -337,6 +337,9 @@ class GetDataDensityPlotView(generics.GenericAPIView):
 
         if x_idx not in density_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
+        if pd.api.types.is_string_dtype(density_plot_df[x_idx]):
+            return HttpResponseBadRequest(
+                'x Variable is not numerical and can not be visualized in this plot.', status=405)
 
         min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
 
