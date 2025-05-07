@@ -24,7 +24,7 @@ context_status_schema = extend_schema(
             name='context_value',
             description='context_value of the user-specific context',
             required=True,
-            type=OpenApiTypes.STR,
+            type=OpenApiTypes.INT,
         )
     ],
     responses={
@@ -346,7 +346,7 @@ delete_context_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=True,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],

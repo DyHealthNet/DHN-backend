@@ -23,7 +23,7 @@ get_table_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],
@@ -63,7 +63,7 @@ get_data_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
@@ -144,7 +144,7 @@ get_bar_count_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],
@@ -161,7 +161,6 @@ get_bar_count_schema = extend_schema(
             )
         }
     )
-
 
 get_pie_count_schema = extend_schema(
         summary="Returns the count for the given variable x to produce a Pie Chart"
@@ -208,6 +207,7 @@ get_pie_count_schema = extend_schema(
                 description="The data could not be returned, possible errors:\n"
                             "- No appropriate context found\n"
                             "- x is not valid\n"
+                            "- c is not valid"
             )
         }
     )
@@ -261,7 +261,7 @@ get_box_plot_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],
@@ -317,7 +317,7 @@ heatmap_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],

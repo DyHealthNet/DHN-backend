@@ -116,9 +116,9 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
 
 
 ######### Group of Nodes Network Queries ###########
-# @extend_schema_view(
-#   get=get_group_network_schema
-# )
+@extend_schema_view(
+   get=get_group_network_schema
+)
 class GetGroupNetworkView(generics.GenericAPIView):
     @staticmethod
     def get(request):
@@ -162,9 +162,9 @@ class GetGroupNetworkView(generics.GenericAPIView):
         return JsonResponse(combined_query, safe=False, status=200)
 
 
-# @extend_schema_view(
-#    get=get_group_network_context_schema
-# )
+@extend_schema_view(
+   get=get_group_network_context_schema
+)
 class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
     @staticmethod
     def get(request):
@@ -296,7 +296,7 @@ class TypeaheadView(generics.GenericAPIView):
         dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
                                            'source_table': item['source_table'], 'x_refs': item['xrefs']} for item in
                               res_filtered}
-        return JsonResponse(dict_from_queryset, safe=True)
+        return JsonResponse(dict_from_queryset, safe=True, status=200)
 
 
 ############# Helper Function ###############
@@ -333,7 +333,7 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
             return HttpResponseBadRequest('Query ids q must be a list of node ids and non empty.', status=405)
         response_data["query_ids"] = set(query_ids)
 
-    # Get significance threshold
+    # Get significance threshold #TODO test if None
     response_data["significance_thresh"] = request.GET.get("s")
 
     # Get Test configurations
@@ -374,9 +374,9 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
     if get_per_type:
         per_type_str = request.GET.get("p")
         if per_type_str is None:
-            return HttpResponseBadRequest('per type parameter must be declared and non empty.', status=400)
+            return HttpResponseBadRequest('per type parameter must be declared and non empty.', status=405)
         if per_type_str.lower() not in ["true", "false"]:
-            return HttpResponseBadRequest('per type parameter must be either true or false', status=400)
+            return HttpResponseBadRequest('per type parameter must be either true or false', status=405)
         per_type = per_type_str.lower() == "true"
         response_data["per_type"] = per_type  # Store as a proper boolean
     # Get context value -> context Id

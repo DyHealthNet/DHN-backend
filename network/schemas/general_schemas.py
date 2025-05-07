@@ -23,7 +23,7 @@ variables_schema = extend_schema(
                 name='contextValue',
                 description='The value of the context which specifies at which tab it is supposed to be shown.',
                 required=False,
-                type=OpenApiTypes.STR,
+                type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
             ),
         ],
