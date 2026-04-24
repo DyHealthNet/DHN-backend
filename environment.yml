@@ -58,8 +58,9 @@ dependencies:
       - kombu==5.4.2
       - llvmlite==0.43.0
       - matplotlib==3.8.4
+      - networkx==3.4.2
       - numba==0.60.0
-      - numba-scipy==0.4.0
+      - numba-scipy==0.4.0 # may cause issues with numba 0.60.0, may need to be commented out and installed separately with pip install numba-scipy==0.4.0 --no-deps
       - numpy==1.26.4
       - packaging==24.2
       - pandas==2.2.3
