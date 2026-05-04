@@ -1,6 +1,5 @@
 import json
 import timeit
-
 import networkx as nx
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
