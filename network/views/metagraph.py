@@ -26,6 +26,49 @@ layers_to_source_table = {
     "variants": "cohort_variant"
 }
 
+DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+
+
+def resolution_to_key(value):
+    """Normalize resolution keys so 1.0 and 3.0 keep one decimal."""
+    text = f"{float(value):.6f}".rstrip('0').rstrip('.')
+    if '.' not in text:
+        text = f"{text}.0"
+    return text
+
+
+def parse_resolution_values(request):
+    """
+    Parse comma-separated Leiden resolutions from `resolutions` query parameter.
+    Falls back to the default slider-friendly resolution set.
+    """
+    raw = request.GET.get('resolutions', None)
+    if raw in ['', 'null', None]:
+        return DEFAULT_LEIDEN_RESOLUTIONS
+
+    try:
+        values = [float(part.strip()) for part in str(raw).split(',') if part.strip()]
+    except ValueError:
+        return HttpResponseBadRequest('resolutions must be a comma-separated list of numbers.', status=405)
+
+    if not values:
+        return HttpResponseBadRequest('resolutions must contain at least one value.', status=405)
+
+    for value in values:
+        if value <= 0:
+            return HttpResponseBadRequest('all resolution values must be > 0.', status=405)
+
+    # Deduplicate while preserving order.
+    deduped = []
+    seen = set()
+    for value in values:
+        key = resolution_to_key(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
 def parse_query_params(request):
     """
     Parse and validate query parameters for Cosmograph view.
