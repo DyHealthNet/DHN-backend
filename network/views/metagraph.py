@@ -1,4 +1,5 @@
 import json
+import time
 import timeit
 from collections import defaultdict
 
@@ -151,6 +152,10 @@ def run_leiden_clustering(selected_links, used_node_ids, resolution=1.0, seed=42
         if ig_edges:
             ig_graph.add_edges(ig_edges)
 
+        # Measure runtime
+
+        start_just_leiden = time.perf_counter()
+
         partition = leidenalg.find_partition(
             ig_graph,
             leidenalg.RBConfigurationVertexPartition,
@@ -158,6 +163,9 @@ def run_leiden_clustering(selected_links, used_node_ids, resolution=1.0, seed=42
             resolution_parameter=resolution,
             seed=seed,
         )
+
+        end = time.perf_counter()
+        print(f"Just one Leiden runtime: {end - start_just_leiden:.4f} seconds")
 
         node_to_community = {}
         for community_id, members in enumerate(partition):
@@ -266,6 +274,9 @@ class GetCosmographView(generics.GenericAPIView):
 class GetLeidenMetagraphView(generics.GenericAPIView):
     @staticmethod
     def get(request):
+        # Measure runtime
+
+        start_whole_request = time.perf_counter()
         limit, threshold, per_node_limit = parse_query_params(request)
 
         if isinstance(limit, HttpResponseBadRequest):
@@ -275,16 +286,10 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         if isinstance(per_node_limit, HttpResponseBadRequest):
             return per_node_limit
 
-        resolution_raw = request.GET.get('resolution', None)
-        if resolution_raw in ['', 'null', None]:
-            resolution = 1.0
-        else:
-            try:
-                resolution = float(resolution_raw)
-            except ValueError:
-                return HttpResponseBadRequest('resolution must be a number.', status=405)
-            if resolution <= 0:
-                return HttpResponseBadRequest('resolution must be > 0.', status=405)
+        # Parse resolutions parameter (defaults to all standard resolutions)
+        resolutions = parse_resolution_values(request)
+        if isinstance(resolutions, HttpResponseBadRequest):
+            return resolutions
 
         seed_raw = request.GET.get('seed', None)
         if seed_raw in ['', 'null', None]:
@@ -296,11 +301,11 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 return HttpResponseBadRequest('seed must be an integer.', status=405)
 
         logger.info(
-            'Start Leiden request with limit=%s threshold=%s per_node_limit=%s resolution=%s seed=%s',
+            'Start multi-resolution Leiden request with limit=%s threshold=%s per_node_limit=%s resolutions=%s seed=%s',
             limit,
             threshold,
             per_node_limit,
-            resolution,
+            resolutions,
             seed,
         )
 
@@ -310,12 +315,27 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             per_node_limit=per_node_limit,
         )
 
-        node_to_community, clustering_algorithm = run_leiden_clustering(
-            selected_links=selected_links,
-            used_node_ids=used_node_ids,
-            resolution=resolution,
-            seed=seed,
-        )
+        # Run Leiden clustering for each resolution
+        resolution_results = {}
+        community_counts_by_resolution = {}
+        clustering_algorithm = 'unknown'
+        
+        for resolution in resolutions:
+            # Measure runtime
+
+            start_one_leiden_run = time.perf_counter()
+            node_to_community, algo = run_leiden_clustering(
+                selected_links=selected_links,
+                used_node_ids=used_node_ids,
+                resolution=resolution,
+                seed=seed,
+            )
+            clustering_algorithm = algo  # Store algorithm (same for all)
+            resolution_results[resolution] = node_to_community
+            community_count = len(set(node_to_community.values())) if node_to_community else 0
+            community_counts_by_resolution[resolution_to_key(resolution)] = community_count
+            end = time.perf_counter()
+            print(f"One run Leiden runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
         response_links = [
             {key: value for key, value in edge.items() if key != 'final_p_value'}
@@ -328,27 +348,36 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             id__in=used_node_ids,
         ).values('id', 'display_name', 'source_table')
 
-        points = [
-            {
+        # Build points with community fields for each resolution
+        points = []
+        for node in cohort_nodes:
+            if not node.get('id'):
+                continue
+            
+            point = {
                 'id': node['id'],
                 'label': node.get('display_name') or node['id'],
                 'type': (node.get('source_table') or '').replace('cohort_', ''),
                 'source_table': node.get('source_table'),
-                'community': node_to_community.get(node['id']),
             }
-            for node in cohort_nodes
-            if node.get('id')
-        ]
-
-        community_count = len(set(node_to_community.values())) if node_to_community else 0
+            
+            # Add community field for each resolution
+            for resolution in resolutions:
+                field_key = f"community_r{resolution_to_key(resolution)}"
+                point[field_key] = resolution_results[resolution].get(node['id'])
+            
+            points.append(point)
 
         logger.info(
-            'Leiden complete. points=%s links=%s communities=%s algorithm=%s',
+            'Multi-resolution Leiden complete. points=%s links=%s resolutions=%s algorithm=%s',
             len(points),
             len(response_links),
-            community_count,
+            len(resolutions),
             clustering_algorithm,
         )
+        end = time.perf_counter()
+        print(f"Whole request Leiden runtime: {end - start_whole_request:.4f} seconds")
+
 
         return JsonResponse(
             {
@@ -358,9 +387,9 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                     'point_count': len(points),
                     'link_count': len(response_links),
                     'candidate_link_count': len(candidate_links),
-                    'community_count': community_count,
+                    'community_counts_by_resolution': community_counts_by_resolution,
+                    'resolutions': [resolution_to_key(r) for r in resolutions],
                     'algorithm': clustering_algorithm,
-                    'resolution': resolution,
                     'seed': seed,
                     'limit': limit,
                     'threshold': threshold,
