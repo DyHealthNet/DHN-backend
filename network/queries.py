@@ -1,8 +1,9 @@
 import re
+from collections import defaultdict
 
 from django.db.models import Q, Value
 from django.apps import apps
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Least
 from django.db.models import F
 from django.forms.models import model_to_dict
 from network.models import create_dynamic_model
@@ -274,6 +275,121 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None):
     nodes = query_nodes(query_ids)
     mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
+
+def get_whole_network(thresh=None, limit=None, per_node_limit=None):
+    """
+    Extract the complete network with edges and nodes from all edge models.
+    
+    Args:
+        thresh: Significance threshold for filtering edges (optional)
+        limit: Overall limit on the number of edges to return (optional)
+        per_node_limit: Limit the number of edges per node (optional)
+    
+    Returns:
+        tuple: (candidate_links, selected_links, nodes)
+            - candidate_links: All edges matching the threshold
+            - selected_links: Filtered edges (after applying limit and per_node_limit)
+            - nodes: Set of all node IDs from the selected edges
+    """
+    candidate_links = []
+    
+    for model_name in BASE_MODELS.keys():
+        table_model = get_dynamic_model(model_name)
+        relation_fields = get_relation_fields(table_model)
+        if len(relation_fields) != 2:
+            continue
+
+        score_columns = get_score_columns(table_model)
+        if not score_columns:
+            continue
+
+        score_expression = Least(*[Coalesce(F(column), Value(1.0)) for column in score_columns])
+        queryset = (
+            table_model.objects
+            .annotate(final_p_value=score_expression)
+            .filter(final_p_value__isnull=False)
+        )
+        if thresh is not None:
+            queryset = queryset.filter(final_p_value__lte=thresh)
+
+        # Order by score and fetch values. Only apply an overall slice when an explicit limit is provided.
+        queryset = queryset.order_by('final_p_value').values('id', *relation_fields, 'final_p_value')
+        if limit is not None:
+            queryset = queryset[:limit]
+
+        for row in queryset:
+            source = row.get(relation_fields[0])
+            target = row.get(relation_fields[1])
+            if not source or not target:
+                continue
+            candidate_links.append({
+                'id': f"{table_model._meta.db_table}:{row['id']}",
+                'source': source,
+                'target': target,
+                'weight': 1,
+                'edge_type': table_model._meta.db_table,
+                'final_p_value': row.get('final_p_value'),
+            })
+
+    candidate_links.sort(
+        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
+    )
+
+    # Apply per_node_limit filtering if specified
+    if per_node_limit is not None:
+        edge_lookup = {edge['id']: edge for edge in candidate_links}
+        node_incident_edges = defaultdict(list)
+
+        for edge in candidate_links:
+            node_incident_edges[edge['source']].append(edge)
+            node_incident_edges[edge['target']].append(edge)
+
+        selected_edge_ids = set()
+        for incident_edges in node_incident_edges.values():
+            for edge in incident_edges[:per_node_limit]:
+                selected_edge_ids.add(edge['id'])
+
+        selected_links = [edge_lookup[edge_id] for edge_id in selected_edge_ids]
+        selected_links.sort(
+            key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
+        )
+    else:
+        selected_links = candidate_links
+
+    if limit is not None and len(selected_links) > limit:
+        selected_links = selected_links[:limit]
+
+    # Extract nodes from selected links and filter to only those present in edges
+    nodes = set()
+    for edge in selected_links:
+        nodes.add(edge['source'])
+        nodes.add(edge['target'])
+    
+    return candidate_links, selected_links, nodes
+
+def get_relation_fields(model):
+    """
+    Extract relation fields (many-to-one) from a model.
+    """
+    return [
+        field.attname for field in model._meta.fields
+        if field.is_relation and getattr(field, 'many_to_one', False)
+    ]
+
+def get_score_columns(model):
+    preferred_suffixes = [
+        '_p_benjamini_hb',
+        '_p_bonferroni',
+        '_p_unadjusted',
+        '_p_benjamini_yek',
+    ]
+    columns = []
+    for suffix in preferred_suffixes:
+        columns.extend([
+            field.name for field in model._meta.fields
+            if field.name.endswith(suffix)
+        ])
+    return list(dict.fromkeys(columns))
 
 def external_query(query_id, cohort_node=True):
     id_mapping = {}

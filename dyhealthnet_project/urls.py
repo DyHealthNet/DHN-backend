@@ -25,6 +25,7 @@ from network import views
 
 urlpatterns = [
     path("network/", include('network.urls.network_urls')),
+    path("metagraph/", include('network.urls.metagraph_urls')),
     path("context/", include('network.urls.context_urls')),
     path("plotting/", include('network.urls.plotting_urls')),
     path("auth/", include('network.urls.authentication_urls')),
