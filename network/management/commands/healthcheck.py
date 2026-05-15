@@ -72,9 +72,10 @@ class Command(BaseCommand):
         # read only the first line of the file and check if the PATIENT_ID_COLUMN is present
         files = [
             env('PHENOTYPE_PATH'),
-            env('PROTEIN_PATH'),
-            env('METABOLITE_PATH')
+            env('PROTEIN_PATH', default=None),
+            env('METABOLITE_PATH', default=None)
         ]
+        files = [f for f in files if f is not None]  # Filter out None values
         for file_path in files:
             if not os.path.isfile(file_path):
                 continue

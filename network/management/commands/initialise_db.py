@@ -37,11 +37,11 @@ class Command(BaseCommand):
 
     def init_db(self):
         # do checks that all necessary files are present
-        if not all([env("PHENOTYPE_PATH"), env('PROTEIN_PATH'), env('CALCULATED_EDGES_PATH'), env('METABOLITE_PATH'),
+        if not all([env("PHENOTYPE_PATH"), env('CALCULATED_EDGES_PATH'),
                     env('DATA_DIR')]):
             raise ValueError(
-                "Make sure that the following files or directories are present: PHENOTYPE_PATH, PROTEIN_PATH, "
-                "CALCULATED_EDGES_PATH, METABOLITE_PATH, DATA_PATH")
+                "Make sure that the following files or directories are present: PHENOTYPE_PATH,  "
+                "CALCULATED_EDGES_PATH, DATA_PATH")
 
         if not all([env('DATABASE_USER'), env('DATABASE_PASS'), env('DATABASE_NAME'), env('DB_HOST'),
                     env('DB_PORT')]):
