@@ -232,7 +232,7 @@ class GetCosmographView(generics.GenericAPIView):
         node_model = apps.get_model('network', 'ViewDescriptionFTS')
         cohort_nodes = node_model.objects.filter(
             source_table__startswith='cohort_',
-            id__in=used_node_ids,
+            #id__in=used_node_ids,
         ).values('id', 'display_name', 'source_table')
 
         points = [
@@ -255,8 +255,6 @@ class GetCosmographView(generics.GenericAPIView):
 
         return JsonResponse(
             {
-                'points': points,
-                'links': response_links,
                 'meta': {
                     'point_count': len(points),
                     'link_count': len(response_links),
@@ -265,6 +263,8 @@ class GetCosmographView(generics.GenericAPIView):
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
                 },
+                'points': points,
+                'links': response_links,
             },
             status=200,
         )
@@ -381,8 +381,6 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
 
         return JsonResponse(
             {
-                'points': points,
-                'links': response_links,
                 'meta': {
                     'point_count': len(points),
                     'link_count': len(response_links),
@@ -395,6 +393,8 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
                 },
+                'points': points,
+                'links': response_links,
             },
             status=200,
         )
