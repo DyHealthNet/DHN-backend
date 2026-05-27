@@ -6,9 +6,13 @@ import pandas as pd
 import network.utils.startup_utils as utils
 from network.score_calculation import calculate_association_scores
 from django.apps import apps
+from modina.context_net_inference import calculate_association_scores as modina_calculate_association_scores
 import environ
+from django.conf import settings
 import traceback
 import logging
+import timeit
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 env = environ.Env(
@@ -18,6 +22,14 @@ environ.Env.read_env()
 
 logger = logging.getLogger("network")
 config = apps.get_app_config('network')
+
+
+def human_readable_size(num, suffix='B'):
+    for unit in ['','K','M','G','T','P']:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}P{suffix}"
 
 
 class Command(BaseCommand):
@@ -82,8 +94,72 @@ class Command(BaseCommand):
 
         test_type = env("TEST_TYPE")
 
+        start_dyhealthnet = timeit.default_timer()
+        logger.info("DataManager returned DyHealthNet cat_data shape: %s, cont_data shape: %s",
+                    cat_data.shape, cont_data.shape)
         results = calculate_association_scores(cat_data, cont_data, test_type)
-        results.to_csv(env("CALCULATED_EDGES_PATH"), sep=',', index=True, lineterminator='\n')
+        logger.info("DyHealthNet association calculation finished in %.2f seconds",
+                    timeit.default_timer() - start_dyhealthnet)
+        dy_path = f"{env('CALCULATED_EDGES_PATH')}_dyhealthnet_calculation"
+        logger.info("Dyhealthnet Scores df shape: %s", results.shape)
+        results.to_csv(dy_path, sep=',', index=True, lineterminator='\n')
+        try:
+            dy_size = os.path.getsize(dy_path)
+            logger.info("DyHealthNet result written to %s (size: %s)", dy_path, human_readable_size(dy_size))
+        except Exception:
+            logger.warning("Could not determine size for DyHealthNet result file: %s", dy_path)
+
+        ord_data, nom_data, modina_cont_data, bi_data = data_manager.get_df_copy(
+            ['all_ordinal', 'all_nominal', 'all_continuous', 'all_binary']
+        )
+        modina_cont_data = modina_cont_data.select_dtypes(include='number').copy() if modina_cont_data is not None else None
+        dropped_modina_cols = []
+        if cont_data is not None and modina_cont_data is not None:
+            dropped_modina_cols = [col for col in cont_data.columns if col not in modina_cont_data.columns]
+        logger.info(
+            "Modina continuous data shape after numeric filter: %s; dropped %s columns: %s",
+            modina_cont_data.shape if modina_cont_data is not None else None,
+            len(dropped_modina_cols),
+            dropped_modina_cols,
+        )
+        logger.info(
+            "Modina input shapes ord: %s, nom: %s, cont: %s, binary: %s",
+            ord_data.shape if ord_data is not None else None,
+            nom_data.shape if nom_data is not None else None,
+            modina_cont_data.shape if modina_cont_data is not None else None,
+            bi_data.shape if bi_data is not None else None,
+        )
+        if test_type == "all":
+            start_parametric = timeit.default_timer()
+            results_par = modina_calculate_association_scores(ord_data, nom_data, modina_cont_data, bi_data, test_type='parametric', num_workers=settings.NUM_WORKERS)
+            logger.info("Modina parametric calculation finished in %.2f seconds",
+                        timeit.default_timer() - start_parametric)
+
+            start_nonparametric = timeit.default_timer()
+            results_nonpar = modina_calculate_association_scores(ord_data, nom_data, modina_cont_data, bi_data, test_type='nonparametric', num_workers=settings.NUM_WORKERS)
+            logger.info("Modina nonparametric calculation finished in %.2f seconds",
+                        timeit.default_timer() - start_nonparametric)
+
+            start_modina = timeit.default_timer()
+            results = pd.concat([results_par, results_nonpar], axis=0, ignore_index=True)
+            logger.info("Modina result concatenation finished in %.2f seconds",
+                        timeit.default_timer() - start_modina)
+            logger.info("Modina total calculation finished in %.2f seconds",
+               timeit.default_timer() - start_parametric)
+        else:
+            start_modina = timeit.default_timer()
+            results = modina_calculate_association_scores(ord_data, nom_data, modina_cont_data, bi_data, test_type=test_type, num_workers=settings.NUM_WORKERS)
+            logger.info("Modina calculation finished in %.2f seconds",
+                        timeit.default_timer() - start_modina)
+
+        modina_path = f"{env('CALCULATED_EDGES_PATH')}_modina_calculation"
+        logger.info("Modina Scores df shape: %s", results.shape)
+        results.to_csv(modina_path, sep=',', index=True, lineterminator='\n')
+        try:
+            modina_size = os.path.getsize(modina_path)
+            logger.info("Modina result written to %s (size: %s)", modina_path, human_readable_size(modina_size))
+        except Exception:
+            logger.warning("Could not determine size for Modina result file: %s", modina_path)
 
         # Subset the data to participents that are present in all provided data tables
         # common_indices = set(phenotypes.index)

@@ -229,7 +229,7 @@ def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataF
         return pd.DataFrame(), all_data.copy()
     logger.debug("Separating categorical and continuous phenotypes")
     #TODO include Time variable type somewhere here
-    allowed_types = ['boolean', 'categorical', 'float', 'integer']
+    allowed_types = ['boolean', 'categorical', 'float', 'integer', 'ordinal', 'nominal', 'binary', 'continuous']
     # Check if all types of phenotype variables are in the allowed list
     invalid_types = phenotypes_meta[~phenotypes_meta.type.str.lower().isin(allowed_types)]
     if not invalid_types.empty:
@@ -242,6 +242,42 @@ def separate_cat_cont(all_data, phenotypes_meta) -> tuple[pd.DataFrame, pd.DataF
     cont_data = all_data.iloc[:, all_data.columns.isin(phenotypes_meta[phenotypes_meta.type.str.lower()
                                                         .isin(["integer", "float"])].label)].copy()
     return cat_data, cont_data
+
+
+def separate_types(all_data, meta_file) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Separating the data into ordinal, nominal, continuous and binary variables.
+    :param all_data: DataFrame with all data
+    :param meta_file: DataFrame with metadata of the variables
+    :return: tuple with the ordinal, nominal, continuous and binary variables
+    """
+    if isinstance(all_data, type(None)):
+        return None, None
+    if isinstance(meta_file, type(None)):
+        return pd.DataFrame(), all_data.copy()
+    logger.debug("Separating ordinal, nominal, continuous and binary data")
+
+    #TODO include Time variable type somewhere here
+    allowed_types = ['boolean', 'categorical', 'float', 'integer', 'ordinal', 'nominal', 'binary', 'continuous']
+    # Check if all types of phenotype variables are in the allowed list
+    invalid_types = meta_file[~meta_file.type.str.lower().isin(allowed_types)]
+    if not invalid_types.empty:
+        logger.warning(f"Invalid variable types were found: {invalid_types.type.unique()}. "
+                       f"These variables will be ignored.")
+        
+    # Extract ordinal phenotypes
+    ord_data = all_data.iloc[:, all_data.columns.isin(meta_file[meta_file.type.str.lower().isin(["ordinal"])].label)].copy()
+    
+    # Extract nominal phenotypes
+    nom_data = all_data.iloc[:, all_data.columns.isin(meta_file[meta_file.type.str.lower().isin(["nominal", "categorical"])].label)].copy()
+
+    # Extract binary phenotypes
+    bi_data = all_data.iloc[:, all_data.columns.isin(meta_file[meta_file.type.str.lower().isin(["binary", "boolean"])].label)].copy()
+
+    # Extract continuous phenotypes
+    cont_data = all_data.iloc[:, all_data.columns.isin(meta_file[meta_file.type.str.lower().isin(["continuous", "float", "integer"])].label)].copy()
+
+    return ord_data, nom_data, cont_data, bi_data
 
 
 def calculate_association_scores(cat_data, cont_data, tests: dict[str, dict] | str) -> pd.DataFrame:
