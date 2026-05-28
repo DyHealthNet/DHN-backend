@@ -43,7 +43,7 @@ layers_to_source_table = {
 DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
 SUPPORTED_COMMUNITY_METHODS = ('leiden', 'louvain', 'agglomerative', 'hsbm')
 BENCHMARK_DEFAULT_LIMIT = None
-BENCHMARK_DEFAULT_THRESHOLD = 0.995
+BENCHMARK_DEFAULT_THRESHOLD = 0.05
 BENCHMARK_DEFAULT_PER_NODE_LIMIT = None
 
 
@@ -263,6 +263,55 @@ def _run_agglomerative_clustering(graph):
     return _assign_membership(graph, communities.membership), 'agglomerative'
 
 
+def _summarize_agglomerative_levels(graph):
+    """Return the meaningful coarser-side cuts for the agglomerative merge tree."""
+    if graph.vcount() == 0:
+        return []
+
+    if graph.ecount() == 0:
+        membership = _singleton_membership(graph)
+        return [{
+            'level': 0,
+            'node_to_community': _assign_membership(graph, membership),
+            'community_count': len(set(membership)),
+            'modularity': 0.0,
+            'communities': [1] * graph.vcount(),
+        }]
+
+    dendrogram = graph.community_fastgreedy(weights=graph.es['weight'])
+    optimal_count = int(dendrogram.optimal_count)
+
+    # For agglomerative clustering, cuts above the modularity-optimal partition
+    # quickly turn into singleton-heavy refinements. Benchmark only the coarser
+    # side up to the optimal cut so the rows stay meaningful.
+    cut_counts = list(range(1, optimal_count + 1))
+
+    level_summaries = []
+    total_levels = len(cut_counts)
+
+    for level_index, cluster_count in enumerate(cut_counts):
+        clustering = dendrogram.as_clustering(n=cluster_count)
+        membership = list(clustering.membership)
+        node_to_community = _assign_membership(graph, membership)
+
+        size_map = {}
+        for comm in membership:
+            size_map[comm] = size_map.get(comm, 0) + 1
+
+        level_summaries.append({
+            'level': level_index,
+            'node_to_community': node_to_community,
+            'community_count': len(set(membership)) if membership else 0,
+            'modularity': round(compute_modularity(graph, node_to_community), 6),
+            'communities': sorted(size_map.values(), reverse=True),
+            'hierarchy_label': f'cut {cluster_count} communities',
+            'hierarchy_depth': total_levels,
+            'cut_count': cluster_count,
+        })
+
+    return level_summaries
+
+
 def _run_hsbm_like_clustering(graph, resolution=1.0, seed=42, max_depth=4, min_cluster_size=4):
     """Backward-compatible approximation built from recursive Louvain splits."""
     if graph.vcount() == 0:
@@ -304,8 +353,45 @@ def _run_hsbm_like_clustering(graph, resolution=1.0, seed=42, max_depth=4, min_c
 
 def _run_hsbm_clustering(graph, seed=42):
     """Run a real hierarchical stochastic block model using graph-tool."""
+    node_to_community, _, _ = _run_hsbm_clustering_with_levels(graph, seed=seed)
+    return node_to_community, 'hsbm'
+
+
+def _summarize_hsbm_levels(graph, gt_graph, state):
+    """Return per-level community counts and modularity for the nested HSBM tree."""
+    level_summaries = []
+    for level_index, blocks in enumerate(state.get_bs()):
+        projected_state = state.project_level(level_index)
+        membership = [int(block_id) for block_id in projected_state.get_blocks()]
+        node_to_community = {
+            graph.vs[idx]['name']: membership[idx]
+            for idx in range(len(membership))
+        }
+
+        size_map = {}
+        for comm in membership:
+            size_map[comm] = size_map.get(comm, 0) + 1
+
+        level_summaries.append({
+            'level': level_index,
+            'node_to_community': node_to_community,
+            'community_count': len(set(membership)) if membership else 0,
+            'modularity': round(compute_modularity(graph, node_to_community), 6),
+            'communities': sorted(size_map.values(), reverse=True),
+        })
+
+        # Once the projection collapses to a single community, coarser levels are
+        # redundant for benchmarking because they will remain identical.
+        if level_summaries[-1]['community_count'] <= 1:
+            break
+
+    return level_summaries
+
+
+def _run_hsbm_clustering_with_levels(graph, seed=42):
+    """Run a real hierarchical stochastic block model using graph-tool."""
     if graph.vcount() == 0:
-        return {}, 'none'
+        return {}, 'none', []
 
     gt = importlib.import_module('graph_tool.all')
 
@@ -324,9 +410,10 @@ def _run_hsbm_clustering(graph, seed=42):
         gt_graph.ep.weight[gt_edge] = float(edge['weight'])
 
     state = gt.minimize_nested_blockmodel_dl(gt_graph, state_args={'deg_corr': True})
-    blocks = state.get_bs()[0] # only gets the lowest level of the hierarchy, which is what we want for a flat clustering but maybe not comparable to the resolution 1 
+    blocks = state.get_bs()[0]  # lowest level keeps the existing flat clustering behaviour.
     membership = [int(blocks[v]) for v in gt_graph.vertices()]
-    return _assign_membership(graph, membership), 'hsbm'
+    hierarchy_levels = _summarize_hsbm_levels(graph, gt_graph, state)
+    return _assign_membership(graph, membership), 'hsbm', hierarchy_levels
 
 
 def run_community_clustering(selected_links, used_node_ids, method='leiden', resolution=1.0, seed=42):
@@ -340,7 +427,8 @@ def run_community_clustering(selected_links, used_node_ids, method='leiden', res
     if method == 'agglomerative':
         return _run_agglomerative_clustering(graph)
     if method == 'hsbm':
-        return _run_hsbm_clustering(graph, seed=seed)
+        node_to_community, algorithm_name, _ = _run_hsbm_clustering_with_levels(graph, seed=seed)
+        return node_to_community, algorithm_name
 
     raise ValueError(f"Unsupported community detection method '{method}'. Choose from: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.")
 
@@ -353,14 +441,72 @@ def benchmark_community_detection(selected_links, used_node_ids, methods=None, r
     benchmark_rows = []
     for method in methods:
         start = time.perf_counter()
-        node_to_community, algorithm_name = run_community_clustering(
-            selected_links=selected_links,
-            used_node_ids=used_node_ids,
-            method=method,
-            resolution=resolution,
-            seed=seed,
-        )
-        runtime = time.perf_counter() - start
+        if method == 'hsbm':
+            node_to_community, algorithm_name, hierarchy_levels = _run_hsbm_clustering_with_levels(
+                graph,
+                seed=seed,
+            )
+            runtime = time.perf_counter() - start
+
+            total_levels = len(hierarchy_levels)
+            for level_summary in hierarchy_levels:
+                level_number = level_summary['level'] + 1
+                row = {
+                    'method': f'hsbm_level_{level_number}_of_{total_levels}',
+                    'algorithm': algorithm_name,
+                    'hierarchy_level': level_number,
+                    'hierarchy_depth': total_levels,
+                    'hierarchy_label': f'level {level_number} of {total_levels}',
+                    'runtime_seconds': round(runtime, 6),
+                    'modularity': level_summary['modularity'],
+                    'community_count': level_summary['community_count'],
+                    'node_count': node_count,
+                    'edge_count': edge_count,
+                    # JSON-encode the community id/size list so it fits cleanly into CSV
+                    'communities': json.dumps(level_summary['communities']),
+                }
+                benchmark_rows.append(row)
+                print(
+                    f"{row['method']}: runtime={row['runtime_seconds']:.6f}s modularity={row['modularity']:.6f}"
+                )
+
+            continue
+        if method == 'agglomerative':
+            node_to_community, algorithm_name = _run_agglomerative_clustering(graph)
+            runtime = time.perf_counter() - start
+            hierarchy_levels = _summarize_agglomerative_levels(graph)
+
+            total_levels = len(hierarchy_levels)
+            for level_summary in hierarchy_levels:
+                level_number = level_summary['level'] + 1
+                row = {
+                    'method': f'agglomerative_cut_{level_summary["cut_count"]}',
+                    'algorithm': algorithm_name,
+                    'hierarchy_level': level_number,
+                    'hierarchy_depth': total_levels,
+                    'hierarchy_label': level_summary['hierarchy_label'],
+                    'runtime_seconds': round(runtime, 6),
+                    'modularity': level_summary['modularity'],
+                    'community_count': level_summary['community_count'],
+                    'node_count': node_count,
+                    'edge_count': edge_count,
+                    'communities': json.dumps(level_summary['communities']),
+                }
+                benchmark_rows.append(row)
+                print(
+                    f"{row['method']}: runtime={row['runtime_seconds']:.6f}s modularity={row['modularity']:.6f}"
+                )
+
+            continue
+        else:
+            node_to_community, algorithm_name = run_community_clustering(
+                selected_links=selected_links,
+                used_node_ids=used_node_ids,
+                method=method,
+                resolution=resolution,
+                seed=seed,
+            )
+            runtime = time.perf_counter() - start
         modularity = compute_modularity(graph, node_to_community)
         community_count = len(set(node_to_community.values())) if node_to_community else 0
 
@@ -376,6 +522,9 @@ def benchmark_community_detection(selected_links, used_node_ids, methods=None, r
         row = {
             'method': method,
             'algorithm': algorithm_name,
+            'hierarchy_level': None,
+            'hierarchy_depth': None,
+            'hierarchy_label': None,
             'runtime_seconds': round(runtime, 6),
             'modularity': round(modularity, 6),
             'community_count': community_count,
@@ -448,6 +597,9 @@ def run_benchmark_from_whole_network(
     table_columns = [
         'method',
         'algorithm',
+        'hierarchy_level',
+        'hierarchy_depth',
+        'hierarchy_label',
         'runtime_seconds',
         'modularity',
         'community_count',
