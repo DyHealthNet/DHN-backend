@@ -336,16 +336,11 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
     response_data["significance_thresh"] = request.GET.get("s")
 
     # Get Test configurations
-    selected_options = parse_json_param(request, "o", default={})
+    selected_options = parse_json_param(request, "o", default=None)
     if isinstance(selected_options, HttpResponseBadRequest):
         return selected_options
     try:
-        test_columns = {
-            f'{selected_options["contCont"]["value"]}_p_{selected_options["multTest"]["value"]}',
-            f'{selected_options["catContB"]["value"]}_p_{selected_options["multTest"]["value"]}',
-            f'{selected_options["catContM"]["value"]}_p_{selected_options["multTest"]["value"]}',
-            f'{selected_options["catCat"]["value"]}_p_{selected_options["multTest"]["value"]}',
-        }
+        test_columns = build_test_columns(selected_options)
         response_data["test_columns"] = test_columns
     except KeyError as e:
         logger.error(f"Missing key in selected_options: {e}")

@@ -1,9 +1,22 @@
 import json
+import importlib
+import os
 import time
 import timeit
+from datetime import datetime
 from collections import defaultdict
 
-import networkx as nx
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
+
+import django
+from django.apps import apps as django_apps
+
+if not django_apps.ready:
+    django.setup()
+
+import igraph as ig
+import pandas as pd
+from django.apps import apps
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.db.models import Value
@@ -28,6 +41,10 @@ layers_to_source_table = {
 }
 
 DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+SUPPORTED_COMMUNITY_METHODS = ('leiden', 'louvain', 'agglomerative', 'hsbm')
+BENCHMARK_DEFAULT_LIMIT = None
+BENCHMARK_DEFAULT_THRESHOLD = 0.995
+BENCHMARK_DEFAULT_PER_NODE_LIMIT = None
 
 
 def resolution_to_key(value):
@@ -117,49 +134,95 @@ def parse_query_params(request):
     return limit, threshold, per_node_limit
 
 
-def run_leiden_clustering(selected_links, used_node_ids, resolution=1.0, seed=42):
-    """
-    Run Leiden clustering on the filtered graph.
-    Falls back to Louvain if Leiden dependencies are not installed.
-    """
-    if not used_node_ids:
+def build_weighted_graph(selected_links, used_node_ids):
+    """Build a simple igraph graph with summed edge weights."""
+    sorted_nodes = sorted({str(node_id) for node_id in used_node_ids})
+    node_to_idx = {node_id: idx for idx, node_id in enumerate(sorted_nodes)}
+
+    edge_weights = defaultdict(float)
+    for edge in selected_links:
+        source = edge.get('source')
+        target = edge.get('target')
+        if not source or not target:
+            continue
+
+        source = str(source)
+        target = str(target)
+        if source not in node_to_idx or target not in node_to_idx:
+            continue
+
+        key = tuple(sorted((source, target)))
+        edge_weights[key] = float(edge.get('weight', 1.0) or 1.0)
+
+    edges = [(node_to_idx[source], node_to_idx[target]) for source, target in edge_weights.keys()]
+    weights = list(edge_weights.values())
+
+    graph = ig.Graph(n=len(sorted_nodes), edges=edges, directed=False)
+    graph.vs['name'] = sorted_nodes
+    if weights:
+        graph.es['weight'] = weights
+
+    return graph
+
+    # using pandas for aggregation (fast and readable)
+# TODO: do faster graph building??
+# df = pd.DataFrame(selected_links)  # must have 'source','target', optional 'weight'
+# df['source'] = df['source'].astype(str)
+# df['target'] = df['target'].astype(str)
+# # normalize undirected pair
+# df[['u','v']] = pd.DataFrame(
+#     np.sort(df[['source','target']].values, axis=1),
+#     index=df.index
+# )
+# # choose aggregation policy: sum / max / existence
+# df['weight'] = df.get('weight').fillna(1.0)
+# agg = df.groupby(['u','v'], sort=False, as_index=False)['weight'].sum()
+
+# triples = list(agg.itertuples(index=False, name=None))  # (u,v,weight)
+# g = ig.Graph.TupleList(triples, directed=False, weights=True, vertex_name_attr='name')
+
+
+def communities_from_mapping(node_to_community):
+    grouped = defaultdict(set)
+    for node_id, community_id in node_to_community.items():
+        grouped[community_id].add(node_id)
+    return [members for _, members in sorted(grouped.items(), key=lambda item: item[0]) if members]
+
+
+def compute_modularity(graph, node_to_community):
+    if graph.vcount() == 0:
+        return 0.0
+
+    try:
+        membership = [node_to_community.get(vertex['name'], idx) for idx, vertex in enumerate(graph.vs)]
+        if graph.ecount() == 0:
+            return 0.0
+        return float(graph.modularity(membership, weights=graph.es['weight']))
+    except Exception:
+        return 0.0
+
+
+def _assign_membership(graph, membership):
+    return {graph.vs[idx]['name']: community_id for idx, community_id in enumerate(membership)}
+
+
+def _singleton_membership(graph):
+    return list(range(graph.vcount()))
+
+
+def _run_leiden_like_clustering(graph, resolution=1.0, seed=42):
+    """Run Leiden on an igraph graph, with Louvain fallback if leidenalg is unavailable."""
+    if graph.vcount() == 0:
         return {}, 'none'
 
-    # Preferred implementation: build igraph directly for lower overhead.
     try:
-        import igraph as ig
         import leidenalg
 
-        sorted_nodes = sorted(used_node_ids)
-        node_to_idx = {node_id: idx for idx, node_id in enumerate(sorted_nodes)}
-        idx_to_node = {idx: node_id for node_id, idx in node_to_idx.items()}
-
-        ig_graph = ig.Graph()
-        ig_graph.add_vertices(len(sorted_nodes))
-
-        ig_edges = []
-        ig_weights = []
-        for edge in selected_links:
-            source = edge.get('source')
-            target = edge.get('target')
-            if not source or not target:
-                continue
-            if source not in node_to_idx or target not in node_to_idx:
-                continue
-            ig_edges.append((node_to_idx[source], node_to_idx[target]))
-            ig_weights.append(edge.get('weight', 1.0) or 1.0)
-
-        if ig_edges:
-            ig_graph.add_edges(ig_edges)
-
-        # Measure runtime
-
         start_just_leiden = time.perf_counter()
-
         partition = leidenalg.find_partition(
-            ig_graph,
+            graph,
             leidenalg.RBConfigurationVertexPartition,
-            weights=ig_weights if ig_weights else None,
+            weights=graph.es['weight'] if graph.ecount() else None,
             resolution_parameter=resolution,
             seed=seed,
         )
@@ -167,33 +230,243 @@ def run_leiden_clustering(selected_links, used_node_ids, resolution=1.0, seed=42
         end = time.perf_counter()
         print(f"Just one Leiden runtime: {end - start_just_leiden:.4f} seconds")
 
-        node_to_community = {}
-        for community_id, members in enumerate(partition):
-            for member_idx in members:
-                node_to_community[idx_to_node[member_idx]] = community_id
-
-        return node_to_community, 'leiden'
+        return _assign_membership(graph, partition.membership), 'leiden'
     except Exception as exc:
-        logger.warning('Leiden unavailable, using Louvain fallback: %s', exc)
+        logger.warning('Leiden unavailable, using igraph Louvain fallback: %s', exc)
 
-    # Fallback keeps endpoint functional without extra dependencies.
-    graph = nx.Graph()
-    graph.add_nodes_from(used_node_ids)
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'louvain_fallback'
 
-    for edge in selected_links:
-        source = edge.get('source')
-        target = edge.get('target')
-        if not source or not target:
-            continue
-        graph.add_edge(source, target, weight=edge.get('weight', 1.0) or 1.0)
+    communities = graph.community_multilevel(weights=graph.es['weight'])
+    return _assign_membership(graph, communities.membership), 'louvain_fallback'
 
-    communities = nx.community.louvain_communities(graph, weight='weight', resolution=resolution, seed=seed)
-    node_to_community = {}
-    for community_id, members in enumerate(communities):
-        for node_id in members:
-            node_to_community[node_id] = community_id
 
-    return node_to_community, 'louvain_fallback'
+def _run_louvain_clustering(graph, resolution=1.0, seed=42):
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'louvain'
+
+    communities = graph.community_multilevel(weights=graph.es['weight'])
+    return _assign_membership(graph, communities.membership), 'louvain'
+
+
+def _run_agglomerative_clustering(graph):
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'agglomerative'
+
+    communities = graph.community_fastgreedy(weights=graph.es['weight']).as_clustering()
+    return _assign_membership(graph, communities.membership), 'agglomerative'
+
+
+def _run_hsbm_like_clustering(graph, resolution=1.0, seed=42, max_depth=4, min_cluster_size=4):
+    """Backward-compatible approximation built from recursive Louvain splits."""
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    leaf_assignments = {}
+    next_cluster_id = 0
+
+    def assign_leaf(nodes):
+        nonlocal next_cluster_id
+        for node_id in nodes:
+            leaf_assignments[node_id] = next_cluster_id
+        next_cluster_id += 1
+
+    def recurse(nodes, depth):
+        indices = [graph.vs.find(name=node_id).index for node_id in nodes]
+        subgraph = graph.subgraph(indices)
+        if subgraph.vcount() <= min_cluster_size or depth >= max_depth or subgraph.ecount() == 0:
+            assign_leaf(subgraph.vs['name'])
+            return
+
+        local_resolution = resolution * (1.0 + 0.25 * depth)
+        communities = subgraph.community_multilevel(weights=subgraph.es['weight'])
+
+        if len(communities) <= 1:
+            assign_leaf(subgraph.vs['name'])
+            return
+
+        for community_indices in communities:
+            community_names = [subgraph.vs[idx]['name'] for idx in community_indices]
+            if len(community_names) <= min_cluster_size:
+                assign_leaf(community_names)
+            else:
+                recurse(community_names, depth + 1)
+
+    recurse(set(graph.vs['name']), 0)
+    return leaf_assignments, 'hsbm_like'
+
+
+def _run_hsbm_clustering(graph, seed=42):
+    """Run a real hierarchical stochastic block model using graph-tool."""
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    gt = importlib.import_module('graph_tool.all')
+
+    gt_graph = gt.Graph(directed=False)
+    gt_graph.add_vertex(graph.vcount())
+    gt_graph.vp.name = gt_graph.new_vertex_property('string')
+    gt_graph.ep.weight = gt_graph.new_edge_property('double')
+
+    for idx, vertex in enumerate(graph.vs):
+        gt_graph.vp.name[vertex.index] = vertex['name']
+
+    for edge in graph.es:
+        source = int(edge.source)
+        target = int(edge.target)
+        gt_edge = gt_graph.add_edge(source, target)
+        gt_graph.ep.weight[gt_edge] = float(edge['weight'])
+
+    state = gt.minimize_nested_blockmodel_dl(gt_graph, state_args={'deg_corr': True})
+    blocks = state.get_bs()[0] # only gets the lowest level of the hierarchy, which is what we want for a flat clustering but maybe not comparable to the resolution 1 
+    membership = [int(blocks[v]) for v in gt_graph.vertices()]
+    return _assign_membership(graph, membership), 'hsbm'
+
+
+def run_community_clustering(selected_links, used_node_ids, method='leiden', resolution=1.0, seed=42):
+    graph = build_weighted_graph(selected_links, used_node_ids)
+    method = (method or 'leiden').strip().lower()
+
+    if method == 'leiden':
+        return _run_leiden_like_clustering(graph, resolution=resolution, seed=seed)
+    if method == 'louvain':
+        return _run_louvain_clustering(graph, seed=seed)
+    if method == 'agglomerative':
+        return _run_agglomerative_clustering(graph)
+    if method == 'hsbm':
+        return _run_hsbm_clustering(graph, seed=seed)
+
+    raise ValueError(f"Unsupported community detection method '{method}'. Choose from: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.")
+
+def benchmark_community_detection(selected_links, used_node_ids, methods=None, resolution=1.0, seed=42):
+    graph = build_weighted_graph(selected_links, used_node_ids)
+    methods = methods or SUPPORTED_COMMUNITY_METHODS
+    node_count = graph.vcount()
+    edge_count = graph.ecount()
+
+    benchmark_rows = []
+    for method in methods:
+        start = time.perf_counter()
+        node_to_community, algorithm_name = run_community_clustering(
+            selected_links=selected_links,
+            used_node_ids=used_node_ids,
+            method=method,
+            resolution=resolution,
+            seed=seed,
+        )
+        runtime = time.perf_counter() - start
+        modularity = compute_modularity(graph, node_to_community)
+        community_count = len(set(node_to_community.values())) if node_to_community else 0
+
+        # Build a compact representation: ordered community sizes (largest first)
+        if node_to_community:
+            size_map = {}
+            for comm in node_to_community.values():
+                size_map[comm] = size_map.get(comm, 0) + 1
+            communities_with_size = sorted(size_map.values(), reverse=True)
+        else:
+            communities_with_size = []
+
+        row = {
+            'method': method,
+            'algorithm': algorithm_name,
+            'runtime_seconds': round(runtime, 6),
+            'modularity': round(modularity, 6),
+            'community_count': community_count,
+            'node_count': node_count,
+            'edge_count': edge_count,
+            # JSON-encode the community id/size list so it fits cleanly into CSV
+            'communities': json.dumps(communities_with_size),
+        }
+        benchmark_rows.append(row)
+        print(
+            f"{method}: runtime={row['runtime_seconds']:.6f}s modularity={row['modularity']:.6f}"
+        )
+
+    return pd.DataFrame(benchmark_rows)
+
+
+def run_benchmark_from_whole_network(
+    limit=BENCHMARK_DEFAULT_LIMIT,
+    threshold=BENCHMARK_DEFAULT_THRESHOLD,
+    per_node_limit=BENCHMARK_DEFAULT_PER_NODE_LIMIT,
+    methods=None,
+    resolution=1.0,
+    seed=42,
+    output_dir='.',
+):
+    candidate_links, selected_links, used_node_ids = get_whole_network(
+        thresh=threshold,
+        limit=limit,
+        per_node_limit=per_node_limit,
+    )
+
+    selected_node_count = len(used_node_ids)
+    selected_edge_count = len(selected_links)
+    candidate_edge_count = len(candidate_links)
+    used_network_node_count = selected_node_count
+    used_network_edge_count = selected_edge_count
+    possible_edge_count = selected_node_count * (selected_node_count - 1) / 2 if selected_node_count > 1 else 0
+    network_density = (selected_edge_count / possible_edge_count) if possible_edge_count else 0.0
+
+    print(
+        f"Benchmark network size: {selected_node_count} nodes, {selected_edge_count} edges "
+        f"(density: {network_density:.6f})"
+    )
+
+    benchmark_df = benchmark_community_detection(
+        selected_links=selected_links,
+        used_node_ids=used_node_ids,
+        methods=methods or SUPPORTED_COMMUNITY_METHODS,
+        resolution=resolution,
+        seed=seed,
+    )
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    file_name = f'benchmarking_cm_detection_{timestamp}.csv'
+    output_path = os.path.join(output_dir, file_name)
+
+    # Shared metadata is written once above the table to keep method rows compact.
+    metadata_rows = [
+        ('selected_node_count', selected_node_count),
+        ('selected_edge_count', selected_edge_count),
+        ('candidate_edge_count', candidate_edge_count),
+        ('used_network_node_count', used_network_node_count),
+        ('used_network_edge_count', used_network_edge_count),
+        ('network_density', round(network_density, 6)),
+        ('threshold', threshold),
+        ('limit', limit),
+        ('per_node_limit', per_node_limit),
+    ]
+
+    table_columns = [
+        'method',
+        'algorithm',
+        'runtime_seconds',
+        'modularity',
+        'community_count',
+        'communities',
+    ]
+    method_table_df = benchmark_df.loc[:, table_columns].copy()
+
+    with open(output_path, 'w', encoding='utf-8') as output_file:
+        output_file.write('metric,value\n')
+        for key, value in metadata_rows:
+            output_file.write(f'{key},{"" if value is None else value}\n')
+        output_file.write('\n')
+        method_table_df.to_csv(output_file, index=False)
+
+    print(f"Benchmark results written to: {output_path}")
+    print('Shared benchmark metadata:')
+    for key, value in metadata_rows:
+        print(f'  {key}: {value}')
+    return method_table_df, output_path
 
 #TODO: add @extend_schema_view
 class GetCosmographView(generics.GenericAPIView):
@@ -300,13 +573,23 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             except ValueError:
                 return HttpResponseBadRequest('seed must be an integer.', status=405)
 
+        method = request.GET.get('algorithm', 'leiden')
+        method = method.strip().lower()
+
+        if method not in SUPPORTED_COMMUNITY_METHODS:
+            return HttpResponseBadRequest(
+                f"algorithm must be one of: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.",
+                status=405,
+            )
+
         logger.info(
-            'Start multi-resolution Leiden request with limit=%s threshold=%s per_node_limit=%s resolutions=%s seed=%s',
+            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s resolutions=%s seed=%s algorithm=%s',
             limit,
             threshold,
             per_node_limit,
             resolutions,
             seed,
+            method,
         )
 
         candidate_links, selected_links, used_node_ids = get_whole_network(
@@ -315,7 +598,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             per_node_limit=per_node_limit,
         )
 
-        # Run Leiden clustering for each resolution
+        # Run the selected community detection method for each resolution
         resolution_results = {}
         community_counts_by_resolution = {}
         clustering_algorithm = 'unknown'
@@ -324,9 +607,10 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             # Measure runtime
 
             start_one_leiden_run = time.perf_counter()
-            node_to_community, algo = run_leiden_clustering(
+            node_to_community, algo = run_community_clustering(
                 selected_links=selected_links,
                 used_node_ids=used_node_ids,
+                method=method,
                 resolution=resolution,
                 seed=seed,
             )
@@ -335,7 +619,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             community_count = len(set(node_to_community.values())) if node_to_community else 0
             community_counts_by_resolution[resolution_to_key(resolution)] = community_count
             end = time.perf_counter()
-            print(f"One run Leiden runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
+            print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
         response_links = [
             {key: value for key, value in edge.items() if key != 'final_p_value'}
@@ -369,14 +653,14 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             points.append(point)
 
         logger.info(
-            'Multi-resolution Leiden complete. points=%s links=%s resolutions=%s algorithm=%s',
+            'Multi-resolution metagraph complete. points=%s links=%s resolutions=%s algorithm=%s',
             len(points),
             len(response_links),
             len(resolutions),
             clustering_algorithm,
         )
         end = time.perf_counter()
-        print(f"Whole request Leiden runtime: {end - start_whole_request:.4f} seconds")
+        print(f"Whole request {method} runtime: {end - start_whole_request:.4f} seconds")
 
 
         return JsonResponse(
@@ -398,3 +682,21 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             },
             status=200,
         )
+
+
+if __name__ == '__main__':
+    # Allows running this module directly for local benchmarking without using the API endpoint.
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
+    import django
+
+    django.setup()
+
+    run_benchmark_from_whole_network(
+        limit=BENCHMARK_DEFAULT_LIMIT,
+        threshold=BENCHMARK_DEFAULT_THRESHOLD,
+        per_node_limit=BENCHMARK_DEFAULT_PER_NODE_LIMIT,
+        methods=SUPPORTED_COMMUNITY_METHODS,
+        resolution=1.0,
+        seed=42,
+        output_dir='.',
+    )

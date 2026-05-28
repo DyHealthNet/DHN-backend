@@ -30,6 +30,14 @@ BASE_MODELS = {
     'EdgesVariantProtein': EdgesVariantProtein,
 }
 
+DEFAULT_SELECTED_OPTIONS = {
+    'contCont': {'value': 'pearson'},
+    'catContB': {'value': 'ttest'},
+    'catContM': {'value': 'anova'},
+    'catCat': {'value': 'chi2'},
+    'multTest': {'value': 'benjamini_hb'},
+}
+
 # A registry to track dynamic model names
 # #TODO check if this can work somehow
 #dynamic_model_registry = {}
@@ -79,6 +87,27 @@ def get_valid_columns(model, test_columns):
     """
     valid_columns = [field.name for field in model._meta.get_fields() if field.name in test_columns]
     return sorted(valid_columns, key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+
+
+def build_test_columns(selected_options=None, default_selected_options=None):
+    """
+    Build the set of p-value columns from the selected test configuration.
+
+    If `selected_options` is missing or partial, fall back to the default
+    parametric-test + bonferroni configuration.
+    """
+    selected_options = selected_options or {}
+    defaults = default_selected_options or DEFAULT_SELECTED_OPTIONS
+
+    merged = {**defaults, **selected_options}
+    mult_test = merged['multTest']['value']
+
+    return {
+        f'{merged["contCont"]["value"]}_p_{mult_test}',
+        f'{merged["catContB"]["value"]}_p_{mult_test}',
+        f'{merged["catContM"]["value"]}_p_{mult_test}',
+        f'{merged["catCat"]["value"]}_p_{mult_test}',
+    }
 
 def query_nodes(node_ids):
     """
@@ -157,7 +186,6 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
 
         if count == 1:
             filter_query = Q(**{node_type: query_id})
-            type_2 = table.split('Edges')[1].replace(node_type.capitalize(), '').lower()
         else:
             filter_query = Q(**{f'{node_type}_1': query_id}) | Q(**{f'{node_type}_2': query_id})
 
@@ -219,7 +247,7 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
     mapped_externals = query_refs(node_ids)
     return edges, nodes, mapped_externals, message
 
-def network_group_query(query_ids, thresh, test_columns, context_id=None):
+def network_group_query(query_ids, thresh, test_columns, context_id=None, correction_preference=None):
     logger.debug(f"query_ids: {query_ids}")
     edges = {}
     logger.debug(f"test columns {test_columns}")
@@ -276,7 +304,7 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None):
     mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
 
-def get_whole_network(thresh=None, limit=None, per_node_limit=None):
+def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns=None):
     """
     Extract the complete network with edges and nodes from all edge models.
     
@@ -291,6 +319,9 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None):
             - selected_links: Filtered edges (after applying limit and per_node_limit)
             - nodes: Set of all node IDs from the selected edges
     """
+    if test_columns is None:
+        test_columns = build_test_columns()
+
     candidate_links = []
     
     for model_name in BASE_MODELS.keys():
@@ -299,16 +330,27 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None):
         if len(relation_fields) != 2:
             continue
 
-        score_columns = get_score_columns(table_model)
-        if not score_columns:
-            continue
+        # score_columns = get_valid_columns(table_model, test_columns)
+        # if not score_columns:
+        #     continue
 
-        score_expression = Least(*[Coalesce(F(column), Value(1.0)) for column in score_columns])
-        queryset = (
-            table_model.objects
-            .annotate(final_p_value=score_expression)
-            .filter(final_p_value__isnull=False)
-        )
+        # score_expression = Coalesce(*[F(column) for column in score_columns], Value(1.0))
+        # queryset = (
+        #     table_model.objects
+        #     .annotate(final_p_value=score_expression)
+        #     .filter(final_p_value__isnull=False)
+        # )
+        valid_columns = get_valid_columns(table_model, test_columns)
+        if not valid_columns:
+            continue
+        elif len(valid_columns) == 1:
+            queryset = table_model.objects.annotate(
+                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+            )
+        else:
+            queryset = table_model.objects.all().annotate(
+                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+            )
         if thresh is not None:
             queryset = queryset.filter(final_p_value__lte=thresh)
 
