@@ -1,5 +1,6 @@
 import json
 import importlib
+from math import ceil
 import os
 import time
 import timeit
@@ -17,6 +18,7 @@ if not django_apps.ready:
 
 import igraph as ig
 import pandas as pd
+import numpy as np
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, rand_score
 from django.apps import apps
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -45,8 +47,10 @@ layers_to_source_table = {
 DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
 SUPPORTED_COMMUNITY_METHODS = ('louvain', 'leiden', 'recursive_leiden', 'agglomerative', 'infomap', 'hierarchical_infomap', 'hsbm')
 BENCHMARK_DEFAULT_LIMIT = None
-BENCHMARK_DEFAULT_THRESHOLD = 0.01
+BENCHMARK_DEFAULT_THRESHOLD = 0.999
+BENCHMARK_DEFAULT_DENSITY = None
 BENCHMARK_DEFAULT_PER_NODE_LIMIT = None
+BENCHMARK_DEFAULT_EDGE_WEIGHT = 'final_p_value'
 
 
 def resolution_to_key(value):
@@ -117,52 +121,103 @@ def parse_query_params(request):
         
         return converted
     
+    density = parse_param(request.GET.get('density'), float, 'density', min_val=0, max_val=1)
+    if isinstance(density, HttpResponseBadRequest):
+        return None, None, None, density
+    
     limit = parse_param(request.GET.get('limit'), int, 'limit', min_val=1, max_val=20000)
     if isinstance(limit, HttpResponseBadRequest):
-        return limit, None, None
+        return limit, None, None, None
+    
     
     threshold = parse_param(request.GET.get('threshold'), float, 'threshold', min_val=0, max_val=1)
     if isinstance(threshold, HttpResponseBadRequest):
-        return None, threshold, None
+        return None, threshold, None, None
     
     per_node_limit = parse_param(request.GET.get('per_node_limit'), int, 'per_node_limit', min_val=1)
     if isinstance(per_node_limit, HttpResponseBadRequest):
-        return None, None, per_node_limit
+        return None, None, per_node_limit, None
     
     # Ensure at least one parameter is provided
     if limit is None and threshold is None and per_node_limit is None:
         return HttpResponseBadRequest('At least one of limit, threshold or per_node_limit must be provided.', status=405), None, None
     
-    return limit, threshold, per_node_limit
+    return limit, threshold, per_node_limit, density
 
 
-def build_weighted_graph(selected_links, used_node_ids):
-    """Build a simple igraph graph with summed edge weights."""
-    sorted_nodes = sorted({str(node_id) for node_id in used_node_ids})
-    node_to_idx = {node_id: idx for idx, node_id in enumerate(sorted_nodes)}
+def parse_edge_weight_mode(request):
+    raw_value = request.GET.get('weight', request.GET.get('edge_weight', BENCHMARK_DEFAULT_EDGE_WEIGHT))
+    weight_mode = (raw_value or BENCHMARK_DEFAULT_EDGE_WEIGHT).strip().lower()
+    allowed_modes = {'final_p_value', 'raw_p', 'raw_e', 'pre_ls', 'post_ls'}
+    if weight_mode not in allowed_modes:
+        return HttpResponseBadRequest(
+            f"weight must be one of: {', '.join(sorted(allowed_modes))}.",
+            status=405,
+        )
+    return weight_mode
 
-    edge_weights = defaultdict(float)
+def compute_edge_weight(p_value, e_value):
+
+    if p_value is None or p_value <= 0:
+
+        return 0.0  # or raise depending on strictness
+
+    return -np.log10(p_value) * e_value
+
+def build_edge_dict(selected_links, edge_weight="final_p_value"):
+    selectors = {
+        "raw-E": lambda e: e["final_e_value"],
+        "rescaled-E": lambda e: e["final_e_value_rescaled"],
+        "final_p_value": lambda e: e["final_p_value"],
+        "pre-LS": lambda e: compute_edge_weight(e["final_p_value"], e["final_e_value"]),
+        "post-LS": lambda e: compute_edge_weight(e["final_p_value"], e["final_e_value_rescaled"]),
+    }
+
+    if edge_weight not in selectors:
+        raise ValueError(f"Invalid edge_weight '{edge_weight}'")
+
+    select = selectors[edge_weight]
+    edge_map = {}
+
     for edge in selected_links:
-        source = edge.get('source')
-        target = edge.get('target')
-        if not source or not target:
+        s = edge.get("source")
+        t = edge.get("target")
+
+        if s is None or t is None:
             continue
 
-        source = str(source)
-        target = str(target)
-        if source not in node_to_idx or target not in node_to_idx:
+        key = tuple(sorted((str(s), str(t))))
+
+        if key in edge_map:
+            raise ValueError(f"Duplicate edge detected for pair {key}")
+
+        try:
+            value = select(edge)
+        except KeyError as e:
+            raise ValueError(f"Missing required field for mode '{edge_weight}': {e}")
+
+        edge_map[key] = value
+
+    return edge_map
+
+def build_weighted_graph(selected_links, used_node_ids, edge_weight="final_p_value"):
+    sorted_nodes = sorted(map(str, used_node_ids))
+    node_to_idx = {n: i for i, n in enumerate(sorted_nodes)}
+
+    edge_map = build_edge_dict(selected_links, edge_weight=edge_weight)
+
+    edges = []
+    weights = []
+
+    for (s, t), w in edge_map.items():
+        if s not in node_to_idx or t not in node_to_idx:
             continue
-
-        key = tuple(sorted((source, target)))
-        edge_weights[key] = float(edge.get('weight', 1.0) or 1.0)
-
-    edges = [(node_to_idx[source], node_to_idx[target]) for source, target in edge_weights.keys()]
-    weights = list(edge_weights.values())
+        edges.append((node_to_idx[s], node_to_idx[t]))
+        weights.append(w)
 
     graph = ig.Graph(n=len(sorted_nodes), edges=edges, directed=False)
-    graph.vs['name'] = sorted_nodes
-    if weights:
-        graph.es['weight'] = weights
+    graph.vs["name"] = sorted_nodes
+    graph.es["weight"] = weights
 
     return graph
 
@@ -761,8 +816,8 @@ def run_community_clustering(selected_links, used_node_ids, method='leiden', res
 
     raise ValueError(f"Unsupported community detection method '{method}'. Choose from: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.")
 
-def benchmark_community_detection(selected_links, used_node_ids, methods=None, resolution=1.0, seed=42):
-    graph = build_weighted_graph(selected_links, used_node_ids)
+def benchmark_community_detection(selected_links, used_node_ids, methods=None, resolution=1.0, edge_weight=None, seed=42):
+    graph = build_weighted_graph(selected_links, used_node_ids, edge_weight)
     methods = methods or SUPPORTED_COMMUNITY_METHODS
     node_count = graph.vcount()
     edge_count = graph.ecount()
@@ -947,6 +1002,8 @@ def run_benchmark_from_whole_network(
     limit=BENCHMARK_DEFAULT_LIMIT,
     threshold=BENCHMARK_DEFAULT_THRESHOLD,
     per_node_limit=BENCHMARK_DEFAULT_PER_NODE_LIMIT,
+    density=BENCHMARK_DEFAULT_DENSITY,
+    edge_weight=BENCHMARK_DEFAULT_EDGE_WEIGHT,
     methods=None,
     resolution=1.0,
     seed=42,
@@ -956,6 +1013,7 @@ def run_benchmark_from_whole_network(
         thresh=threshold,
         limit=limit,
         per_node_limit=per_node_limit,
+        density=density,
     )
 
     selected_node_count = len(used_node_ids)
@@ -976,6 +1034,7 @@ def run_benchmark_from_whole_network(
         used_node_ids=used_node_ids,
         methods=methods or SUPPORTED_COMMUNITY_METHODS,
         resolution=resolution,
+        edge_weight=edge_weight,
         seed=seed,
     )
 
@@ -995,6 +1054,7 @@ def run_benchmark_from_whole_network(
         ('used_network_node_count', used_network_node_count),
         ('used_network_edge_count', used_network_edge_count),
         ('network_density', round(network_density, 6)),
+        ('edge_weight', edge_weight),
         ('threshold', threshold),
         ('limit', limit),
         ('per_node_limit', per_node_limit),
@@ -1057,7 +1117,8 @@ def run_benchmark_from_whole_network(
 class GetCosmographView(generics.GenericAPIView):
     @staticmethod
     def get(request):
-        limit, threshold, per_node_limit = parse_query_params(request)
+        limit, threshold, per_node_limit, density = parse_query_params(request)
+        edge_weight = parse_edge_weight_mode(request)
         
         # Handle error responses
         if isinstance(limit, HttpResponseBadRequest):
@@ -1066,19 +1127,28 @@ class GetCosmographView(generics.GenericAPIView):
             return threshold
         if isinstance(per_node_limit, HttpResponseBadRequest):
             return per_node_limit
+        if isinstance(density, HttpResponseBadRequest):
+            return density
+        if isinstance(edge_weight, HttpResponseBadRequest):
+            return edge_weight
         
         logger.info(
-            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s',
+            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s weight=%s',
             limit,
             threshold,
             per_node_limit,
+            density,
+            edge_weight,
+            density
         )
 
         # Extract candidate_links, selected_links, and nodes from the database
         candidate_links, selected_links, used_node_ids = get_whole_network(
             thresh=threshold,
             limit=limit,
-            per_node_limit=per_node_limit
+            per_node_limit=per_node_limit,
+            density=density,
+            edge_weight=edge_weight,
         )
 
         # Format response links (remove final_p_value which is internal)
@@ -1120,6 +1190,7 @@ class GetCosmographView(generics.GenericAPIView):
                     'limit': limit,
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
+                    'edge_weight': edge_weight,
                 },
                 'points': points,
                 'links': response_links,
@@ -1135,7 +1206,8 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # Measure runtime
 
         start_whole_request = time.perf_counter()
-        limit, threshold, per_node_limit = parse_query_params(request)
+        limit, threshold, per_node_limit, density = parse_query_params(request)
+        edge_weight = parse_edge_weight_mode(request)
 
         if isinstance(limit, HttpResponseBadRequest):
             return limit
@@ -1143,6 +1215,10 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             return threshold
         if isinstance(per_node_limit, HttpResponseBadRequest):
             return per_node_limit
+        if isinstance(density, HttpResponseBadRequest):
+            return density
+        if isinstance(edge_weight, HttpResponseBadRequest):
+            return edge_weight
 
         # Parse resolutions parameter (defaults to all standard resolutions)
         resolutions = parse_resolution_values(request)
@@ -1168,11 +1244,12 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             )
 
         logger.info(
-            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s resolutions=%s seed=%s algorithm=%s',
+            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s density=%s weight=%s seed=%s algorithm=%s',
             limit,
             threshold,
             per_node_limit,
-            resolutions,
+            density,
+            edge_weight,
             seed,
             method,
         )
@@ -1181,6 +1258,8 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             thresh=threshold,
             limit=limit,
             per_node_limit=per_node_limit,
+            density=density,
+            edge_weight=edge_weight,
         )
 
         # Run the selected community detection method for each resolution
@@ -1261,6 +1340,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                     'limit': limit,
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
+                    'edge_weight': edge_weight,
                 },
                 'points': points,
                 'links': response_links,
@@ -1280,6 +1360,7 @@ if __name__ == '__main__':
         limit=BENCHMARK_DEFAULT_LIMIT,
         threshold=BENCHMARK_DEFAULT_THRESHOLD,
         per_node_limit=BENCHMARK_DEFAULT_PER_NODE_LIMIT,
+        edge_weight=BENCHMARK_DEFAULT_EDGE_WEIGHT,
         methods=SUPPORTED_COMMUNITY_METHODS,
         resolution=1.0,
         seed=42,

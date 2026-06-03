@@ -1,4 +1,5 @@
 import re
+from math import ceil
 from collections import defaultdict
 
 from django.db.models import Q, Value
@@ -36,6 +37,16 @@ DEFAULT_SELECTED_OPTIONS = {
     'catContM': {'value': 'anova'},
     'catCat': {'value': 'chi2'},
     'multTest': {'value': 'benjamini_hb'},
+}
+
+EFFECT_SIZE_MAP = {
+    "chi2": "chi2_e_cramers_v", # alternative chi2_e_phi
+    "ttest": "ttest_e_cohens_d",
+    "mwu": "mwu_e_r",
+    "anova": "anova_e_np2",
+    "kruskal": "kruskal_e_eta2",
+    "pearson": "pearson_e_r2",
+    "spearman": "spearman_e_rho",
 }
 
 # A registry to track dynamic model names
@@ -81,12 +92,25 @@ def get_dynamic_model(table, context_id=None):
     # Create and register the dynamic model
     return create_dynamic_model(BASE_MODELS[table], model_name) # dynamic_model_registry
 
-def get_valid_columns(model, test_columns):
+def get_valid_p_columns(model, test_columns):
     """
-    Get valid test columns from the model's fields, prioritizing certain prefixes.
+    Get valid test pval columns from the model's fields, prioritizing ttest and mwu over anova and kruskal.
     """
-    valid_columns = [field.name for field in model._meta.get_fields() if field.name in test_columns]
-    return sorted(valid_columns, key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+    valid_p_columns = [field.name for field in model._meta.get_fields() if field.name in test_columns]
+    return sorted(valid_p_columns, key=lambda col: not (col.startswith("ttest") or col.startswith("mwu")))
+
+def get_valid_e_columns(valid_p_columns):
+    result = []
+    """
+    Get valid test effect size columns depending on the chosen test columns. The mapping is defined in the EFFECT_SIZE_MAP dictionary.
+    """
+    for col in valid_p_columns:
+        for test, effect in EFFECT_SIZE_MAP.items():
+            if test in col:
+                result.append(effect)
+                break
+
+    return result
 
 
 def build_test_columns(selected_options=None, default_selected_options=None):
@@ -172,16 +196,16 @@ def network_query(query_id, node_type, limit, per_type, thresh, test_columns, co
             continue
 
         # Check which columns are available for the node_type and multiple testing correction
-        valid_columns = get_valid_columns(table_model, test_columns)
-        if not valid_columns:
+        valid_p_columns = get_valid_p_columns(table_model, test_columns)
+        if not valid_p_columns:
             continue
-        elif len(valid_columns) == 1:
+        elif len(valid_p_columns) == 1:
             query = table_model.objects.annotate(
-                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+                final_p_value=F(valid_p_columns[0])  # Alias the single column as `merged_column`
             )
         else:
             query = table_model.objects.all().annotate(
-                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+                final_p_value=Coalesce(*[F(col) for col in valid_p_columns])
             )
 
         if count == 1:
@@ -271,16 +295,16 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None, correc
             continue  # Skip processing for empty tables
 
         # Check which columns are available for the type and multiple testing correction
-        valid_columns = get_valid_columns(table_model, test_columns)
-        if not valid_columns:
+        valid_p_columns = get_valid_p_columns(table_model, test_columns)
+        if not valid_p_columns:
             continue
-        elif len(valid_columns) == 1:
+        elif len(valid_p_columns) == 1:
             query = table_model.objects.annotate(
-                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+                final_p_value=F(valid_p_columns[0])  # Alias the single column as `merged_column`
             )
         else:
             query = table_model.objects.all().annotate(
-                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+                final_p_value=Coalesce(*[F(col) for col in valid_p_columns])
             )
 
         # Create filter to search for edges between the given node IDs
@@ -304,7 +328,7 @@ def network_group_query(query_ids, thresh, test_columns, context_id=None, correc
     mapped_externals = query_refs(query_ids)
     return edges, nodes, mapped_externals
 
-def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns=None):
+def get_whole_network(thresh=None, limit=None, per_node_limit=None, density=None, test_columns=None):
     """
     Extract the complete network with edges and nodes from all edge models.
     
@@ -312,15 +336,29 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns
         thresh: Significance threshold for filtering edges (optional)
         limit: Overall limit on the number of edges to return (optional)
         per_node_limit: Limit the number of edges per node (optional)
+        density: Desired network density (optional, overrides thresh and limit)
+        test_columns: Set of valid test columns to consider for edge scoring (optional)
     
     Returns:
         tuple: (candidate_links, selected_links, nodes)
-            - candidate_links: All edges matching the threshold
+            - candidate_links: All edges matching the threshold or density
             - selected_links: Filtered edges (after applying limit and per_node_limit)
             - nodes: Set of all node IDs from the selected edges
     """
     if test_columns is None:
         test_columns = build_test_columns()
+
+    if density is not None:
+        node_count = apps.get_model('network', 'ViewDescriptionFTS').objects.filter(
+            source_table__startswith='cohort_'
+        ).count()
+        possible_edge_count = node_count * (node_count - 1) / 2 if node_count > 1 else 0
+        if not possible_edge_count:
+            logger.debug("Not enough nodes to form edges. Returning empty network.")
+            return [], [], set()
+        limit = ceil(density * possible_edge_count)
+        thresh = None
+        per_node_limit = None
 
     candidate_links = []
     
@@ -330,7 +368,7 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns
         if len(relation_fields) != 2:
             continue
 
-        # score_columns = get_valid_columns(table_model, test_columns)
+        # score_columns = get_valid_p_columns(table_model, test_columns)
         # if not score_columns:
         #     continue
 
@@ -340,16 +378,19 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns
         #     .annotate(final_p_value=score_expression)
         #     .filter(final_p_value__isnull=False)
         # )
-        valid_columns = get_valid_columns(table_model, test_columns)
-        if not valid_columns:
+        valid_p_columns = get_valid_p_columns(table_model, test_columns)
+        valid_e_columns = get_valid_e_columns(valid_p_columns)
+        if not valid_p_columns:
             continue
-        elif len(valid_columns) == 1:
+        elif len(valid_p_columns) == 1:
             queryset = table_model.objects.annotate(
-                final_p_value=F(valid_columns[0])  # Alias the single column as `merged_column`
+                final_p_value=F(valid_p_columns[0]),  # Alias the single column as `merged_column`
+                final_e_value=F(valid_e_columns[0])
             )
         else:
             queryset = table_model.objects.all().annotate(
-                final_p_value=Coalesce(*[F(col) for col in valid_columns])
+                final_p_value=Coalesce(*[F(col) for col in valid_p_columns]),
+                final_e_value=Coalesce(*[F(col) for col in valid_e_columns])
             )
         if thresh is not None:
             queryset = queryset.filter(final_p_value__lte=thresh)
@@ -368,9 +409,9 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, test_columns
                 'id': f"{table_model._meta.db_table}:{row['id']}",
                 'source': source,
                 'target': target,
-                'weight': 1,
                 'edge_type': table_model._meta.db_table,
                 'final_p_value': row.get('final_p_value'),
+                'final_e_value': row.get('final_e_value'),
             })
 
     candidate_links.sort(
