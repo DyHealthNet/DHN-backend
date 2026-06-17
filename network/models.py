@@ -601,6 +601,50 @@ class ViewExternalNodes(models.Model):
         db_table = 'view_external_nodes'
 
 
+# New-style tables: single nodes table + parametric/nonparametric edge tables
+class Nodes(models.Model):
+    node_id = models.CharField(primary_key=True, max_length=200, db_column='node_id')
+    display_name = models.CharField(max_length=200, blank=True, null=True)
+    data_type = models.CharField(max_length=200, blank=True, null=True)
+    node_group = models.CharField(max_length=200, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True, null=True)
+    xrefs = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'nodes'
+
+
+class EdgesParametric(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
+    node_id_1 = models.ForeignKey(Nodes, models.DO_NOTHING, db_column='node_id_1',
+                                   related_name='edges_parametric_node_1')
+    node_id_2 = models.ForeignKey(Nodes, models.DO_NOTHING, db_column='node_id_2',
+                                   related_name='edges_parametric_node_2')
+    p_value = models.FloatField(blank=True, null=True)
+    effect_size = models.FloatField(blank=True, null=True)
+    test_type = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'edges_parametric'
+
+
+class EdgesNonparametric(models.Model):
+    id = models.IntegerField(primary_key=True, db_index=True)
+    node_id_1 = models.ForeignKey(Nodes, models.DO_NOTHING, db_column='node_id_1',
+                                   related_name='edges_nonparametric_node_1')
+    node_id_2 = models.ForeignKey(Nodes, models.DO_NOTHING, db_column='node_id_2',
+                                   related_name='edges_nonparametric_node_2')
+    p_value = models.FloatField(blank=True, null=True)
+    effect_size = models.FloatField(blank=True, null=True)
+    test_type = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'edges_nonparametric'
+
+
 class UserContextLink(models.Model):
     STATUS_CHOICES = [
         ("PENDING", "Pending"),

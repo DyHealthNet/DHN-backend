@@ -109,7 +109,7 @@ get_network_schema = extend_schema(
                 description='limit (concerning node retrieval)',
                 required=False,
                 type=OpenApiTypes.STR,
-                location=OpenApiParameter.INT,
+                location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
                 name='s',
