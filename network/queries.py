@@ -1,5 +1,5 @@
 import re
-from math import ceil
+from math import ceil, nan
 from collections import defaultdict
 
 from django.db.models import Q, Value
@@ -133,33 +133,6 @@ def build_test_columns(selected_options=None, default_selected_options=None):
         f'{merged["catContM"]["value"]}_p_{mult_test}',
         f'{merged["catCat"]["value"]}_p_{mult_test}',
     }
-
-import numpy as np
-
-def rescale_edges(edges):
-    edges = [e.copy() for e in edges]
-
-    # group by test_type (you need to have it in edges!)
-    from collections import defaultdict
-    groups = defaultdict(list)
-
-    for e in edges:
-        groups[e["test_type"]].append(e)
-
-    for test, group in groups.items():
-        values = np.array([e["final_e_value"] for e in group])
-
-        mean = values.mean()
-        std = values.std()
-
-        if std == 0:
-            for e in group:
-                e["final_e_value_rescaled"] = 0.0
-        else:
-            for i, e in enumerate(group):
-                e["final_e_value_rescaled"] = (e["final_e_value"] - mean) / std
-
-    return edges
 
 def query_nodes(node_ids):
     """
@@ -424,7 +397,7 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, density=None
             queryset = queryset.filter(final_p_value__lte=thresh)
 
         # Order by score and fetch values. Only apply an overall slice when an explicit limit is provided.
-        queryset = queryset.order_by('final_p_value').values('id', *relation_fields, 'final_p_value')
+        queryset = queryset.order_by('final_p_value').values('id', *relation_fields, 'final_p_value', 'final_e_value')
         if limit is not None:
             queryset = queryset[:limit]
 
@@ -467,8 +440,6 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, density=None
         )
     else:
         selected_links = candidate_links
-
-    selected_links = rescale_edges(selected_links)
 
     if limit is not None and len(selected_links) > limit:
         selected_links = selected_links[:limit]
