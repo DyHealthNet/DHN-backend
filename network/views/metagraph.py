@@ -152,6 +152,23 @@ def parse_edge_weight_mode(request):
         )
     return weight_mode
 
+def build_weighted_graph(selected_links, used_node_ids):
+    """Build an undirected igraph Graph from edges, with every edge weight set to 1."""
+    sorted_nodes = sorted(map(str, used_node_ids))
+    node_to_idx = {n: i for i, n in enumerate(sorted_nodes)}
+
+    edges = [
+        (node_to_idx[edge['source']], node_to_idx[edge['target']])
+        for edge in selected_links
+        if edge['source'] in node_to_idx and edge['target'] in node_to_idx
+    ]
+
+    graph = ig.Graph(n=len(sorted_nodes), edges=edges, directed=False)
+    graph.vs["name"] = sorted_nodes
+    graph.es["weight"] = [1] * len(edges)
+
+    return graph
+
 def _assign_membership(graph, membership):
     return {graph.vs[idx]['name']: community_id for idx, community_id in enumerate(membership)}
 
@@ -202,7 +219,7 @@ class GetCosmographView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         limit, threshold, per_node_limit, density = parse_query_params(request)
-        edge_weight = parse_edge_weight_mode(request)
+       # edge_weight = parse_edge_weight_mode(request)
         
         # Handle error responses
         if isinstance(limit, HttpResponseBadRequest):
@@ -213,8 +230,8 @@ class GetCosmographView(generics.GenericAPIView):
             return per_node_limit
         if isinstance(density, HttpResponseBadRequest):
             return density
-        if isinstance(edge_weight, HttpResponseBadRequest):
-            return edge_weight
+        #if isinstance(edge_weight, HttpResponseBadRequest):
+        #    return edge_weight
         
         logger.info(
             'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s weight=%s',
@@ -222,7 +239,7 @@ class GetCosmographView(generics.GenericAPIView):
             threshold,
             per_node_limit,
             density,
-            edge_weight,
+            #edge_weight,
             density
         )
 
@@ -232,7 +249,7 @@ class GetCosmographView(generics.GenericAPIView):
             limit=limit,
             per_node_limit=per_node_limit,
             density=density,
-            edge_weight=edge_weight,
+            #edge_weight=edge_weight,
         )
 
         # Format response links (remove final_p_value which is internal)
@@ -274,7 +291,7 @@ class GetCosmographView(generics.GenericAPIView):
                     'limit': limit,
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
-                    'edge_weight': edge_weight,
+                    #'edge_weight': edge_weight,
                 },
                 'points': points,
                 'links': response_links,
@@ -350,14 +367,15 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         resolution_results = {}
         community_counts_by_resolution = {}
         clustering_algorithm = 'unknown'
-        
+
+        graph = build_weighted_graph(selected_links, used_node_ids)
+
         for resolution in resolutions:
             # Measure runtime
 
             start_one_leiden_run = time.perf_counter()
             node_to_community, algo = run_community_clustering(
-                selected_links=selected_links,
-                used_node_ids=used_node_ids,
+                graph,
                 method=method,
                 resolution=resolution,
                 seed=seed,
