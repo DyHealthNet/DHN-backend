@@ -5,7 +5,6 @@ from django.core.management.base import BaseCommand
 import sys
 import pandas as pd
 from network.utils.data_manager import combine_data
-import network.utils.startup_utils as utils
 from network.score_calculation import calculate_association_scores
 from modina.context_net_inference import compute_context_scores
 from django.apps import apps

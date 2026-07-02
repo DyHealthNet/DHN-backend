@@ -5,8 +5,6 @@ import re
 
 from django.conf import settings
 
-from network.utils.startup_utils import get_file_attr
-
 logger = logging.getLogger('network')
 
 
@@ -24,14 +22,14 @@ def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
     def make_group(cols):
         ctype = cols['type']
         cnumcat = cols['num_cat']
-        if ctype == 'integer' or ctype == 'float' or ctype == 'time':
+        if ctype == 'continuous':
             return 'continuous'
         elif cnumcat == 2:
             return 'binaryCategorical'
         return 'nonbinaryCategorical'
 
-    type_col = get_file_attr('phenotypes.type')
-    desc_col = get_file_attr('phenotypes.description')
+    type_col = 'type'
+    desc_col = 'description'
 
     # Get all variables with their type and a suitable identifier and put them in the same format
     # get Phenotype variables
@@ -56,7 +54,7 @@ def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
 
 
 def list_protein_variables(proteins_meta, proteins):
-    desc_col = get_file_attr('proteins.description')
+    desc_col = 'description'
     protein_values = proteins_meta[proteins_meta.index.isin(proteins.columns)][
         [desc_col]].copy()
 

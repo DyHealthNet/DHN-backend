@@ -13,7 +13,6 @@ from rest_framework import generics
 from network.utils.color_utils import define_context_color
 from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables
 from network.models import UserContextLink, Context
-from network.score_calculation import separate_cat_cont
 from network.tasks import create_context_wrapper
 from network.schemas.context_schemas import *
 from network.utils.data_manager import DataManager
@@ -32,9 +31,7 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
-        # first we retrieve the data we need to process the request
-        all_data, layers, pheno_meta_label, phenotypes, proteins, metabolites = self.data_manager.get_df_copy(
-            ['all_data', 'layers', 'pheno_meta_label', 'phenotypes', 'proteins', 'metabolites'])
+        all_data, layers, meta_file = self.data_manager.get_df_copy(['all_data', 'layers', 'meta_file'])
 
         params = request.data
         if not params:
@@ -43,7 +40,6 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         logger.debug(f"The user {request.user.username} has the id {request.user.id}")
 
         user_context_query = UserContextLink.objects.filter(user=request.user)
-        # Check that no other context is pending/calculating for that user
         for us_ctxt in user_context_query:
             status = us_ctxt.context_status
             logger.debug(f"Context {us_ctxt.context_id} has status {status}")
@@ -53,7 +49,6 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                 return JsonResponse({'status': 'error',
                                      'message': 'You can only start one context creation at a time.'}, status=429)
 
-        # Check if user has not yet created all settings.MAX_CONTEXT_PER_USER contexts
         user_objects_count = UserContextLink.objects.filter(user=request.user).count()
         if user_objects_count >= settings.MAX_CONTEXT_PER_USER:
             return JsonResponse({'status': 'error',
@@ -62,53 +57,49 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         logger.info(f"The user {request.user.username} can create another context.")
 
-        # nullth step: remove all layers that are not wanted as per params['layers']
+        # remove layers not requested
         context_data = all_data
         for layer in list(set(layers.keys()) - set(params['layers'])):
             logger.debug(f"Removing layer {layer} as it is not wanted in the context")
             context_data = context_data.drop(layers[layer], axis=1)
 
-        # first step: set a color for the context
         params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
 
-        # second step: subset the data
         try:
             partial_data = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
-        # third step: get the context-name
         context_id = create_context_id()
-        logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
+        logger.info(f"Creating context with id {context_id}, {partial_data.shape[1]} variables, "
+                    f"{partial_data.shape[0]} patients")
 
         try:
             cache.set(f'participants_context_{context_id}', partial_data.shape[0], timeout=3600 * 24 * 30)
         except Exception as ex:
             logger.error(f"Could not save subset data to cache: {ex}, too large?")
 
-        # fourth step: separate the data into categorical and continuous data
-        cat_data, cont_data = separate_cat_cont(partial_data, pheno_meta_label)
-        logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
-                    f"{cont_data.shape}")
+        # filter meta_file to variables present in partial_data and align partial_data to meta
+        context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
+        partial_data = partial_data[context_meta['label'].tolist()]
 
-        # fifth step: save data to file in order to be able to load it in the celery task
         folder_name = f"dyhealthnet-{context_id}"
         if not os.path.exists(f"/tmp/{folder_name}"):
             os.mkdir(f"/tmp/{folder_name}")
-        cont_file_name = f"/tmp/{folder_name}/cont.pkl"
-        cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{folder_name}/cat.pkl"
-        cat_data.to_pickle(cat_file_name)
 
-        columns = {'protein_set': list(proteins.columns) if isinstance(proteins, pd.DataFrame) else [],
-                   'phenotype_set': list(phenotypes.columns) if isinstance(phenotypes, pd.DataFrame) else [],
-                   'metabolite_set': list(metabolites.columns) if isinstance(metabolites, pd.DataFrame) else [],
-                   'variant_set': []}
+        context_file = f"/tmp/{folder_name}/context_data.pkl"
+        partial_data.to_pickle(context_file)
 
-        # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
-                                            context_name=context_id, user_id=request.user.id,
-                                            **columns)
+        meta_file_path = f"/tmp/{folder_name}/meta_file.pkl"
+        context_meta.to_pickle(meta_file_path)
+
+        task = create_context_wrapper.delay(
+            context_data=context_file,
+            meta_file=meta_file_path,
+            params=params,
+            context_name=context_id,
+            user_id=request.user.id,
+        )
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)

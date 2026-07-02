@@ -27,11 +27,15 @@ class GetTableView(generics.GenericAPIView):
 
         # build result dict in right format
         if not request.GET.get("contextValue") or not request.user.is_authenticated:
+            try:
+                variant_count = CohortVariant.objects.count()
+            except Exception:
+                variant_count = 0
             req_data_dict = {'Participants': len(all_data),
                              'Phenotypes': len(phenotypes.columns) if phenotypes is not None else 0,
                              'Proteins': len(proteins.columns) if proteins is not None else 0,
                              'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
-                             'Genetic Variants': CohortVariant.objects.count()}
+                             'Genetic Variants': variant_count}
             response = JsonResponse(req_data_dict, safe=True)
             response = add_cache_header(response, True)
             return response
@@ -57,9 +61,9 @@ class GetTableView(generics.GenericAPIView):
             else:
                 participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
 
-        phenotypes_num = len(phenotypes.columns) if 'phenomics' in context.params['layers'] else 0
-        proteins_num = len(proteins.columns) if 'proteomics' in context.params['layers'] else 0
-        metabolites_num = len(metabolites.columns) if 'metabolomics' in context.params['layers'] else 0
+        phenotypes_num = len(phenotypes.columns) if 'phenotype' in context.params['layers'] else 0
+        proteins_num = len(proteins.columns) if 'protein' in context.params['layers'] else 0
+        metabolites_num = len(metabolites.columns) if 'metabolite' in context.params['layers'] else 0
         variants_num = 0 if 'variants' in context.params['layers'] else 0
 
         req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes_num, 'Proteins': proteins_num,
@@ -112,22 +116,22 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
 
-            agg_df_mean = df.groupby([x_idx, c_idx])
+            agg_df_mean = df.groupby([x_idx, c_idx], observed=True)
 
             if settings.PRESERVE_PRIVACY:
                 agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
 
-            agg_df_mean = (agg_df_mean.groupby([x_idx, c_idx])[y_idx].mean()
+            agg_df_mean = (agg_df_mean.groupby([x_idx, c_idx], observed=True)[y_idx].mean()
                            .reset_index().sort_values(x_idx, ascending=True))
 
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
             # values for x positions with no aggregated value present)
             color = 0
-            num_colors = len(line_plot_df[c_idx].unique())
+            num_colors = agg_df_mean[c_idx].nunique()
             colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
-            for group_name, group_data in agg_df_mean.groupby(c_idx):
+            for group_name, group_data in agg_df_mean.groupby(c_idx, observed=True):
                 temp.append({
                     "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
@@ -204,7 +208,7 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Make df subset with x, c var and a count value for each pair of group
             # TODO Group combinations where c_idx is NaN will not be returned and therefore not appear ->
             #  return 0 instead?
-            df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx]).size().reset_index(name='counts')
+            df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx], observed=True).size().reset_index(name='counts')
 
             if settings.PRESERVE_PRIVACY:
                 df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
@@ -213,10 +217,10 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
             color = 0
-            num_colors = len(bar_plot_df[c_idx].unique())
+            num_colors = df_count[c_idx].nunique()
             colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             colormap_local = [rgb_to_hex(rgb) for rgb in colormap_local]
-            for group_name, group_data in df_count.groupby(c_idx):
+            for group_name, group_data in df_count.groupby(c_idx, observed=True):
                 temp.append({
                     "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
@@ -361,9 +365,9 @@ class GetDataDensityPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest('Variable x and c must be different', status=405)
 
             # Group by color variable
-            grouped_data = density_plot_df.groupby(c_idx)[x_idx]
+            grouped_data = density_plot_df.groupby(c_idx, observed=True)[x_idx]
 
-            num_colors = len(density_plot_df[c_idx].unique())
+            num_colors = len(list(grouped_data.groups.keys()))
             colormap_local = [tuple(map(lambda x: round(x * 255), color)) for color in
                               get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)]
 
@@ -477,14 +481,14 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             # Add var c column to subset df
             df[c_idx] = box_plot_df[c_idx]
             # Group and reformat data by calculating box plot statistics for each x_idx, c_idx group
-            grouped = df.groupby([x_idx, c_idx]).apply(boxplot_stats).unstack()
+            grouped = df.groupby([x_idx, c_idx], observed=True).apply(boxplot_stats).unstack()
             # x_idx, c_idx groups with no values are returned as NaNs and need to be converted to the nan_boxplot
             # representation
             grouped = grouped.map(lambda x: nan_boxplot if pd.isna(x) else x)
             # Add for each color var its own dict containing its label, a background and darker border color, some
             # styling parameters and the box plot statistics in a data dictionary.
             color = 0
-            num_colors = len(box_plot_df[c_idx].unique())
+            num_colors = len(grouped.columns)
             colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
             # check if more colors are needed than available, if yes enlarge palette to required size
             bordercolor_map_local = [rgb_to_hex(darken_rgb(rgb)) for rgb in colormap_local]
@@ -659,12 +663,11 @@ class GetDataDensityHistogramPlotView(generics.GenericAPIView):
                 return HttpResponseBadRequest('Variable x and c must be different', status=405)
 
             # Group by the color variable and calculate density for each group
-            grouped_data = density_plot_df.groupby(c_idx)[x_idx]
+            grouped_data = density_plot_df.groupby(c_idx, observed=True)[x_idx]
 
-            num_colors = len(density_plot_df[c_idx].unique())
+            num_colors = len(list(grouped_data.groups.keys()))
             colormap_local = [tuple(map(lambda x: round(x * 255), color)) for color
                             in get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)]
-            print(f"colormap_local: {colormap_local}")
 
             for idx, (group_name, data) in enumerate(grouped_data):
                 # Check per group if there is enough data != nan to ensure privacy protection

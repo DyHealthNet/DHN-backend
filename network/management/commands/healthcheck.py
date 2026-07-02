@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
 from django.apps import apps
-from network.utils.startup_utils import check_files_and_return
+from network.utils.data_manager import _parse_list_env, _resolve_path
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -54,27 +54,28 @@ class Command(BaseCommand):
             logger.info("Health check successfully passed.")
 
     @staticmethod
-    def check_files():
-        required_files = [
-            env("PHENOTYPE_PATH"),
-            env("PHENOTYPE_META_PATH")
-        ]
+    def _configured_paths():
+        data_root = env("DATA_ROOT", default=None)
+        data_paths = _parse_list_env(env, "DATA_PATHS")
+        meta_paths = _parse_list_env(env, "DATA_META_PATHS")
+        data_paths = [_resolve_path(path, data_root) for path in data_paths]
+        meta_paths = [_resolve_path(path, data_root) for path in meta_paths]
+        return data_paths + meta_paths
+
+    @classmethod
+    def check_files(cls):
+        required_files = cls._configured_paths()
         for file_path in required_files:
             if not os.path.isfile(file_path):
                 raise FileNotFoundError(f"Required file not found: {file_path}")
-            else:
-                check_files_and_return(file_path, return_dataset=False)
         logger.info("✅  All required files are present.")
         return True
 
-    @staticmethod
-    def check_columns():
-        # read only the first line of the file and check if the PATIENT_ID_COLUMN is present
-        files = [
-            env('PHENOTYPE_PATH'),
-            env('PROTEIN_PATH'),
-            env('METABOLITE_PATH')
-        ]
+    @classmethod
+    def check_columns(cls):
+        # read only the first line of each data file and check if the PATIENT_ID_COLUMN is present
+        data_root = env("DATA_ROOT", default=None)
+        files = [_resolve_path(path, data_root) for path in _parse_list_env(env, "DATA_PATHS")]
         for file_path in files:
             if not os.path.isfile(file_path):
                 continue

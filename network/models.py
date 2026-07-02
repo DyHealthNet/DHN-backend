@@ -536,7 +536,7 @@ class CohortReferencesProtein(models.Model):
 
 class CohortReferencesVariant(models.Model):
     id = models.IntegerField(primary_key=True, db_index=True)
-    cohort_id = models.ForeignKey('CohortVariant', models.DO_NOTHING, blank=True, null=True)
+    cohort_id   = models.ForeignKey('CohortVariant', models.DO_NOTHING, blank=True, null=True)
     clinvar_id = models.ForeignKey('GenomicVariant', models.DO_NOTHING, blank=True, null=True)
 
     class Meta:
@@ -547,10 +547,6 @@ class CohortReferencesVariant(models.Model):
 # add model for all contexts so we can keep track of them
 class Context(models.Model):
     context_id = models.IntegerField(primary_key=True, db_column='context_id')
-    cat_cat_test = models.CharField(max_length=200, blank=True, null=True)
-    cont_cont_test = models.CharField(max_length=200, blank=True, null=True)
-    cat_cont_b_test = models.CharField(max_length=200, blank=True, null=True)
-    cat_cont_m_test = models.CharField(max_length=200, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_accessed = models.DateTimeField(blank=True, null=True)
     params = models.JSONField(blank=True, null=True)
@@ -661,6 +657,20 @@ class UserContextLink(models.Model):
     class Meta:
         managed = True
         db_table = 'user_context'
+
+
+class EdgesContextBase(models.Model):
+    """Abstract base for per-context edge tables (edges_parametric_{id} / edges_nonparametric_{id}).
+    Uses CharField instead of ForeignKey to avoid related_name clashes across dynamic subclasses."""
+    node_id_1 = models.CharField(max_length=200, db_column='node_id_1')
+    node_id_2 = models.CharField(max_length=200, db_column='node_id_2')
+    p_value = models.FloatField(blank=True, null=True)
+    effect_size = models.FloatField(blank=True, null=True)
+    test_type = models.CharField(max_length=200, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        abstract = True
 
 
 def create_dynamic_model(base_model, table_name): #registry

@@ -6,7 +6,7 @@ from django.apps import apps
 from django.db.models.functions import Coalesce
 from django.db.models import F
 from django.forms.models import model_to_dict
-from network.models import create_dynamic_model
+from network.models import create_dynamic_model, EdgesContextBase
 from network.models import (
     EdgesProteinProtein, EdgesProteinMetabolite, EdgesProteinPhenotype,
     EdgesMetaboliteMetabolite, EdgesMetabolitePhenotype, EdgesPhenotypePhenotype,
@@ -456,6 +456,176 @@ def get_whole_network(thresh=None, limit=None, per_node_limit=None, density=None
     
     return candidate_links, selected_links, nodes
 
+def _shape_edge_row(row, edge_type_label):
+    """Build the common candidate-edge dict shape from one EdgesParametric/EdgesNonparametric row."""
+    source = row.get('node_id_1')
+    target = row.get('node_id_2')
+    if not source or not target:
+        return None
+    return {
+        'id': f"{edge_type_label}:{row['id']}",
+        'source': source,
+        'target': target,
+        'edge_type': edge_type_label,
+        'final_p_value': row.get('p_value'),
+        'final_e_value': row.get('effect_size'),
+        'test_type': row.get('test_type'),
+    }
+
+
+# (stat_type, model name, edge_type label) for the flat schema's two edge tables.
+STAT_TYPE_EDGE_MODELS = [
+    ('parametric', 'EdgesParametric', 'edges_parametric'),
+    ('nonparametric', 'EdgesNonparametric', 'edges_nonparametric'),
+]
+
+
+def _query_new_schema_nodes(node_ids):
+    """
+    Fetch node details for the new flat schema directly from the Nodes model.
+    query_nodes()/ViewDescriptionFTS only cover the old per-node-type tables
+    (cohort_protein/cohort_metabolite/cohort_phenotype/cohort_variant) and have no
+    knowledge of the new `nodes` table. Shaped to match query_nodes()'s old output
+    (id/display_name/description/source_table/xrefs) so callers don't need to care
+    which schema a node came from.
+    """
+    node_model = apps.get_model('network', 'Nodes')
+    rows = node_model.objects.filter(node_id__in=node_ids).values(
+        'node_id', 'display_name', 'description', 'node_group', 'xrefs'
+    )
+    return [
+        {
+            'id': row['node_id'],
+            'display_name': row['display_name'],
+            'description': row['description'],
+            'source_table': row['node_group'],
+            'xrefs': row['xrefs'],
+        }
+        for row in rows
+    ]
+
+
+def _get_flat_edge_models(context_id=None, test_type=None):
+    """
+    Return (edge_type_label, edge_model) pairs for flat-schema edge queries.
+    For the global schema: both EdgesParametric and EdgesNonparametric, unless
+    test_type ('parametric' or 'nonparametric') is given — then only that table.
+    For a context: the single table created by insert_context (parametric OR nonparametric),
+    looked up from Context.params['testType'].
+    """
+    if context_id is None:
+        all_models = [
+            (label, apps.get_model('network', name))
+            for _stat, name, label in STAT_TYPE_EDGE_MODELS
+        ]
+        if test_type:
+            return [(label, model) for label, model in all_models if test_type in label]
+        return all_models
+
+    context_model = apps.get_model('network', 'Context')
+    try:
+        context = context_model.objects.get(context_id=context_id)
+        test_type = context.params.get('testType', 'parametric')
+    except context_model.DoesNotExist:
+        test_type = 'parametric'
+
+    table_name = f'edges_{test_type}_{context_id}'
+    return [(table_name, create_dynamic_model(EdgesContextBase, table_name))]
+
+
+def get_node_network_new(query_id, thresh=None, limit=None, per_type=None, context_id=None, test_type=None):
+    """
+    Extract the neighborhood of a single node from the flat table structure.
+    When context_id is given, queries the single per-context edge table instead of
+    the global EdgesParametric/EdgesNonparametric tables.
+    Mirrors network_query()'s old tuple shape so GetNetworkView's response-shaping
+    code needs no changes.
+
+    :return: tuple (edges, nodes, mapped_externals, message) - edges keyed by
+             edge_type_label.
+    """
+    candidate_links = []
+    for edge_type_label, edge_model in _get_flat_edge_models(context_id, test_type=test_type):
+        queryset = edge_model.objects.filter(Q(node_id_1=query_id) | Q(node_id_2=query_id))
+        if thresh is not None:
+            queryset = queryset.filter(p_value__lte=thresh)
+        queryset = queryset.values('id', 'node_id_1', 'node_id_2', 'p_value', 'effect_size', 'test_type')
+
+        for row in queryset:
+            shaped = _shape_edge_row(row, edge_type_label)
+            if shaped is not None:
+                candidate_links.append(shaped)
+
+    candidate_links.sort(
+        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0
+    )
+
+    message = ""
+    if limit is not None:
+        candidate_links = apply_soft_limit(candidate_links, limit)
+        if per_type and len(candidate_links) > limit:
+            message = (f"More than {limit} edges have been returned because some edges share the "
+                       f"same significance level")
+
+    node_ids = {query_id}
+    for edge in candidate_links:
+        node_ids.add(edge['source'])
+        node_ids.add(edge['target'])
+
+    nodes = _query_new_schema_nodes(node_ids)
+
+    edges = {}
+    for edge in candidate_links:
+        edges.setdefault(edge['edge_type'], []).append(edge)
+
+    if not edges and nodes:
+        message = "No edges are found by the request"
+
+    return edges, nodes, [], message
+
+
+def get_group_network_new(query_ids, thresh=None, limit=None, context_id=None, test_type=None):
+    """
+    Extract the subgraph among a group of nodes from the flat table structure.
+    When context_id is given, queries the single per-context edge table instead of
+    the global EdgesParametric/EdgesNonparametric tables.
+    Mirrors network_group_query()'s old tuple shape.
+
+    :return: tuple (edges, nodes, mapped_externals) - edges keyed by edge_type_label.
+    """
+    candidate_links = []
+    for edge_type_label, edge_model in _get_flat_edge_models(context_id, test_type=test_type):
+        queryset = edge_model.objects.filter(node_id_1__in=query_ids, node_id_2__in=query_ids)
+        if thresh is not None:
+            queryset = queryset.filter(p_value__lte=thresh)
+        queryset = queryset.values('id', 'node_id_1', 'node_id_2', 'p_value', 'effect_size', 'test_type')
+
+        for row in queryset:
+            shaped = _shape_edge_row(row, edge_type_label)
+            if shaped is not None:
+                candidate_links.append(shaped)
+
+    candidate_links.sort(
+        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0
+    )
+
+    if limit is not None:
+        candidate_links = apply_soft_limit(candidate_links, limit)
+
+    node_ids = set(query_ids)
+    for edge in candidate_links:
+        node_ids.add(edge['source'])
+        node_ids.add(edge['target'])
+
+    nodes = _query_new_schema_nodes(node_ids)
+
+    edges = {}
+    for edge in candidate_links:
+        edges.setdefault(edge['edge_type'], []).append(edge)
+
+    return edges, nodes, []
+
+
 def get_whole_network_new(stat_type, thresh=None, limit=None):
     """
     Extract the complete network from the flat table structure.
@@ -500,19 +670,9 @@ def get_whole_network_new(stat_type, thresh=None, limit=None):
 
     candidate_links = []
     for row in queryset:
-        source = row.get('node_id_1')
-        target = row.get('node_id_2')
-        if not source or not target:
-            continue
-        candidate_links.append({
-            'id': f"{edge_type_label}:{row['id']}",
-            'source': source,
-            'target': target,
-            'edge_type': edge_type_label,
-            'final_p_value': row.get('p_value'),
-            'final_e_value': row.get('effect_size'),
-            'test_type': row.get('test_type'),
-        })
+        shaped = _shape_edge_row(row, edge_type_label)
+        if shaped is not None:
+            candidate_links.append(shaped)
 
     candidate_links.sort(
         key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
@@ -627,17 +787,22 @@ def external_query(query_id, cohort_node=True):
 
     return mapped_externals, cohort_nodes, external_nodes
 
-# Search for 'query' in all fields of all cohort node tables
-def typeahead_query(query, tables=None, limit=20):
-    model = apps.get_model('network', 'ViewDescriptionFTS')
-    if tables:
-        return model.objects.filter((Q(description__icontains=query) |
-                                    Q(display_name__icontains=query) |
-                                    Q(id__icontains=query) |
-                                    Q(xrefs__icontains=query)) &
-                                    Q(source_table__in=tables))[:limit].values()
-    else:
-        return model.objects.filter(Q(description__icontains=query) |
-                                    Q(display_name__icontains=query) |
-                                    Q(id__icontains=query) |
-                                    Q(xrefs__icontains=query))[:limit].values()
+# Search for 'query' in all fields of the flat nodes table.
+def typeahead_query(query, groups=None, limit=20):
+    """
+    Search Nodes by display_name/description/node_id/xrefs, optionally restricted to
+    a set of node_group values. Replaces the old ViewDescriptionFTS-based lookup,
+    which only covers the old per-node-type tables and has no knowledge of `nodes`.
+    Returns values aliased to the old view's field names (id/source_table) so
+    TypeaheadView's response shape doesn't change.
+    """
+    model = apps.get_model('network', 'Nodes')
+    filters = (Q(description__icontains=query) |
+              Q(display_name__icontains=query) |
+              Q(node_id__icontains=query) |
+              Q(xrefs__icontains=query))
+    if groups:
+        filters &= Q(node_group__in=groups)
+    return model.objects.filter(filters)[:limit].values(
+        'description', 'display_name', 'xrefs', id=F('node_id'), source_table=F('node_group')
+    )

@@ -7,7 +7,7 @@ from django.conf import settings
 from django.db import connection
 import logging
 
-from network.contexts.edge_sorting import process_file, add_edges, DB_COLUMNS
+from network.contexts.edge_sorting import add_edges, dataframe_to_buffer_arrow
 from network.models import Context
 from django.db.models import Max
 import pandas as pd
@@ -20,35 +20,26 @@ logger = logging.getLogger('network')
 OPERATORS = {
     'less than (<)': lambda df, col, val: df[col] < float(val),
     'more than (>)': lambda df, col, val: df[col] > float(val),
-    'in': lambda df, col, val: df[col].isin(val),
-    'equals (=)': lambda df, col, val: df[col] == val,
+    'in': lambda df, col, val: df[col].astype(str).isin([str(v) for v in val]),
+    'equals (=)': lambda df, col, val: df[col].astype(str) == str(val),
     'in range': lambda df, col, val: (df[col] >= float(val[0])) & (df[col] <= float(val[1])),
 }
 
 
-EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
-
-
-def create_table_structure(table_name, context_id, label_table1, label_table2):
-    logger.debug(f"create_table_structure")
-    column_info = DB_COLUMNS[table_name]
-    context_table_name = f"{table_name}_{context_id}"
-    is_same = label_table1 == label_table2
-    logger.debug(f"{label_table1.split('_')[1]}")
-    logger.debug(f"{label_table2.split('_')[1]}")
-    label1_name = f"{label_table1.split('_')[1]}_id{'_1' if is_same else ''}"
-    label2_name = f"{label_table2.split('_')[1]}_id{'_2' if is_same else ''}"
-    table_structure = f"""
-    CREATE TABLE IF NOT EXISTS {context_table_name} (
-    id SERIAL PRIMARY KEY,
-    {label1_name} VARCHAR REFERENCES {label_table1}(cohort_id),
-    {label2_name} VARCHAR REFERENCES {label_table2}(cohort_id),
-    """
-    for column in column_info[2:]:
-        table_structure += f"{column} DOUBLE PRECISION,\n"
-
-    table_structure = table_structure[:-2] + ");"
-    return table_structure
+def _create_context_table(table_name: str, conn):
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id SERIAL PRIMARY KEY,
+            node_id_1 VARCHAR REFERENCES nodes(node_id),
+            node_id_2 VARCHAR REFERENCES nodes(node_id),
+            p_value DOUBLE PRECISION,
+            effect_size DOUBLE PRECISION,
+            test_type VARCHAR
+        )
+    """)
+    conn.commit()
+    logger.debug(f"Created context table {table_name}")
 
 
 def delete_context_tables(context_id: str):
@@ -164,49 +155,35 @@ def update_buffer(updates, conn, table_name: str = 'edges'):
     conn.commit()
 
 
-def create_context_tables(needed_tables: list[str], context_name: str, conn):
-    cursor = conn.cursor()
-    new_names = {}
-    for table_name in needed_tables:
-        first_table = table_name.split('_')[1]
-        second_table = table_name.split('_')[2]
-        if EDGE_ORDER[first_table] < EDGE_ORDER[second_table]:
-            first_table, second_table = second_table, first_table
+def insert_context(scores: pd.DataFrame, context_name: str, test_type: str) -> bool:
+    """Insert modina context scores into a single flat-schema table.
 
-        cursor.execute(create_table_structure(table_name, context_name,
-                                              f"cohort_{first_table}",
-                                              f"cohort_{second_table}"))
-
-        new_names[table_name] = f"{table_name}_{context_name}"
-    logger.debug(f"Created tables for context {context_name}")
-    conn.commit()
-    return new_names
-
-
-def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
+    scores columns: label1, label2, raw-P, raw-E, test_type
+    table name:     edges_{test_type}_{context_name}
+    """
     conn = connection
+    table_name = f"edges_{test_type}_{context_name}"
+    _create_context_table(table_name, conn)
 
-    # sort the file buffer into individual edge tables
-    tables = process_file(scores, **kwargs)
+    edges = scores[['label1', 'label2', 'raw-P', 'raw-E', 'test_type']].copy()
+    edges = edges.rename(columns={
+        'label1': 'node_id_1',
+        'label2': 'node_id_2',
+        'raw-P': 'p_value',
+        'raw-E': 'effect_size',
+    })
 
-    # create all needed tables in the database
-    new_names = create_context_tables(list(tables.keys()), context_name, conn)
-
-    # save the tables to CSV files
     if settings.LOW_MEMORY:
-        logger.debug("In low memory mode, saving tables to CSV files")
-        for k, v in tables.items():
-            if os.path.exists(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv"):
-                continue
-            with open(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv", 'wb') as f:
-                f.write(v.getvalue())
-        edge_info = list(new_names.values())
+        csv_path = f"/tmp/dyhealthnet-{context_name}/{table_name}.csv"
+        if not os.path.exists(csv_path):
+            buf = dataframe_to_buffer_arrow(edges)
+            with open(csv_path, 'wb') as f:
+                f.write(buf.getvalue())
+        edge_info = [table_name]
     else:
-        edge_info = {new_names[k]: v for k, v in tables.items()}
+        edge_info = {table_name: dataframe_to_buffer_arrow(edges)}
 
-    # insert the data into the database
-    add_success = add_edges(conn, context_name, edge_info)
-    return add_success
+    return add_edges(conn, context_name, edge_info)
 
 
 def context_subset(request, data):

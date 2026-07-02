@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from django.conf import settings
 import logging
-import napy as nanpy
+import napypi as nanpy
 import timeit
 
 logger = logging.getLogger("network")

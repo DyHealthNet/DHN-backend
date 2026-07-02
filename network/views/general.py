@@ -35,9 +35,9 @@ class GetVariablesView(generics.GenericAPIView):
 
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
-            phenotypes_values = phenotypes_values if 'phenomics' in context.params['layers'] else None
-            protein_values = protein_values if 'proteomics' in context.params['layers'] else None
-            metabolite_values = metabolite_values if 'metabolomics' in context.params['layers'] else None
+            phenotypes_values = phenotypes_values if 'phenotype' in context.params['layers'] else None
+            protein_values = protein_values if 'protein' in context.params['layers'] else None
+            metabolite_values = metabolite_values if 'metabolite' in context.params['layers'] else None
 
         if 'all_variables' not in cache or settings.NO_CACHE or has_context:
             existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]

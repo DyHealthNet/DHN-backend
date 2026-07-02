@@ -106,8 +106,8 @@ create_context_schema = extend_schema(
                       },
                       "contextName": "example",
                       "layers": [
-                        "phenomics",
-                        "metabolomics"
+                        "phenotype",
+                        "metabolite"
                       ],
                       "tests": {
                         "catCat": {
@@ -261,8 +261,8 @@ filter_context_schema = extend_schema(
                         },
                         "contextName": "example",
                         "layers": [
-                            "phenomics",
-                            "metabolomics"
+                            "phenotype",
+                            "metabolite"
                         ],
                         "tests": {
                             "catCat": {

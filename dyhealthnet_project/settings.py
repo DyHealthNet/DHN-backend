@@ -27,18 +27,6 @@ env = environ.Env(
     REDIS_URL=(str, 'localhost:6379'),
     NAN_VALUE=(int, -89),
 
-    PROTEIN_PATH=(str, None),
-    PROTEIN_META_PATH=(str, None),
-    PROTEIN_LABEL_COLUMN=(str, None),
-    PROTEIN_DESCRIPTION_COLUMN=(str, None),
-
-    PHENOTYPE_PATH=(str, None),
-    PHENOTYPE_META_PATH=(str, None),
-    PHENOTYPE_LABEL_COLUMN=(str, None),
-    PHENOTYPE_DESCRIPTION_COLUMN=(str, None),
-    PHENOTYPE_TYPE_COLUMN=(str, None),
-
-    METABOLITE_PATH=(str, None),
     CALCULATED_EDGES_PATH=(str, None),
     VAR_LABEL_MAPPING=(str, None),
     PATIENT_ID_COLUMN=(str, None)
@@ -318,30 +306,6 @@ CACHES = {
 
 
 # Custom DyHealthNet settings
-INPUT_FILES = {
-    'proteins': {
-        'path': env("PROTEIN_PATH"),
-        'meta': env("PROTEIN_META_PATH"),
-        'label': env("PROTEIN_LABEL_COLUMN"),
-        'description': env("PROTEIN_DESCRIPTION_COLUMN"),
-    },
-    'phenotypes': {
-        'path': env("PHENOTYPE_PATH"),
-        'meta': env("PHENOTYPE_META_PATH"),
-        'label': env("PHENOTYPE_LABEL_COLUMN"),
-        'description': env("PHENOTYPE_DESCRIPTION_COLUMN"),
-        'type': env("PHENOTYPE_TYPE_COLUMN"),
-    },
-    'metabolites': {
-        'path': env("METABOLITE_PATH"),
-    },
-    'edges': {
-        'path': env("CALCULATED_EDGES_PATH"),
-    },
-    'labels': {
-        'path': env('VAR_LABEL_MAPPING')
-    }
-}
 PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
 
 

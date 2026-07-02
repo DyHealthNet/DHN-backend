@@ -1,16 +1,13 @@
-import json
+import logging
+import os
 import sys
 import timeit
 
 from django.apps import AppConfig
 
-from network.score_calculation import separate_cat_cont
 from network.utils.data_manager import DataManager
-from network.utils.startup_utils import *
-import environ
 
-env = environ.Env()
-environ.Env.read_env()
+logger = logging.getLogger('network')
 
 
 class NetworksConfig(AppConfig):

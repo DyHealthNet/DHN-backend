@@ -1,62 +1,61 @@
 import os
 import shutil
 
-from celery import shared_task, current_task
+from celery import shared_task
 import time
 import pandas as pd
-import json
 
-from django.http import HttpResponseServerError
-
-from network.models import Context
+from network.models import Context, UserContextLink
 from network.contexts.contexts import insert_context
-from network.score_calculation import calculate_association_scores
+from modina.context_net_inference import compute_context_scores
 
-from network.models import UserContextLink
-#from network.views import DeleteContext
 
 @shared_task(bind=True)
-def create_context_wrapper(self, cat_data: json, cont_data: json, params: dict, context_name: str, user_id: int, **kwargs):
-    # extract relevant info from params and add it to db
+def create_context_wrapper(self, context_data: str, meta_file: str, params: dict,
+                           context_name: str, user_id: int):
     new_context = Context(context_id=context_name,
-                          cat_cat_test=params['tests']['catCat']['value'],
-                          cont_cont_test=params['tests']['contCont']['value'],
-                          cat_cont_b_test=params['tests']['catContB']['value'],
-                          cat_cont_m_test=params['tests']['catContM']['value'],
                           last_accessed=None,
                           params=params)
-
     new_context.save()
+
     if UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).exists():
         UserContextLink.objects.filter(user_id=user_id, context_value=params['contextValue']).delete()
-    user_context_link = UserContextLink.objects.create(user_id=user_id, context_id=context_name,
-                                   context_value=params['contextValue'], context_task_id=self.request.id)
+    user_context_link = UserContextLink.objects.create(
+        user_id=user_id, context_id=context_name,
+        context_value=params['contextValue'], context_task_id=self.request.id)
 
-    cat_data = pd.read_pickle(cat_data)
-    cont_data = pd.read_pickle(cont_data)
+    context_df = pd.read_pickle(context_data)
+    meta_df = pd.read_pickle(meta_file)
+
+    test_type = params.get('testType', 'parametric')
+
     try:
-        scores = calculate_association_scores(cat_data, cont_data, params['tests'])
-        # insert context to db
-        success = insert_context(scores, context_name, **kwargs)
+        scores = compute_context_scores(
+            context_data=context_df,
+            meta_file=meta_df,
+            test_type=test_type,
+            correction=params.get('correction', 'bh'),
+            num_workers=1,
+        )
+        success = insert_context(scores, context_name, test_type)
     except Exception as e:
         print(e)
         success = False
 
-    # remove temp files created by my lack of RAM
     path_name = f"dyhealthnet-{context_name}"
     dir_path = os.path.join('/tmp', path_name)
     if os.path.exists(dir_path) and os.path.isdir(dir_path):
         shutil.rmtree(dir_path)
 
     if not success:
-        UserContextLink.objects.filter(user_id=user_id, context_id=context_name, context_value=params['contextValue']).delete()
+        UserContextLink.objects.filter(
+            user_id=user_id, context_id=context_name,
+            context_value=params['contextValue']).delete()
         Context.objects.filter(context_id=context_name).delete()
-        # DeleteContext.delete(context_id=context_name) not needed if insertion is atomic / all or nothing
         return False
 
     user_context_link.context_status = "Finished"
     user_context_link.save()
-
     return success
 
 
