@@ -66,16 +66,6 @@ TYPE_TO_DTYPE = {
     "continuous": "float64",
 }
 
-# Reverse mapping back to the vocabulary network.score_calculation.separate_cat_cont()
-# expects - used only for DataManager.pheno_meta_label, which feeds the (untouched)
-# contexts per-user scoring pipeline.
-TYPE_TO_OLD_VOCAB = {
-    "binary": "boolean",
-    "nominal": "categorical",
-    "ordinal": "categorical",
-    "continuous": "float",
-}
-
 
 def _apply_literal_or_column(meta, column_or_literal, target_col, meta_path):
     """
@@ -200,7 +190,21 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
         meta = meta[meta["label"].isin(header_columns)].reset_index(drop=True)
 
     usecols = [patient_id_column] + meta["label"].tolist()
-    dtype = {label: TYPE_TO_DTYPE[type_] for label, type_ in zip(meta["label"], meta["type"])}
+    # Only 'continuous' is passed as a read_csv dtype: 'category' dtype must NOT be
+    # requested from read_csv directly, since pandas then categorizes the raw CSV
+    # text (categories end up as strings, e.g. '-99') instead of first inferring a
+    # numeric dtype (categories as int/float, e.g. -99). That string/number mismatch
+    # breaks modina's nan_value sentinel comparisons downstream. Category columns are
+    # cast after reading instead, so pandas' normal type inference runs first.
+    dtype = {
+        label: TYPE_TO_DTYPE[type_]
+        for label, type_ in zip(meta["label"], meta["type"])
+        if TYPE_TO_DTYPE[type_] != "category"
+    }
+    category_labels = [
+        label for label, type_ in zip(meta["label"], meta["type"])
+        if TYPE_TO_DTYPE[type_] == "category"
+    ]
 
     data = pd.read_csv(
         data_path,
@@ -209,6 +213,8 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
         usecols=usecols,
         dtype=dtype,
     )
+    if category_labels:
+        data[category_labels] = data[category_labels].astype("category")
 
     return data, meta
 
@@ -332,13 +338,9 @@ def _group_labels(meta_file):
 
 
 class DataManager:
-    # The DATA_GROUP_COLUMNS values production is expected to configure so that the
-    # legacy phenotypes/proteins/metabolites slots below (still depended on by
-    # GetVariablesView, GetTableView and the contexts feature) get populated. Groups
-    # are otherwise fully user-defined - see _load_typed_data_source's group_column.
-    LEGACY_PHENOMICS_GROUP = "phenotype"
-    LEGACY_PROTEOMICS_GROUP = "protein"
-    LEGACY_METABOLOMICS_GROUP = "metabolite"
+    # Groups are fully user-defined via DATA_GROUP_COLUMNS - see _load_typed_data_source's
+    # group_column. Every group present in the data gets a slot in _group_data/_group_meta,
+    # consumed generically by GetVariablesView, GetTableView and the contexts feature.
 
     def __init__(self):
         self._var_label_map: dict | None = None
@@ -347,12 +349,8 @@ class DataManager:
         self._all_cat: pd.DataFrame | None = None
         self._all_data: pd.DataFrame | None = None
         self._meta_file: pd.DataFrame | None = None
-        self._metabolites: pd.DataFrame | None = None
-        self._proteins_meta: pd.DataFrame | None = None
-        self._proteins: pd.DataFrame | None = None
-        self._pheno_meta_label: pd.DataFrame | None = None
-        self._pheno_meta: pd.DataFrame | None = None
-        self._phenotypes: pd.DataFrame | None = None
+        self._group_data: dict[str, pd.DataFrame] = {}
+        self._group_meta: dict[str, pd.DataFrame] = {}
 
         self._data_loaded = False
         self.switch = {}
@@ -379,12 +377,8 @@ class DataManager:
             'all_cat': self._all_cat,
             'all_data': self._all_data,
             'meta_file': self._meta_file,
-            'metabolites': self._metabolites,
-            'proteins_meta': self._proteins_meta,
-            'proteins': self._proteins,
-            'pheno_meta_label': self._pheno_meta_label,
-            'pheno_meta': self._pheno_meta,
-            'phenotypes': self._phenotypes,
+            'group_data': self._group_data,
+            'group_meta': self._group_meta,
             'var_label_map': self._var_label_map
             }
 
@@ -396,8 +390,8 @@ class DataManager:
         data = self._all_data.loc[:, self._all_data.columns.isin(labels)].copy()
         meta = meta_file[meta_file["group"] == group_name].set_index("label", drop=False)
         if "description" not in meta.columns:
-            # list_phenotype_variables/list_protein_variables always expect this column;
-            # default to NaN when DATA_DESCRIPTION_COLUMNS wasn't configured for this group.
+            # list_group_variables always expects this column; default to NaN when
+            # DATA_DESCRIPTION_COLUMNS wasn't configured for this group.
             meta = meta.copy()
             meta["description"] = None
         return data, meta
@@ -413,18 +407,10 @@ class DataManager:
         group_labels = _group_labels(meta_file)
         self._layers = {group: pd.Index(labels) for group, labels in group_labels.items()}
 
-        self._phenotypes, self._pheno_meta = self._slice_group(
-            group_labels, meta_file, self.LEGACY_PHENOMICS_GROUP)
-        if self._pheno_meta is not None:
-            pheno_meta_label = self._pheno_meta.copy()
-            pheno_meta_label["type"] = pheno_meta_label["type"].map(TYPE_TO_OLD_VOCAB)
-            self._pheno_meta_label = pheno_meta_label
-
-        self._proteins, self._proteins_meta = self._slice_group(
-            group_labels, meta_file, self.LEGACY_PROTEOMICS_GROUP)
-
-        self._metabolites, _metabolites_meta = self._slice_group(
-            group_labels, meta_file, self.LEGACY_METABOLOMICS_GROUP)
+        for group_name in group_labels:
+            data, meta = self._slice_group(group_labels, meta_file, group_name)
+            self._group_data[group_name] = data
+            self._group_meta[group_name] = meta
 
         self._meta_file = meta_file
         self._all_cat, self._all_cont = _split_cat_cont(self._all_data, meta_file)

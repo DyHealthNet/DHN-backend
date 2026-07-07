@@ -4,6 +4,7 @@ import shutil
 from celery import shared_task
 import time
 import pandas as pd
+from django.conf import settings
 
 from network.models import Context, UserContextLink
 from network.contexts.contexts import insert_context
@@ -27,15 +28,21 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
     context_df = pd.read_pickle(context_data)
     meta_df = pd.read_pickle(meta_file)
 
-    test_type = params.get('testType', 'parametric')
+    test_type = params.get('testType')
+    correction = params.get('correction')
 
     try:
+        if test_type not in ('parametric', 'nonparametric'):
+            raise ValueError(f"Parameter 'testType' must be 'parametric' or 'nonparametric', got {test_type!r}.")
+        if correction not in ('bh', 'by'):
+            raise ValueError(f"Parameter 'correction' must be 'bh' or 'by', got {correction!r}.")
         scores = compute_context_scores(
             context_data=context_df,
             meta_file=meta_df,
             test_type=test_type,
-            correction=params.get('correction', 'bh'),
-            num_workers=1,
+            correction=correction,
+            num_workers=settings.NUM_WORKERS,
+            nan_value=settings.NAN_VALUE,
         )
         success = insert_context(scores, context_name, test_type)
     except Exception as e:

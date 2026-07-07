@@ -37,6 +37,14 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
+        if params.get('testType') not in ('parametric', 'nonparametric'):
+            return HttpResponseBadRequest(
+                "Parameter 'testType' must be 'parametric' or 'nonparametric'.", status=405)
+
+        if params.get('correction') not in ('bh', 'by'):
+            return HttpResponseBadRequest(
+                "Parameter 'correction' must be 'bh' or 'by'.", status=405)
+
         logger.debug(f"The user {request.user.username} has the id {request.user.id}")
 
         user_context_query = UserContextLink.objects.filter(user=request.user)

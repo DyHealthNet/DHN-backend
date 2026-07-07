@@ -8,17 +8,16 @@ from django.conf import settings
 logger = logging.getLogger('network')
 
 
-def list_node_variables(df, df2=None, type=None):
-    if type == 'phenotype':
-        return list_phenotype_variables(df, df2)
-    elif type == 'protein':
-        return list_protein_variables(df, df2)
-    elif type == 'metabolite':
-        return list_metabolite_variables(df)
-    return None
-
-
-def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
+def list_group_variables(meta, data):
+    """
+    Build the statistical-type grouping and display identifier for every variable in one
+    data group (phenotype/protein/metabolite/... - any group produced by DataManager).
+    :param meta: metadata DataFrame for this group, indexed by label, with 'type' and
+                 'description' columns (description may be all-NaN if not configured).
+    :param data: data DataFrame for this group (columns = variable labels).
+    :return: DataFrame indexed by label with columns 'group' (continuous/binaryCategorical/
+             nonbinaryCategorical) and 'identifier' (display string).
+    """
     def make_group(cols):
         ctype = cols['type']
         cnumcat = cols['num_cat']
@@ -31,52 +30,22 @@ def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
     type_col = 'type'
     desc_col = 'description'
 
-    # Get all variables with their type and a suitable identifier and put them in the same format
-    # get Phenotype variables
-    # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
-    filtered_rows = pheno_meta_filtered[pheno_meta_filtered.index.isin(phenotypes_filtered.columns)]
-    phenotypes_values = filtered_rows[[type_col, desc_col]].copy()
+    # get subtable of meta data for the variables that are actually in the data
+    filtered_rows = meta[meta.index.isin(data.columns)]
+    values = filtered_rows[[type_col, desc_col]].copy()
 
-    phenotypes_values.loc[:, 'num_cat'] = pd.Series(phenotypes_filtered.nunique())
-    phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [type_col, 'num_cat']].apply(
-        make_group, axis=1)
+    values.loc[:, 'num_cat'] = pd.Series(data.nunique())
+    values.loc[:, 'group'] = values.loc[:, [type_col, 'num_cat']].apply(make_group, axis=1)
 
     # if description is NaN only return the index
-    phenotypes_values.loc[:, 'identifier'] = np.where(
-        phenotypes_values[desc_col].isna(),
-        phenotypes_values.index,
-        phenotypes_values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
+    values.loc[:, 'identifier'] = np.where(
+        values[desc_col].isna(),
+        values.index,
+        values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
     )
 
-    phenotypes_values.drop(columns=[desc_col, 'num_cat', type_col],
-                           inplace=True)
-    return phenotypes_values
-
-
-def list_protein_variables(proteins_meta, proteins):
-    desc_col = 'description'
-    protein_values = proteins_meta[proteins_meta.index.isin(proteins.columns)][
-        [desc_col]].copy()
-
-    # Create 'identifier' column based on conditions
-    # (if description is NaN only return the index)
-    protein_values['identifier'] = np.where(
-        protein_values[desc_col].isna(),
-        protein_values.index,
-        protein_values.apply(lambda row: f'{row[desc_col]} / Protein ({row.name})',
-                             axis=1)
-    )
-
-    protein_values.drop(columns=[desc_col], inplace=True)
-    protein_values.loc[:, 'group'] = 'continuous'
-    return protein_values
-
-
-def list_metabolite_variables(metabolites):
-    metabolite_values = pd.DataFrame(index=metabolites.columns,
-                                     data={'identifier': metabolites.columns + ' / Metabolite'})
-    metabolite_values.loc[:, 'group'] = 'continuous'
-    return metabolite_values
+    values.drop(columns=[desc_col, 'num_cat', type_col], inplace=True)
+    return values
 
 
 # Function to extract the variable Id from the user-friendly input

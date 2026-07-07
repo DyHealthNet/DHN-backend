@@ -10,7 +10,6 @@ from drf_spectacular.utils import extend_schema_view
 from scipy.stats import gaussian_kde
 
 from network.contexts.contexts import subset_patients, context_subset
-from network.models import CohortVariant
 from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
 from network.utils.db_utils import get_context
@@ -22,20 +21,21 @@ class GetTableView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, proteins, phenotypes, metabolites = self.data_manager.get_df_copy(['all_data', 'proteins',
-                                                                                    'phenotypes', 'metabolites'])
+        all_data, layers, group_data = self.data_manager.get_df_copy(['all_data', 'layers', 'group_data'])
+
+        def layer_counts(context_layers=None):
+            counts = {}
+            for group_name in layers:
+                if context_layers is not None and group_name not in context_layers:
+                    counts[group_name.capitalize() + 's'] = 0
+                    continue
+                data = group_data.get(group_name)
+                counts[group_name.capitalize() + 's'] = len(data.columns) if data is not None else 0
+            return counts
 
         # build result dict in right format
         if not request.GET.get("contextValue") or not request.user.is_authenticated:
-            try:
-                variant_count = CohortVariant.objects.count()
-            except Exception:
-                variant_count = 0
-            req_data_dict = {'Participants': len(all_data),
-                             'Phenotypes': len(phenotypes.columns) if phenotypes is not None else 0,
-                             'Proteins': len(proteins.columns) if proteins is not None else 0,
-                             'Metabolites': len(metabolites.columns) if metabolites is not None else 0,
-                             'Genetic Variants': variant_count}
+            req_data_dict = {'Participants': len(all_data), **layer_counts()}
             response = JsonResponse(req_data_dict, safe=True)
             response = add_cache_header(response, True)
             return response
@@ -61,13 +61,7 @@ class GetTableView(generics.GenericAPIView):
             else:
                 participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
 
-        phenotypes_num = len(phenotypes.columns) if 'phenotype' in context.params['layers'] else 0
-        proteins_num = len(proteins.columns) if 'protein' in context.params['layers'] else 0
-        metabolites_num = len(metabolites.columns) if 'metabolite' in context.params['layers'] else 0
-        variants_num = 0 if 'variants' in context.params['layers'] else 0
-
-        req_data_dict = {'Participants': participants, 'Phenotypes': phenotypes_num, 'Proteins': proteins_num,
-                         'Metabolites': metabolites_num, 'Genetic Variants': variants_num}
+        req_data_dict = {'Participants': participants, **layer_counts(context.params['layers'])}
         return JsonResponse(req_data_dict, safe=True)
 
 

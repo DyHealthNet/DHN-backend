@@ -7,7 +7,7 @@ from drf_spectacular.utils import extend_schema_view
 
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-from network.utils.utils import list_node_variables, add_cache_header
+from network.utils.utils import list_group_variables, add_cache_header
 from network.utils.color_utils import define_context_color, get_palette, rgb_to_hex
 from django.conf import settings
 from django.core.cache import cache
@@ -21,35 +21,45 @@ class GetVariablesView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        pheno_meta, phenotypes = self.data_manager.get_df_copy(['pheno_meta', 'phenotypes'])
-        proteins_meta, proteins = self.data_manager.get_df_copy(['proteins_meta', 'proteins'])
-        metabolites = self.data_manager.get_df_copy('metabolites')
+        layers, group_data, group_meta = self.data_manager.get_df_copy(['layers', 'group_data', 'group_meta'])
         has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
-        def get_node_variables(meta, data, variable_type):
-            return list_node_variables(meta, data, type=variable_type) if data is not None else None
-
-        phenotypes_values = get_node_variables(pheno_meta, phenotypes, "phenotype")
-        protein_values = get_node_variables(proteins_meta, proteins, "protein")
-        metabolite_values = get_node_variables(metabolites, metabolites, "metabolite")
-
+        context_layers = None
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
-            phenotypes_values = phenotypes_values if 'phenotype' in context.params['layers'] else None
-            protein_values = protein_values if 'protein' in context.params['layers'] else None
-            metabolite_values = metabolite_values if 'metabolite' in context.params['layers'] else None
+            context_layers = context.params['layers']
+
+        group_values = {}
+        for group_name in layers:
+            data = group_data.get(group_name)
+            meta = group_meta.get(group_name)
+            if data is None or meta is None:
+                continue
+            if context_layers is not None and group_name not in context_layers:
+                continue
+            group_values[group_name] = list_group_variables(meta, data)
 
         if 'all_variables' not in cache or settings.NO_CACHE or has_context:
-            existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]
+            # create output dict with type as key and identifier as value, plus an explicit
+            # per-variable layer map so consumers don't need to infer layer from the identifier
+            variable_layers = {}
+            for group_name, values in group_values.items():
+                for identifier in values['identifier']:
+                    variable_layers[identifier] = group_name
 
-            # create output dict whit type as key and identifier as value and return it
-            combined_vals = pd.concat(existing_values, axis=0)
-            values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            if group_values:
+                combined_vals = pd.concat(group_values.values(), axis=0)
+                values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            else:
+                values_dict = {}
 
             # ensure that all keys are present even if they are empty
             for key in ['binaryCategorical', 'continuous', 'nonbinaryCategorical']:
                 if key not in values_dict:
                     values_dict[key] = []
+
+            values_dict['variableLayers'] = variable_layers
+            values_dict['availableLayers'] = list(group_values.keys())
 
             response = JsonResponse(values_dict, safe=True)
             if not settings.NO_CACHE and not has_context:

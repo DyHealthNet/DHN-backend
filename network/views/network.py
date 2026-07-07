@@ -15,8 +15,6 @@ import logging
 
 logger = logging.getLogger('network')
 
-types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
-
 ######### Individual Nodes Network Queries ###########
 @extend_schema_view(
     get=get_network_schema
@@ -79,13 +77,16 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
                                                get_context_value=True)
 
         start = timeit.default_timer()
-        edges, nodes, externals, message = get_node_network_new(
-            request_load["query_id"],
-            thresh=request_load["significance_thresh"],
-            limit=request_load["limit"],
-            per_type=request_load["per_type"],
-            context_id=request_load["context_id"],
-        )
+        try:
+            edges, nodes, externals, message = get_node_network_new(
+                request_load["query_id"],
+                thresh=request_load["significance_thresh"],
+                limit=request_load["limit"],
+                per_type=request_load["per_type"],
+                context_id=request_load["context_id"],
+            )
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -173,12 +174,15 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         request_load = read_in_network_request(request, query_indiv_node=False,
                                                get_context_value=True, get_spanning_tree=True)
         start = timeit.default_timer()
-        edges, nodes, externals = get_group_network_new(
-            request_load["query_ids"],
-            thresh=request_load["significance_thresh"],
-            limit=None,
-            context_id=request_load["context_id"],
-        )
+        try:
+            edges, nodes, externals = get_group_network_new(
+                request_load["query_ids"],
+                thresh=request_load["significance_thresh"],
+                limit=None,
+                context_id=request_load["context_id"],
+            )
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -435,9 +439,9 @@ def calculate_minium_spanning_tree(result_nodes, result_edges):
         logger.debug(f"edge_group {edge_group}")
         filtered_edges[edge_group] = []
         for edge in result_edges[edge_group]:
-            node_ids = [value for key, value in edge.items() if key.endswith('_id')]
-            if len(node_ids) == 2:  # Ensure there are exactly two nodes (for an undirected edge)
-                node_1, node_2 = node_ids
+            node_1 = edge.get('source')
+            node_2 = edge.get('target')
+            if node_1 is not None and node_2 is not None:
                 edge_key = tuple(sorted([node_1, node_2]))
                 edge_lookup[edge_key] = edge
                 edge_group_lookup[edge_key] = edge_group
