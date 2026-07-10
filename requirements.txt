@@ -30,3 +30,7 @@ networkx==3.5
 napypi==1.1.7
 python-igraph==1.0.0
 torch
+
+# metagraph community detection (network/views/metagraph.py)
+leidenalg==0.12.0
+scikit-learn

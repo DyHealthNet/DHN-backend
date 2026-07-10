@@ -1,4 +1,4 @@
-name: dhn-backend
+name: dhn-backend2
 channels:
   - defaults
 dependencies:
@@ -34,5 +34,8 @@ dependencies:
       - napypi==1.1.7
       - python-igraph==1.0.0
       - torch
+      # metagraph community detection (network/views/metagraph.py)
+      - leidenalg==0.12.0
+      - scikit-learn
 # moDiNA itself isn't on PyPI - after creating this env, install it from your local checkout:
 #   pip install -e /path/to/moDiNA --no-deps

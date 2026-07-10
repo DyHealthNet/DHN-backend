@@ -1,0 +1,455 @@
+import json
+import importlib
+from math import ceil
+import os
+import time
+import timeit
+from datetime import datetime
+from collections import defaultdict
+from pathlib import Path
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
+
+import django
+from django.apps import apps as django_apps
+
+if not django_apps.ready:
+    django.setup()
+
+import igraph as ig
+import leidenalg
+import pandas as pd
+import numpy as np
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, rand_score
+from django.apps import apps
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.db.models import Value
+from django.db.models.functions import Least, Coalesce
+from rest_framework import generics
+from drf_spectacular.utils import extend_schema_view
+
+from network.models import UserContextLink, Context
+from network.queries import *
+from network.schemas.network_schemas import *
+
+import logging
+
+logger = logging.getLogger('network')
+
+DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+SUPPORTED_COMMUNITY_METHODS = ('louvain', 'leiden', 'recursive_leiden', 'agglomerative', 'infomap', 'hierarchical_infomap', 'hsbm')
+BENCHMARK_DEFAULT_EDGE_WEIGHT = 'final_p_value'
+
+def resolution_to_key(value):
+    """Normalize resolution keys so 1.0 and 3.0 keep one decimal."""
+    text = f"{float(value):.6f}".rstrip('0').rstrip('.')
+    if '.' not in text:
+        text = f"{text}.0"
+    return text
+
+
+def parse_resolution_values(request):
+    """
+    Parse comma-separated Leiden resolutions from `resolutions` query parameter.
+    Falls back to the default slider-friendly resolution set.
+    """
+    raw = request.GET.get('resolutions', None)
+    if raw in ['', 'null', None]:
+        return DEFAULT_LEIDEN_RESOLUTIONS
+
+    try:
+        values = [float(part.strip()) for part in str(raw).split(',') if part.strip()]
+    except ValueError:
+        return HttpResponseBadRequest('resolutions must be a comma-separated list of numbers.', status=405)
+
+    if not values:
+        return HttpResponseBadRequest('resolutions must contain at least one value.', status=405)
+
+    for value in values:
+        if value <= 0:
+            return HttpResponseBadRequest('all resolution values must be > 0.', status=405)
+
+    # Deduplicate while preserving order.
+    deduped = []
+    seen = set()
+    for value in values:
+        key = resolution_to_key(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+def parse_query_params(request):
+    """
+    Parse and validate query parameters for Cosmograph view.
+    
+    Returns:
+        tuple: (limit, threshold, per_node_limit) or HttpResponseBadRequest on error
+    """
+    def parse_param(value, param_type, param_name, min_val=None, max_val=None):
+        """Helper to parse, convert, and validate individual parameters."""
+        if value in ['', 'null', None]:
+            return None
+        
+        try:
+            converted = param_type(value)
+        except (ValueError, TypeError):
+            return HttpResponseBadRequest(f'{param_name} must be a {param_type.__name__}.', status=405)
+        
+        if min_val is not None and converted < min_val:
+            return HttpResponseBadRequest(f'{param_name} must be > {min_val - 1}.', status=405)
+        
+        if max_val is not None and converted > max_val:
+            # Special case: cap limit at max instead of error
+            if param_name == 'limit':
+                return max_val
+            return HttpResponseBadRequest(f'{param_name} must be <= {max_val}.', status=405)
+        
+        return converted
+    
+    density = parse_param(request.GET.get('density'), float, 'density', min_val=0, max_val=1)
+    if isinstance(density, HttpResponseBadRequest):
+        return None, None, None, density
+    
+    limit = parse_param(request.GET.get('limit'), int, 'limit', min_val=1, max_val=20000)
+    if isinstance(limit, HttpResponseBadRequest):
+        return limit, None, None, None
+    
+    
+    threshold = parse_param(request.GET.get('threshold'), float, 'threshold', min_val=0, max_val=1)
+    if isinstance(threshold, HttpResponseBadRequest):
+        return None, threshold, None, None
+    
+    per_node_limit = parse_param(request.GET.get('per_node_limit'), int, 'per_node_limit', min_val=1)
+    if isinstance(per_node_limit, HttpResponseBadRequest):
+        return None, None, per_node_limit, None
+    
+    # Ensure at least one parameter is provided
+    if limit is None and threshold is None and per_node_limit is None:
+        return HttpResponseBadRequest('At least one of limit, threshold or per_node_limit must be provided.', status=405), None, None
+    
+    return limit, threshold, per_node_limit, density
+
+
+def parse_edge_weight_mode(request):
+    raw_value = request.GET.get('weight', request.GET.get('edge_weight', BENCHMARK_DEFAULT_EDGE_WEIGHT))
+    weight_mode = (raw_value or BENCHMARK_DEFAULT_EDGE_WEIGHT).strip().lower()
+    allowed_modes = {'final_p_value', 'raw_p', 'raw_e', 'pre_ls', 'post_ls'}
+    if weight_mode not in allowed_modes:
+        return HttpResponseBadRequest(
+            f"weight must be one of: {', '.join(sorted(allowed_modes))}.",
+            status=405,
+        )
+    return weight_mode
+
+def parse_test_type(request):
+    test_type = (request.GET.get('testType') or '').strip().lower()
+    if test_type not in ('parametric', 'nonparametric'):
+        return HttpResponseBadRequest(
+            "testType must be 'parametric' or 'nonparametric'.",
+            status=405,
+        )
+    return test_type
+
+def build_weighted_graph(selected_links, used_node_ids):
+    """Build an undirected igraph Graph from edges, with every edge weight set to 1."""
+    sorted_nodes = sorted(map(str, used_node_ids))
+    node_to_idx = {n: i for i, n in enumerate(sorted_nodes)}
+
+    edges = [
+        (node_to_idx[edge['source']], node_to_idx[edge['target']])
+        for edge in selected_links
+        if edge['source'] in node_to_idx and edge['target'] in node_to_idx
+    ]
+
+    graph = ig.Graph(n=len(sorted_nodes), edges=edges, directed=False)
+    graph.vs["name"] = sorted_nodes
+    graph.es["weight"] = [1] * len(edges)
+
+    return graph
+
+def _assign_membership(graph, membership):
+    return {graph.vs[idx]['name']: community_id for idx, community_id in enumerate(membership)}
+
+def _singleton_membership(graph):
+    return list(range(graph.vcount()))
+
+def run_community_clustering(graph, method='leiden', resolution=1.0, seed=42):
+    method = (method or 'leiden').strip().lower()
+
+    if method == 'leiden':
+        return _run_leiden_clustering(graph, resolution=resolution, seed=seed)
+    if method == 'louvain':
+        return _run_louvain_clustering(graph)
+
+    raise ValueError(f"Unsupported community detection method '{method}'. Choose from: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.")
+
+def _run_leiden_clustering(graph, resolution=1.0, seed=42):
+    """Run Leiden on an igraph graph."""
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'leiden'
+
+    partition = leidenalg.find_partition(
+        graph,
+        leidenalg.RBConfigurationVertexPartition,
+        weights=graph.es['weight'] if graph.ecount() else None,
+        resolution_parameter=resolution,
+        seed=seed,
+    )
+
+    return _assign_membership(graph, partition.membership), 'leiden'
+
+def _run_louvain_clustering(graph):
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'louvain'
+
+    communities = graph.community_multilevel(weights=graph.es['weight'])
+    return _assign_membership(graph, communities.membership), 'louvain'
+
+
+#TODO: add @extend_schema_view
+class GetCosmographView(generics.GenericAPIView):
+    @staticmethod
+    def get(request):
+        limit, threshold, per_node_limit, density = parse_query_params(request)
+        test_type = parse_test_type(request)
+       # edge_weight = parse_edge_weight_mode(request)
+
+        # Handle error responses
+        if isinstance(limit, HttpResponseBadRequest):
+            return limit
+        if isinstance(threshold, HttpResponseBadRequest):
+            return threshold
+        if isinstance(per_node_limit, HttpResponseBadRequest):
+            return per_node_limit
+        if isinstance(density, HttpResponseBadRequest):
+            return density
+        if isinstance(test_type, HttpResponseBadRequest):
+            return test_type
+        #if isinstance(edge_weight, HttpResponseBadRequest):
+        #    return edge_weight
+
+        logger.info(
+            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s',
+            limit,
+            threshold,
+            per_node_limit,
+            density,
+            test_type,
+        )
+
+        # Extract candidate_links, selected_links, and nodes from the database
+        candidate_links, selected_links, used_node_ids = get_whole_network(
+            test_type=test_type,
+            thresh=threshold,
+            limit=limit,
+            per_node_limit=per_node_limit,
+            density=density,
+        )
+
+        # Format response links (remove final_p_value which is internal)
+        response_links = [
+            {key: value for key, value in edge.items() if key != 'final_p_value'}
+            for edge in selected_links
+        ]
+
+        node_model = apps.get_model('network', 'Nodes')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group')
+
+        points = [
+            {
+                'id': node['node_id'],
+                'label': node.get('display_name') or node['node_id'],
+                'type': node.get('node_group') or '',
+                'source_table': node.get('node_group'),
+            }
+            for node in cohort_nodes
+            if node.get('node_id')
+        ]
+
+        logger.info(
+            'Retrieval complete. points=%s links=%s candidates=%s',
+            len(points),
+            len(selected_links),
+            len(candidate_links),
+        )
+
+        return JsonResponse(
+            {
+                'meta': {
+                    'point_count': len(points),
+                    'link_count': len(response_links),
+                    'candidate_link_count': len(candidate_links),
+                    'limit': limit,
+                    'threshold': threshold,
+                    'per_node_limit': per_node_limit,
+                    'test_type': test_type,
+                    #'edge_weight': edge_weight,
+                },
+                'points': points,
+                'links': response_links,
+            },
+            status=200,
+        )
+
+
+#TODO: add @extend_schema_view
+class GetLeidenMetagraphView(generics.GenericAPIView):
+    @staticmethod
+    def get(request):
+        # Measure runtime
+
+        start_whole_request = time.perf_counter()
+        limit, threshold, per_node_limit, density = parse_query_params(request)
+        test_type = parse_test_type(request)
+        #edge_weight = parse_edge_weight_mode(request)
+
+        if isinstance(limit, HttpResponseBadRequest):
+            return limit
+        if isinstance(threshold, HttpResponseBadRequest):
+            return threshold
+        if isinstance(per_node_limit, HttpResponseBadRequest):
+            return per_node_limit
+        if isinstance(density, HttpResponseBadRequest):
+            return density
+        if isinstance(test_type, HttpResponseBadRequest):
+            return test_type
+        #if isinstance(edge_weight, HttpResponseBadRequest):
+        #    return edge_weight
+
+        # Parse resolutions parameter (defaults to all standard resolutions)
+        resolutions = parse_resolution_values(request)
+        if isinstance(resolutions, HttpResponseBadRequest):
+            return resolutions
+
+        seed_raw = request.GET.get('seed', None)
+        if seed_raw in ['', 'null', None]:
+            seed = 42
+        else:
+            try:
+                seed = int(seed_raw)
+            except ValueError:
+                return HttpResponseBadRequest('seed must be an integer.', status=405)
+
+        method = request.GET.get('algorithm', 'leiden')
+        method = method.strip().lower()
+
+        if method not in SUPPORTED_COMMUNITY_METHODS:
+            return HttpResponseBadRequest(
+                f"algorithm must be one of: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.",
+                status=405,
+            )
+
+        logger.info(
+            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s seed=%s algorithm=%s',
+            limit,
+            threshold,
+            per_node_limit,
+            density,
+            test_type,
+            seed,
+            method,
+        )
+
+        candidate_links, selected_links, used_node_ids = get_whole_network(
+            test_type=test_type,
+            thresh=threshold,
+            limit=limit,
+            per_node_limit=per_node_limit,
+            density=density,
+        )
+
+        # Run the selected community detection method for each resolution
+        resolution_results = {}
+        community_counts_by_resolution = {}
+        clustering_algorithm = 'unknown'
+
+        graph = build_weighted_graph(selected_links, used_node_ids)
+
+        for resolution in resolutions:
+            # Measure runtime
+
+            start_one_leiden_run = time.perf_counter()
+            node_to_community, algo = run_community_clustering(
+                graph,
+                method=method,
+                resolution=resolution,
+                seed=seed,
+            )
+            clustering_algorithm = algo  # Store algorithm (same for all)
+            resolution_results[resolution] = node_to_community
+            community_count = len(set(node_to_community.values())) if node_to_community else 0
+            community_counts_by_resolution[resolution_to_key(resolution)] = community_count
+            end = time.perf_counter()
+            print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
+
+        response_links = [
+            {key: value for key, value in edge.items() if key != 'final_p_value'}
+            for edge in selected_links
+        ]
+
+        node_model = apps.get_model('network', 'Nodes')
+        cohort_nodes = node_model.objects.filter(
+            node_id__in=used_node_ids,
+        ).values('node_id', 'display_name', 'node_group')
+
+        # Build points with community fields for each resolution
+        points = []
+        for node in cohort_nodes:
+            if not node.get('node_id'):
+                continue
+
+            point = {
+                'id': node['node_id'],
+                'label': node.get('display_name') or node['node_id'],
+                'type': node.get('node_group') or '',
+                'source_table': node.get('node_group'),
+            }
+
+            # Add community field for each resolution
+            for resolution in resolutions:
+                field_key = f"community_r{resolution_to_key(resolution)}"
+                point[field_key] = resolution_results[resolution].get(node['node_id'])
+
+            points.append(point)
+
+        logger.info(
+            'Multi-resolution metagraph complete. points=%s links=%s resolutions=%s algorithm=%s',
+            len(points),
+            len(response_links),
+            len(resolutions),
+            clustering_algorithm,
+        )
+        end = time.perf_counter()
+        print(f"Whole request {method} runtime: {end - start_whole_request:.4f} seconds")
+
+
+        return JsonResponse(
+            {
+                'meta': {
+                    'point_count': len(points),
+                    'link_count': len(response_links),
+                    'candidate_link_count': len(candidate_links),
+                    'community_counts_by_resolution': community_counts_by_resolution,
+                    'resolutions': [resolution_to_key(r) for r in resolutions],
+                    'algorithm': clustering_algorithm,
+                    'seed': seed,
+                    'limit': limit,
+                    'threshold': threshold,
+                    'per_node_limit': per_node_limit,
+                    'test_type': test_type,
+                    #'edge_weight': edge_weight,
+                },
+                'points': points,
+                'links': response_links,
+            },
+            status=200,
+        )

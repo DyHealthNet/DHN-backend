@@ -123,12 +123,14 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
             user_context = UserContextLink.objects.get(user_id=request.user.id,
                                                        context_value=request.GET.get("context_value"))
         except UserContextLink.DoesNotExist:
-            return JsonResponse({'status': 'null', 'result': 'No Context for that User and that Tab created'},
+            return JsonResponse({'status': 'error', 'result': 'No Context for that User and that Tab created'},
                                 status=200)
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
             return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
+        if task.status == 'SUCCESS' and task.result == False:
+            return JsonResponse({'status': 'error', 'result': 'Context calculation failed!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
 

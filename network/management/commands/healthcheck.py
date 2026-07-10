@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
 from django.apps import apps
-from network.utils.data_manager import _parse_list_env, _resolve_path
+from network.utils.data_manager import _parse_list_env, _resolve_path, _infer_separator
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -73,16 +73,28 @@ class Command(BaseCommand):
 
     @classmethod
     def check_columns(cls):
-        # read only the first line of each data file and check if the PATIENT_ID_COLUMN is present
+        # read only the first line of each data file and check if PATIENT_ID_COLUMN is present
         data_root = env("DATA_ROOT", default=None)
         files = [_resolve_path(path, data_root) for path in _parse_list_env(env, "DATA_PATHS")]
+        patient_id_column = env("PATIENT_ID_COLUMN", default=None) or None
+
+        if patient_id_column is None:
+            if len(files) > 1:
+                raise Exception(
+                    "PATIENT_ID_COLUMN must be set when combining more than one data source, "
+                    "since it's the join key used to match records across files."
+                )
+            logger.info("✅  No PATIENT_ID_COLUMN configured; single data source needs none.")
+            return True
+
         for file_path in files:
             if not os.path.isfile(file_path):
                 continue
             with open(file_path, 'r') as file:
-                columns = file.readline().strip()
-            if env("PATIENT_ID_COLUMN") not in columns:
-                raise Exception(f"Column {env('PATIENT_ID_COLUMN')} not found in {file_path}")
+                header = file.readline().strip()
+            columns = [c.strip() for c in header.split(_infer_separator(file_path))]
+            if patient_id_column not in columns:
+                raise Exception(f"Column {patient_id_column} not found in {file_path}")
         logger.info("✅  Patient ID column is present everywhere.")
         return True
 

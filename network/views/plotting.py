@@ -44,7 +44,12 @@ class GetTableView(generics.GenericAPIView):
         context = get_context(request.user, request.GET.get('contextValue'))
 
         if not context:
-            return HttpResponseBadRequest('Context not found', status=405)
+            # context not created yet (e.g. brand-new tab) or no longer exists;
+            # fall back to the unfiltered counts rather than erroring
+            req_data_dict = {'Participants': len(all_data), **layer_counts()}
+            response = JsonResponse(req_data_dict, safe=True)
+            response = add_cache_header(response, True)
+            return response
 
         if f"participants_context_{context.context_id}" in cache:
             logger.debug("Cache hit for subset data")

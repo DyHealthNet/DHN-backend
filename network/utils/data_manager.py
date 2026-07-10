@@ -67,41 +67,71 @@ TYPE_TO_DTYPE = {
 }
 
 
-def _apply_literal_or_column(meta, column_or_literal, target_col, meta_path):
+def _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column):
     """
-    Rename `column_or_literal` to `target_col` if it is an existing column in `meta`.
-    Otherwise, treat it as a literal value and assign it to every row, so a single
-    fixed value (e.g. a type or a group name) can be used for an entire data source
-    that has no per-row column for it. A falsy `column_or_literal` leaves `meta`
-    unchanged (the attribute is simply not configured for this source).
+    Rename label_column/type_column/description_column/group_column to their
+    canonical names ('label'/'type'/'description'/'group') in a single atomic
+    `.rename()` call, rather than one sequential rename per attribute. Each is
+    resolved against `meta`'s *original* column names at once, so no attribute can
+    clobber a source column another attribute still needs regardless of which order
+    they're processed in
 
-    Meta files often already have their own, unrelated column literally named
-    `target_col` (e.g. a protein meta file's own 'description' column, distinct from
-    whichever column DATA_DESCRIPTION_COLUMNS points at) - that column is dropped
-    first so the rename can't produce two columns sharing the same name.
-    """
-    if not column_or_literal:
-        return meta
-    if column_or_literal in meta.columns:
-        if target_col in meta.columns and target_col != column_or_literal:
-            meta = meta.drop(columns=[target_col])
-        return meta.rename(columns={column_or_literal: target_col})
-    meta = meta.copy()
-    meta[target_col] = column_or_literal
-    return meta
+    type_column/description_column/group_column may each be either the name of an
+    existing column or a literal value applied to every row (e.g. a fixed group name
+    for a source with no per-row grouping of its own); a falsy value skips that
+    attribute entirely. label_column must always be an existing column (checked by
+    the caller before this is called).
 
+    Raises if two attributes are configured to the same source column with different
+    targets (ambiguous - a column can't become two different things, so there's no
+    safe default).
 
-def _apply_type_column(meta, type_column, meta_path):
-    """
-    Rename `type_column` to 'type' if it is an existing column in `meta`. Otherwise,
-    treat it as a literal type value (e.g. 'continuous') applied to every row.
+    If a target name ('label'/'type'/'description'/'group') is otherwise already
+    occupied by an existing column that no attribute claims, that column is unrelated
+    to this source's configuration - it's dropped, logging a warning, before the
+    rename/literal assignment runs. Left in place it would otherwise either silently
+    collide with the renamed column (pandas allows duplicate column names) or be
+    silently overwritten by a literal value with no indication anything happened.
     """
     if type_column not in meta.columns and type_column.lower() not in ALL_VALID_TYPES:
         logger.warning(
             f"{meta_path}: '{type_column}' is neither a column in this meta file nor one of "
             f"the recognized types {sorted(ALL_VALID_TYPES)}."
         )
-    return _apply_literal_or_column(meta, type_column, "type", meta_path)
+
+    targets = {"label": label_column, "type": type_column,
+               "description": description_column, "group": group_column}
+
+    rename_map = {}
+    literals = {}
+    for target, column_or_literal in targets.items():
+        if not column_or_literal:
+            continue
+        if column_or_literal not in meta.columns:
+            literals[target] = column_or_literal
+            continue
+        if column_or_literal in rename_map and rename_map[column_or_literal] != target:
+            raise ValueError(
+                f"{meta_path}: column '{column_or_literal}' is configured as both "
+                f"'{rename_map[column_or_literal]}' and '{target}' - each column can "
+                f"only be used for one attribute."
+            )
+        rename_map[column_or_literal] = target
+
+    claimed_targets = set(rename_map.values()) | set(literals.keys())
+    unclaimed = (set(meta.columns) & claimed_targets) - set(rename_map.keys())
+    if unclaimed:
+        logger.warning(
+            f"{meta_path}: dropping this file's own unrelated column(s) {sorted(unclaimed)}, "
+            f"which would otherwise collide with a renamed or literal-assigned column of "
+            f"the same name."
+        )
+        meta = meta.drop(columns=list(unclaimed))
+
+    meta = meta.rename(columns=rename_map)
+    for target, literal in literals.items():
+        meta[target] = literal
+    return meta
 
 
 def _normalize_meta_types(meta, meta_path):
@@ -151,6 +181,15 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     applied to every row (e.g. a fixed group name for a data source that has no
     per-variable grouping of its own).
 
+    `patient_id_column` may be None, in which case the file's default RangeIndex is
+    used in place of a real patient id. This is only sound when this is the only data
+    source being loaded, since there is then nothing to join against; callers combining
+    multiple sources must supply a real patient_id_column (enforced in load_data_sources).
+
+    Raises if `label_column` isn't a column in `meta_path`, or if renaming
+    label_column/type_column/description_column/group_column to their canonical
+    names is ambiguous - see _rename_meta_columns.
+
     Raises if `data_path` contains columns with no matching label in `meta_path`,
     since modina cannot assign those a type and would error out later anyway. Meta
     rows with no matching column in `data_path` (e.g. variables not simulated/
@@ -161,10 +200,12 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     """
     meta_sep = _infer_separator(meta_path)
     meta = pd.read_csv(meta_path, sep=meta_sep, low_memory=False)
-    meta = meta.rename(columns={label_column: "label"})
-    meta = _apply_type_column(meta, type_column, meta_path)
-    meta = _apply_literal_or_column(meta, description_column, "description", meta_path)
-    meta = _apply_literal_or_column(meta, group_column, "group", meta_path)
+    if label_column not in meta.columns:
+        raise ValueError(
+            f"{meta_path}: configured label column '{label_column}' not found in file "
+            f"(available columns: {list(meta.columns)})"
+        )
+    meta = _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column)
     keep_cols = ["label", "type"] + [c for c in ("description", "group") if c in meta.columns]
     meta = meta[keep_cols]
     all_meta_labels = set(meta["label"])
@@ -172,7 +213,14 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     meta = _normalize_meta_types(meta, meta_path)
 
     data_sep = _infer_separator(data_path)
-    header_columns = pd.read_csv(data_path, sep=data_sep, nrows=0).columns.drop(patient_id_column)
+    header_columns = pd.read_csv(data_path, sep=data_sep, nrows=0).columns
+    if patient_id_column is not None:
+        if patient_id_column not in header_columns:
+            raise ValueError(
+                f"{data_path}: configured patient id column '{patient_id_column}' not found "
+                f"in file (available columns: {list(header_columns)})"
+            )
+        header_columns = header_columns.drop(patient_id_column)
 
     missing_in_meta = set(header_columns) - all_meta_labels
     if missing_in_meta:
@@ -189,7 +237,7 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
         )
         meta = meta[meta["label"].isin(header_columns)].reset_index(drop=True)
 
-    usecols = [patient_id_column] + meta["label"].tolist()
+    usecols = ([patient_id_column] if patient_id_column is not None else []) + meta["label"].tolist()
     # Only 'continuous' is passed as a read_csv dtype: 'category' dtype must NOT be
     # requested from read_csv directly, since pandas then categorizes the raw CSV
     # text (categories end up as strings, e.g. '-99') instead of first inferring a
@@ -231,9 +279,13 @@ def load_data_sources(env):
     may be either a column name in that source's meta file or a literal value applied
     to every row of that source (pad an entry with nothing to skip it for one source).
 
+    PATIENT_ID_COLUMN may be left unset only when a single data source is configured,
+    in which case that file's row order is used as the patient id. With more than one
+    source it is required, since it's the only way to match records across files.
+
     :return: dict mapping data_path -> (data, meta), in DATA_PATHS order.
     """
-    patient_id_column = env("PATIENT_ID_COLUMN")
+    patient_id_column = env("PATIENT_ID_COLUMN", default=None) or None
     data_root = env("DATA_ROOT", default=None)
 
     data_paths = _parse_list_env(env, "DATA_PATHS")
@@ -254,6 +306,12 @@ def load_data_sources(env):
         raise ValueError(
             "No data source configured. Set DATA_PATHS, DATA_META_PATHS, "
             "DATA_LABEL_COLUMNS and DATA_TYPE_COLUMNS."
+        )
+
+    if patient_id_column is None and len(data_paths) > 1:
+        raise ValueError(
+            "PATIENT_ID_COLUMN must be set when combining more than one data source, "
+            "since it's the join key used to match records across files."
         )
 
     description_columns = _parse_aligned_list_env(env, "DATA_DESCRIPTION_COLUMNS", len(data_paths))

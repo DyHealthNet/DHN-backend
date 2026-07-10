@@ -1,8 +1,9 @@
 import time
+from math import ceil
+from collections import defaultdict
 
-from django.db.models import Q
+from django.db.models import Q, F
 from django.apps import apps
-from django.db.models import F
 from network.models import create_dynamic_model, EdgesContextBase
 import logging
 
@@ -167,7 +168,6 @@ def get_group_network_new(query_ids, thresh=None, limit=None, context_id=None, t
     Extract the subgraph among a group of nodes from the flat table structure.
     When context_id is given, queries the single per-context edge table instead of
     the global EdgesParametric/EdgesNonparametric tables.
-    Mirrors network_group_query()'s old tuple shape.
 
     :return: tuple (edges, nodes, mapped_externals) - edges keyed by edge_type_label.
     """
@@ -270,6 +270,68 @@ def get_whole_network_new(stat_type, thresh=None, limit=None):
 
     return candidate_links, nodes
 
+
+def get_whole_network(test_type, thresh=None, limit=None, per_node_limit=None, density=None):
+    """
+    Extract the complete network for a single stat type (parametric or nonparametric)
+    from the flat table structure, built on top of get_whole_network_new().
+
+    Args:
+        test_type: Which edge table to query - 'parametric' or 'nonparametric'.
+        thresh: Significance threshold for filtering edges (optional)
+        limit: Overall limit on the number of edges to return (optional)
+        per_node_limit: Limit the number of edges per node (optional)
+        density: Desired network density (optional, overrides thresh and limit)
+
+    Returns:
+        tuple: (candidate_links, selected_links, nodes)
+            - candidate_links: All edges matching the threshold or density
+            - selected_links: Filtered edges (after applying limit and per_node_limit)
+            - nodes: Set of all node IDs from the selected edges
+    """
+    if density is not None:
+        node_count = apps.get_model('network', 'Nodes').objects.count()
+        possible_edge_count = node_count * (node_count - 1) / 2 if node_count > 1 else 0
+        if not possible_edge_count:
+            logger.debug("Not enough nodes to form edges. Returning empty network.")
+            return [], [], set()
+        limit = ceil(density * possible_edge_count)
+        thresh = None
+        per_node_limit = None
+
+    candidate_links, _ = get_whole_network_new(stat_type=test_type, thresh=thresh, limit=limit)
+
+    # Apply per_node_limit filtering if specified
+    if per_node_limit is not None:
+        edge_lookup = {edge['id']: edge for edge in candidate_links}
+        node_incident_edges = defaultdict(list)
+
+        for edge in candidate_links:
+            node_incident_edges[edge['source']].append(edge)
+            node_incident_edges[edge['target']].append(edge)
+
+        selected_edge_ids = set()
+        for incident_edges in node_incident_edges.values():
+            for edge in incident_edges[:per_node_limit]:
+                selected_edge_ids.add(edge['id'])
+
+        selected_links = [edge_lookup[edge_id] for edge_id in selected_edge_ids]
+        selected_links.sort(
+            key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
+        )
+    else:
+        selected_links = candidate_links
+
+    if limit is not None and len(selected_links) > limit:
+        selected_links = selected_links[:limit]
+
+    # Extract nodes from selected links and filter to only those present in edges
+    nodes = set()
+    for edge in selected_links:
+        nodes.add(edge['source'])
+        nodes.add(edge['target'])
+    
+    return candidate_links, selected_links, nodes
 
 def external_query(query_id, cohort_node=True):
     id_mapping = {}

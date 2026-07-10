@@ -5,3 +5,6 @@
 **/__pycache__/*
 .idea/*
 .ipynb_checkpoints/
+.conda/
+.vscode/
+network/migrations/*
