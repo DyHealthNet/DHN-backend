@@ -123,3 +123,13 @@ class GetColorView(generics.GenericAPIView):
 
         # return html
         return HttpResponse(base + color_html + end)
+
+
+class GetNetworkConfigView(generics.GenericAPIView):
+    """Exposes read-only network-computation config (currently just the multiple-
+    testing correction used to precompute the static network's edges) so the
+    frontend can show what was actually used instead of an editable toggle that
+    doesn't affect anything."""
+    @staticmethod
+    def get(request):
+        return JsonResponse({"correction": settings.MULTIPLE_TESTING})

@@ -319,6 +319,10 @@ LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
 PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
 CRITICAL_NUMBER = env("CRITICAL_NUMBER", cast=int)
+# Multiple-testing correction used by compute_association_scores.py to precompute
+# the static network's edges -- exposed via GetNetworkConfigView so the frontend
+# can display what was actually used instead of a misleading editable toggle.
+MULTIPLE_TESTING = env("MULTIPLE_TESTING")
 NO_CACHE = env("NO_CACHE", cast=bool)
 
 
