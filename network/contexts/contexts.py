@@ -186,6 +186,21 @@ def insert_context(scores: pd.DataFrame, context_name: str, test_type: str) -> b
     return add_edges(conn, context_name, edge_info)
 
 
+def load_context_scores(context_id: str, test_type: str) -> pd.DataFrame:
+    """
+    Load a context's already-computed association scores back out of its
+    edges_{test_type}_{context_id} table, reshaped into the label1/label2/raw-P/raw-E/test_type
+    frame moDiNA's differential-network functions expect -- the inverse of insert_context's
+    rename. Used to build a differential network from two existing contexts without recomputing
+    their (already corrected) association scores.
+    """
+    table_name = f"edges_{test_type}_{context_id}"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT node_id_1, node_id_2, p_value, effect_size, test_type FROM {table_name}")
+        rows = cursor.fetchall()
+    return pd.DataFrame(rows, columns=['label1', 'label2', 'raw-P', 'raw-E', 'test_type'])
+
+
 def context_subset(request, data):
     # If the user requests a context, subset the data based on the context
     if request.GET.get("contextValue") and request.user.is_authenticated:
@@ -198,6 +213,54 @@ def context_subset(request, data):
     else:
         df = data.copy()
     return df
+
+
+def context_compare_subsets(request, data):
+    """
+    Resolves two contexts at once (contextValue1/contextValue2 GET params) and subsets
+    `data` to each one's own participants via the same subset_patients() filter
+    context_subset() uses for one context. Shared by both callers that need a two-context
+    comparison: context_compare_subset() (below) concatenates the two for callers that want
+    one merged, context-grouped frame; GetDataHeatmapView keeps them separate since it needs
+    each context's own contingency table before combining them into a difference.
+    Returns (subset1, subset2, context1, context2), or (None, None, None, None) if the user
+    isn't authenticated or either context isn't found.
+    """
+    if not request.user.is_authenticated:
+        return None, None, None, None
+    value1 = request.GET.get('contextValue1')
+    value2 = request.GET.get('contextValue2')
+    if not value1 or not value2:
+        return None, None, None, None
+    context1 = get_context(request.user, value1)
+    context2 = get_context(request.user, value2)
+    if not context1 or not context2:
+        return None, None, None, None
+
+    subset1 = subset_patients(data, context1.params)
+    subset2 = subset_patients(data, context2.params)
+    return subset1, subset2, context1, context2
+
+
+def context_compare_subset(request, data):
+    """
+    Tags each of context_compare_subsets()'s two subsets with a synthetic '__context__'
+    column holding that context's display name, and concatenates them into one frame. A
+    participant satisfying both contexts' filters appears once per context, same as
+    querying each separately would give. Lets callers (plotDataBoxPlot/plotDataLine) reuse
+    their existing c-grouping aggregation unchanged, with context as the group, instead of a
+    bespoke merge path. Returns (combined_df, context1, context2), or (None, None, None).
+    """
+    subset1, subset2, context1, context2 = context_compare_subsets(request, data)
+    if subset1 is None:
+        return None, None, None
+
+    subset1 = subset1.copy()
+    subset2 = subset2.copy()
+    subset1['__context__'] = context1.params.get('contextName', 'Context 1')
+    subset2['__context__'] = context2.params.get('contextName', 'Context 2')
+    combined = pd.concat([subset1, subset2], ignore_index=True)
+    return combined, context1, context2
 
 # Possible future implementation for updating multiple tables concurrently
 # def update_multiple_tables(conn_pool):

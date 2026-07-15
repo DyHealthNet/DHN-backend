@@ -2,14 +2,13 @@ import timeit
 
 from django.core.cache import cache
 from django.http import JsonResponse
-from matplotlib.colors import Normalize
 from rest_framework import generics
 from django.http import HttpResponseBadRequest
 from django.conf import settings
 from drf_spectacular.utils import extend_schema_view
 from scipy.stats import gaussian_kde
 
-from network.contexts.contexts import subset_patients, context_subset
+from network.contexts.contexts import subset_patients, context_subset, context_compare_subset, context_compare_subsets
 from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
 from network.utils.db_utils import get_context
@@ -87,7 +86,14 @@ class GetDataLinePlotView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
-        line_plot_df = context_subset(request, all_data)
+        # Two-context comparison mode -- see GetDataBoxPlotView for the same pattern.
+        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
+            line_plot_df, _, _ = context_compare_subset(request, all_data)
+            if line_plot_df is None:
+                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            c = '__context__'
+        else:
+            line_plot_df = context_subset(request, all_data)
 
         if x_idx not in line_plot_df.columns or y_idx not in line_plot_df.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
@@ -97,6 +103,19 @@ class GetDataLinePlotView(generics.GenericAPIView):
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
 
         df = pd.DataFrame(line_plot_df[[x_idx, y_idx]])
+
+        # Continuous x variables are (near-)unique per participant, so grouping by the raw value
+        # leaves every group under the privacy threshold and the whole plot comes back empty.
+        # Bin them into a fixed number of equal-width bins (using the bin midpoint as the x value)
+        # so groups can actually accumulate enough participants to pass the privacy filter.
+        x_is_continuous = (pd.api.types.is_numeric_dtype(df[x_idx])
+                            and not isinstance(df[x_idx].dtype, pd.CategoricalDtype))
+        if x_is_continuous:
+            LINE_PLOT_NUM_BINS = 20
+            bins = pd.cut(df[x_idx], bins=LINE_PLOT_NUM_BINS)
+            bin_midpoints = {interval: interval.mid for interval in bins.cat.categories}
+            df[x_idx] = bins.map(bin_midpoints).astype(float)
+
         temp = []
         if c is not None and c != "":
             # Get var_id from request var (stored in brackets at the end of the request var which is built
@@ -435,7 +454,16 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         x_idx = extract_var_id(x)  # Extract var_id from request var
         y_idx = extract_var_id(y)
 
-        box_plot_df = context_subset(request, all_data)
+        # Two-context comparison mode: group by a synthetic '__context__' column instead of
+        # (or filtering by) a single contextValue, reusing the exact same c-grouping
+        # aggregation below rather than a separate code path.
+        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
+            box_plot_df, _, _ = context_compare_subset(request, all_data)
+            if box_plot_df is None:
+                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            c = '__context__'
+        else:
+            box_plot_df = context_subset(request, all_data)
 
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in box_plot_df.columns or y_idx not in box_plot_df.columns:
@@ -555,36 +583,58 @@ class GetDataHeatmapView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
-        heatmap_df = context_subset(request, all_data)
+        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
+            # Two-context comparison: a heatmap has no spare dimension to group a third
+            # ('context') variable into the way box/line plots do via c, so this builds a
+            # genuine difference grid instead -- each context's contingency table converted
+            # to proportions-of-that-context (so differently-sized contexts are comparable),
+            # then subtracted. The result is just another x/y-indexed table of numbers, so
+            # it feeds the same serialization below as the single-context contingency table.
+            subset1, subset2, _, _ = context_compare_subsets(request, all_data)
+            if subset1 is None:
+                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            if (x_idx not in subset1.columns or y_idx not in subset1.columns
+                    or x_idx not in subset2.columns or y_idx not in subset2.columns):
+                return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
 
-        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
-        if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
-            return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
-        # compute contingency table
-        contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
-        contingency_tab_inverse = np.array(contingency_tab.values).T
-        min_val, max_val = contingency_tab_inverse.min(), contingency_tab_inverse.max()
-        x_categories = var_label_mapping(x_idx, contingency_tab.index.astype(str).tolist(), var_label_map)
-        y_categories = var_label_mapping(y_idx, contingency_tab.columns.astype(str).tolist(), var_label_map)
+            tab1 = pd.crosstab(subset1[x_idx], subset1[y_idx])
+            tab2 = pd.crosstab(subset2[x_idx], subset2[y_idx])
+            # Union of categories (context1's order first, then any context2-only ones), so
+            # a category present in only one context still gets a (zero-filled) row/column.
+            x_index = list(tab1.index) + [v for v in tab2.index if v not in tab1.index]
+            y_index = list(tab1.columns) + [v for v in tab2.columns if v not in tab1.columns]
+            tab1 = tab1.reindex(index=x_index, columns=y_index, fill_value=0)
+            tab2 = tab2.reindex(index=x_index, columns=y_index, fill_value=0)
 
-        # get colors for heatmap, 3 colors: low, medium, high
-        palette = get_palette(request.GET.get('colors', 'viridis'), as_cmap=True)
-        norm_col = Normalize(vmin=min_val, vmax=max_val)
+            total1, total2 = tab1.values.sum(), tab2.values.sum()
+            prop1 = (tab1 / total1) if total1 else tab1.astype(float)
+            prop2 = (tab2 / total2) if total2 else tab2.astype(float)
+            contingency_tab = prop1 - prop2
+        else:
+            heatmap_df = context_subset(request, all_data)
+            # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+            if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
+                return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+            contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
 
-        values = []
-        for i in range(len(contingency_tab.index)):
-            for j in range(len(contingency_tab.columns)):
-                x_value = x_categories[i]
-                y_value = y_categories[j]
-                value = contingency_tab_inverse[j][i]
-                color = rgb_to_hex(palette(norm_col(value)))
-                values.append({'x': x_value, 'y': y_value, 'v': f'{i+1}{j+1}', 'r': float(value), 'c': color})
+        x_categories = var_label_mapping(x_idx, [str(v) for v in contingency_tab.index], var_label_map)
+        y_categories = var_label_mapping(y_idx, [str(v) for v in contingency_tab.columns], var_label_map)
 
-        # save in dictionary and return in json format
-        req_data_dict = {}
-        req_data_dict["xCategories"] = x_categories
-        req_data_dict["yCategories"] = y_categories
-        req_data_dict["values"] = values
+        # 'v'/'c' (a rank string and a pre-baked palette color) used to also be sent per cell,
+        # but the frontend (OverviewHeatmap.vue) only ever reads 'r' -- it computes its own
+        # colors from the z grid via Plotly's colorscale -- so those were always dead weight,
+        # and would need a diverging (not sequential) palette here anyway for the diff case.
+        values = [
+            {'x': x_categories[i], 'y': y_categories[j], 'r': float(contingency_tab.iloc[i, j])}
+            for i in range(len(contingency_tab.index))
+            for j in range(len(contingency_tab.columns))
+        ]
+
+        req_data_dict = {
+            'xCategories': x_categories,
+            'yCategories': y_categories,
+            'values': values,
+        }
 
         response = JsonResponse(req_data_dict, safe=True)
         response = add_cache_header(response, request.GET.get('default'))

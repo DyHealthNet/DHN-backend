@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 
 from celery import shared_task
@@ -6,9 +7,12 @@ import time
 import pandas as pd
 from django.conf import settings
 
-from network.models import Context, UserContextLink
-from network.contexts.contexts import insert_context
+from network.models import Context, UserContextLink, Nodes
+from network.contexts.contexts import insert_context, load_context_scores
 from modina.context_net_inference import compute_context_scores
+from modina.diff_net_construction import compute_diff_network
+from modina.edge_filtering import filter as modina_filter, filter_differential
+from modina.ranking import compute_ranking
 
 
 @shared_task(bind=True)
@@ -64,6 +68,147 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
     user_context_link.context_status = "Finished"
     user_context_link.save()
     return success
+
+
+def _df_records(df: pd.DataFrame) -> list:
+    """
+    Convert a DataFrame to JSON-safe records (NaN -> None, numpy scalars -> native Python).
+    Celery's result backend and Django's JsonResponse can't serialize numpy int64/float64 or
+    float NaN, both of which pandas produces freely (e.g. STC scores are NaN for nodes with no
+    incident edges) -- round-tripping through pandas' own JSON encoder handles both cleanly.
+    """
+    return json.loads(df.to_json(orient='records'))
+
+
+# Fixed for now: STC directly tests whether a variable differs between the two contexts, and
+# diff-L-P (|delta -log10(p)|) is the plainest "how much does this edge's significance differ"
+# edge metric. Both metrics need no user configuration.
+MODINA_EDGE_METRIC = 'diff-L-P'
+MODINA_NODE_METRIC = 'STC'
+
+_EDGE_STAT_RENAME = {
+    'edge-min': 'edgeMin', 'edge-max': 'edgeMax', 'edge-median': 'edgeMedian',
+    'edge-mean': 'edgeMean', 'edge-sd': 'edgeSd', 'edge-percentile-mean': 'edgePercentileMean',
+}
+
+
+def _shape_modina_result(edges_diff: pd.DataFrame, ranking: pd.DataFrame, name1: str, name2: str) -> dict:
+    """
+    Reshape the moDiNA pipeline's pandas outputs into the JSON contract differential-network.vue
+    already expects (result.points / result.links / result.edgeRanking). `ranking` is the
+    node-indexed ranking (ranking_alg='nodeRank') -- compute_ranking already merges the node
+    metric and the incident-edge statistics onto it, so no extra joins are needed for the node
+    side; `points` (id-keyed, feeding both the graph and NodeRankPanel) is derived straight from
+    it rather than returned as a second, separately-keyed array. The edge ranking is derived
+    directly from edges_diff instead of a second compute_ranking(..., ranking_alg='edgeRank')
+    call, since that branch discards label1/label2 (collapses them into a single 'edge' string)
+    which result.links/EdgeRankPanel both need back.
+    """
+    edges_diff = edges_diff.copy()
+    edges_diff['rank'] = edges_diff[MODINA_EDGE_METRIC].rank(method='min', ascending=False).astype(int)
+
+    links_df = edges_diff.rename(columns={
+        'label1': 'source', 'label2': 'target',
+        MODINA_EDGE_METRIC: 'weight', f'{MODINA_EDGE_METRIC}_signed': 'signed',
+        f'raw-P_{name1}': 'rawP1', f'raw-E_{name1}': 'rawE1',
+        f'raw-P_{name2}': 'rawP2', f'raw-E_{name2}': 'rawE2',
+    })[['source', 'target', 'weight', 'signed', 'rank', 'rawP1', 'rawE1', 'rawP2', 'rawE2']]
+
+    edge_ranking_df = edges_diff.rename(columns={
+        MODINA_EDGE_METRIC: 'score', f'{MODINA_EDGE_METRIC}_signed': 'signed',
+    })[['label1', 'label2', 'rank', 'score', 'signed']].sort_values('rank').reset_index(drop=True)
+
+    points_df = ranking.rename(columns={'node': 'id', MODINA_NODE_METRIC: 'nodeMetricValue', **_EDGE_STAT_RENAME})
+    # 'group' (the data layer a variable belongs to, e.g. phenotype/protein/metabolite, drives
+    # point coloring on the frontend), 'display_name' (human-readable variable name) and
+    # 'description' (a longer blurb) all come from the same place the main network page gets
+    # them: a single direct lookup against the Postgres Nodes table (see network/queries.py's
+    # _query_new_schema_nodes), keyed by the same node ids the per-context edge tables already
+    # use -- not DataManager's file-based meta_df, which has no display_name at all and would
+    # need its own (separately configured, and not guaranteed identical) id scheme besides.
+    node_meta_df = pd.DataFrame(
+        Nodes.objects.filter(node_id__in=points_df['id'].tolist())
+        .values('node_id', 'display_name', 'description', 'node_group')
+    )
+    if not node_meta_df.empty:
+        node_meta_df = node_meta_df.set_index('node_id')
+        points_df['display_name'] = points_df['id'].map(node_meta_df['display_name'])
+        points_df['description'] = points_df['id'].map(node_meta_df['description'])
+        points_df['group'] = points_df['id'].map(node_meta_df['node_group'])
+    else:
+        points_df['display_name'] = None
+        points_df['description'] = None
+        points_df['group'] = None
+
+    return {
+        'points': _df_records(points_df),
+        'links': _df_records(links_df),
+        'edgeRanking': _df_records(edge_ranking_df),
+    }
+
+
+@shared_task(bind=True)
+def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta_file: str,
+                              context1_id: str, context2_id: str, test_type: str, correction: str,
+                              settings_params: dict, name1: str, name2: str, dir_path: str):
+    context1_df = pd.read_pickle(context1_data)
+    context2_df = pd.read_pickle(context2_data)
+    meta_df = pd.read_pickle(meta_file)
+
+    # Reuse each context's already-computed (and already corrected) association scores instead of
+    # recomputing them -- consistent with what the network page already shows for these contexts,
+    # and avoids redoing the expensive pairwise statistical testing a second time. Only STC (which
+    # directly compares the two contexts' raw variable distributions, not their scores) and the
+    # structural checks in compute_diff_network still need the raw per-patient data.
+    scores1 = load_context_scores(context1_id, test_type)
+    scores2 = load_context_scores(context2_id, test_type)
+
+    filter_target = settings_params.get('filterTarget')
+    filter_param = settings_params.get('filterParam') or 1
+    filter_metric = settings_params.get('filterMetric')
+    filter_rule = settings_params.get('filterRule')
+
+    try:
+        if filter_target == 'context-specific':
+            scores1, scores2, context1_df, context2_df = modina_filter(
+                context1=context1_df, context2=context2_df, scores1=scores1, scores2=scores2,
+                filter_method='density', filter_param=filter_param,
+                filter_metric=filter_metric, filter_rule=filter_rule,
+            )
+
+        edges_diff, nodes_diff, edge_node_stats = compute_diff_network(
+            scores1=scores1,
+            scores2=scores2,
+            context1=context1_df,
+            context2=context2_df,
+            edge_metric=MODINA_EDGE_METRIC,
+            node_metric=MODINA_NODE_METRIC,
+            correction=correction,
+            meta_file=meta_df,
+            test_type=test_type,
+            nan_value=settings.NAN_VALUE,
+            num_workers=settings.NUM_WORKERS,
+            name1=name1,
+            name2=name2,
+        )
+
+        if filter_target == 'differential':
+            edges_diff, edge_node_stats = filter_differential(
+                edges_diff=edges_diff, edge_metric=MODINA_EDGE_METRIC,
+                filter_method='density', filter_param=filter_param,
+            )
+
+        ranking = compute_ranking(
+            edges_diff=edges_diff, nodes_diff=nodes_diff, ranking_alg='nodeRank',
+            meta_file=meta_df, edge_node_stats=edge_node_stats,
+        )
+
+        result = _shape_modina_result(edges_diff, ranking, name1, name2)
+    finally:
+        if os.path.exists(dir_path) and os.path.isdir(dir_path):
+            shutil.rmtree(dir_path)
+
+    return result
 
 
 @shared_task
