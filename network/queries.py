@@ -2,6 +2,8 @@ import time
 from math import ceil
 from collections import defaultdict
 
+import numpy as np
+from django.db import connection
 from django.db.models import Q, F
 from django.apps import apps
 from network.models import create_dynamic_model, EdgesContextBase
@@ -204,7 +206,7 @@ def get_group_network_new(query_ids, thresh=None, limit=None, context_id=None, t
     return edges, nodes, []
 
 
-def get_whole_network_new(stat_type, thresh=None, limit=None):
+def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
     """
     Extract the complete network from the flat table structure.
 
@@ -212,60 +214,122 @@ def get_whole_network_new(stat_type, thresh=None, limit=None):
         stat_type: Which edge table to query — 'parametric' or 'nonparametric'.
         thresh: Significance threshold for filtering edges (optional)
         limit: Overall limit on the number of edges to return (optional)
-
+        sort: Whether candidate_links must come back ordered by ascending p_value.
+            When limit is given, the SQL query already returns rows in that order
+            (ORDER BY p_value LIMIT), so this only matters for the unbounded case.
+            Pass False there when nothing downstream depends on order (e.g. no
+            per_node_limit filtering afterward) - skips the Python-side sort and
+            builds the output in a single pass over DB fetch order instead of two.
 
     Returns:
         tuple: (candidate_links, nodes)
-            - candidate_links: All edges matching the threshold and/or limit
+            - candidate_links: All edges matching the threshold and/or limit,
+              ordered by ascending p_value if sort=True (or if limit was given -
+              SQL sorts that case regardless of the sort argument); DB fetch
+              order otherwise.
             - nodes: Set of all node IDs from the selected edges
     """
     from math import ceil
     from collections import defaultdict
 
     if stat_type == 'parametric':
-        edge_model_name = 'EdgesParametric'
         edge_type_label = 'edges_parametric'
     elif stat_type == 'nonparametric':
-        edge_model_name = 'EdgesNonparametric'
         edge_type_label = 'edges_nonparametric'
     else:
         raise ValueError(f"stat_type must be 'parametric' or 'nonparametric', got '{stat_type}'")
 
     start = time.perf_counter()
 
-    node_model = apps.get_model('network', 'Nodes')
-    edge_model = apps.get_model('network', edge_model_name)
-
-    queryset = edge_model.objects.all()
+    # Raw SQL + fetchall() instead of the ORM: profiling showed the ORM's per-row
+    # queryset iteration (values_list().iterator()) was ~58% of total time for the
+    # unbounded ~35M-row case. connection.cursor()/fetchall() is the same pattern
+    # already used for bulk reads elsewhere (see contexts.py::load_context_scores);
+    # edge_type_label is one of the two literal table names above, never user input.
+    sql = f"SELECT id, node_id_1, node_id_2, p_value, effect_size, test_type FROM {edge_type_label}"
+    params = []
     if thresh is not None:
-        queryset = queryset.filter(p_value__lte=thresh)
-
-    queryset = queryset.order_by('p_value').values(
-        'id', 'node_id_1', 'node_id_2', 'p_value', 'effect_size', 'test_type'
-    )
+        sql += " WHERE p_value <= %s"
+        params.append(thresh)
+    # Only order in SQL when there's a limit to pair it with - ORDER BY + LIMIT lets
+    # Postgres use the p_value index for a cheap top-N scan. Without a limit, results
+    # get re-sorted in Python below anyway, so an unbounded SQL-side ORDER BY would
+    # just force a full sort (or a much worse full-table index scan) for nothing.
     if limit is not None:
-        queryset = queryset[:limit]
+        sql += " ORDER BY p_value LIMIT %s"
+        params.append(limit)
 
-    candidate_links = []
-    for row in queryset:
-        shaped = _shape_edge_row(row, edge_type_label)
-        if shaped is not None:
-            candidate_links.append(shaped)
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+    t_extract = time.perf_counter() - start
 
-    candidate_links.sort(
-        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
-    )
+    t0 = time.perf_counter()
+    if sort:
+        ids = []
+        sources = []
+        targets = []
+        p_values = []
+        effect_sizes = []
+        test_types = []
+        for edge_id, source, target, p_value, effect_size, test_type in rows:
+            if not source or not target:
+                continue
+            ids.append(edge_id)
+            sources.append(source)
+            targets.append(target)
+            p_values.append(p_value)
+            effect_sizes.append(effect_size)
+            test_types.append(test_type)
 
-    # Extract nodes from selected links and filter to only those present in edges
-    nodes = set()
-    for edge in candidate_links:
-        nodes.add(edge['source'])
-        nodes.add(edge['target'])
+        # Sort by index instead of sorting a list of dicts: a numpy argsort over a plain
+        # float array is one vectorized C-level pass, versus Python calling a key lambda
+        # on every comparison of a Timsort over ~35M dicts (~n*log(n) Python calls).
+        # None sorts last, matching the previous per-row `float(...) if ... else 1.0` key.
+        sort_keys = [1.0 if p is None else p for p in p_values]
+        order = np.argsort(np.asarray(sort_keys, dtype=float), kind='stable')
+
+        candidate_links = [
+            {
+                'id': f"{edge_type_label}:{ids[i]}",
+                'source': sources[i],
+                'target': targets[i],
+                'edge_type': edge_type_label,
+                'final_p_value': p_values[i],
+                'final_e_value': effect_sizes[i],
+                'test_type': test_types[i],
+            }
+            for i in order
+        ]
+        nodes = set(sources) | set(targets)
+    else:
+        # No downstream step needs sorted order (e.g. unbounded whole-network fetch with
+        # no per_node_limit filtering after this) - build the output in a single pass over
+        # DB fetch order instead of unpacking into parallel lists and revisiting them in
+        # sorted order. Same edges/nodes as the sort=True path, just not p_value-ordered.
+        candidate_links = []
+        nodes = set()
+        for edge_id, source, target, p_value, effect_size, test_type in rows:
+            if not source or not target:
+                continue
+            candidate_links.append({
+                'id': f"{edge_type_label}:{edge_id}",
+                'source': source,
+                'target': target,
+                'edge_type': edge_type_label,
+                'final_p_value': p_value,
+                'final_e_value': effect_size,
+                'test_type': test_type,
+            })
+            nodes.add(source)
+            nodes.add(target)
+    t_format = time.perf_counter() - t0
 
     elapsed = time.perf_counter() - start
     logger.info(
         f"get_whole_network_new ({stat_type}) retrieved {len(candidate_links)} candidate edges "
-        f"and {len(nodes)} nodes in {elapsed:.3f}s"
+        f"and {len(nodes)} nodes in {elapsed:.3f}s "
+        f"[extract_from_db={t_extract:.3f}s format_output={t_format:.3f}s]"
     )
 
     return candidate_links, nodes
@@ -299,7 +363,12 @@ def get_whole_network(test_type, thresh=None, limit=None, per_node_limit=None, d
         thresh = None
         per_node_limit = None
 
-    candidate_links, _ = get_whole_network_new(stat_type=test_type, thresh=thresh, limit=limit)
+    # per_node_limit's per-node top-K selection below depends on candidate_links being
+    # ordered by ascending p_value. When limit is given, SQL already sorts (ORDER BY
+    # p_value LIMIT) regardless of the sort argument, so this only needs to force a
+    # Python-side sort for the unbounded (limit=None) + per_node_limit combination.
+    needs_sort = limit is None and per_node_limit is not None
+    candidate_links, _ = get_whole_network_new(stat_type=test_type, thresh=thresh, limit=limit, sort=needs_sort)
 
     # Apply per_node_limit filtering if specified
     if per_node_limit is not None:

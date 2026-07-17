@@ -1,3 +1,4 @@
+import gc
 import time
 import logging
 from django.core.management.base import BaseCommand
@@ -29,7 +30,17 @@ class Command(BaseCommand):
             times = []
             edges_count = nodes_count = 0
 
+            candidate_links = nodes = None
             for i in range(runs):
+                # Drop the previous run's ~35M-object result and collect it *before*
+                # starting the timer - otherwise deallocating it happens inside the next
+                # assignment below, landing inside that run's measured window instead of
+                # this one's, and inflating the reported time by 20-30s for no reason
+                # related to the actual query cost.
+                candidate_links = None
+                nodes = None
+                gc.collect()
+
                 start = time.perf_counter()
                 try:
                     candidate_links, nodes = get_whole_network_new(
