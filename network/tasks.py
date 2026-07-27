@@ -82,9 +82,12 @@ def _df_records(df: pd.DataFrame) -> list:
 
 # Fixed for now: STC directly tests whether a variable differs between the two contexts, and
 # diff-L-P (|delta -log10(p)|) is the plainest "how much does this edge's significance differ"
-# edge metric. Both metrics need no user configuration.
+# edge metric. Both metrics need no user configuration. PageRank+ (personalized PageRank, seeded
+# by the node metric and edge-weighted by the edge metric) is moDiNA's own recommended ranking
+# algorithm -- see modina.ranking.compute_ranking.
 MODINA_EDGE_METRIC = 'diff-L-P'
 MODINA_NODE_METRIC = 'STC'
+MODINA_RANKING_ALGORITHM = 'PageRank+'
 
 _EDGE_STAT_RENAME = {
     'edge-min': 'edgeMin', 'edge-max': 'edgeMax', 'edge-median': 'edgeMedian',
@@ -92,17 +95,22 @@ _EDGE_STAT_RENAME = {
 }
 
 
-def _shape_modina_result(edges_diff: pd.DataFrame, ranking: pd.DataFrame, name1: str, name2: str) -> dict:
+def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
+                         pagerank_ranking: pd.DataFrame, name1: str, name2: str) -> dict:
     """
     Reshape the moDiNA pipeline's pandas outputs into the JSON contract differential-network.vue
-    already expects (result.points / result.links / result.edgeRanking). `ranking` is the
-    node-indexed ranking (ranking_alg='nodeRank') -- compute_ranking already merges the node
-    metric and the incident-edge statistics onto it, so no extra joins are needed for the node
-    side; `points` (id-keyed, feeding both the graph and NodeRankPanel) is derived straight from
-    it rather than returned as a second, separately-keyed array. The edge ranking is derived
-    directly from edges_diff instead of a second compute_ranking(..., ranking_alg='edgeRank')
-    call, since that branch discards label1/label2 (collapses them into a single 'edge' string)
-    which result.links/EdgeRankPanel both need back.
+    already expects (result.points / result.links / result.edgeRanking). `stc_ranking`
+    (ranking_alg='nodeRank') is node-metric-indexed and covers every node with a node-metric
+    value, including ones with no surviving edges -- compute_ranking already merges the node
+    metric and the incident-edge statistics onto it, so it's used as the base for `points`
+    (id-keyed, feeding both the graph and NodeRankPanel). `pagerank_ranking`
+    (ranking_alg=MODINA_RANKING_ALGORITHM) only covers nodes present in edges_diff's graph, so its
+    rank/score are left-merged onto the stc_ranking base as the primary displayed rank/score,
+    while stc_ranking's own rank survives as 'nodeMetricRank' -- neither ranking silently drops a
+    node the other one would have shown. The edge ranking is derived directly from edges_diff
+    instead of a second compute_ranking(..., ranking_alg='edgeRank') call, since that branch
+    discards label1/label2 (collapses them into a single 'edge' string) which result.links/
+    EdgeRankPanel both need back.
     """
     edges_diff = edges_diff.copy()
     edges_diff['rank'] = edges_diff[MODINA_EDGE_METRIC].rank(method='min', ascending=False).astype(int)
@@ -118,7 +126,15 @@ def _shape_modina_result(edges_diff: pd.DataFrame, ranking: pd.DataFrame, name1:
         MODINA_EDGE_METRIC: 'score', f'{MODINA_EDGE_METRIC}_signed': 'signed',
     })[['label1', 'label2', 'rank', 'score', 'signed']].sort_values('rank').reset_index(drop=True)
 
-    points_df = ranking.rename(columns={'node': 'id', MODINA_NODE_METRIC: 'nodeMetricValue', **_EDGE_STAT_RENAME})
+    points_df = stc_ranking.rename(columns={
+        'node': 'id', 'rank': 'nodeMetricRank', MODINA_NODE_METRIC: 'nodeMetricValue', **_EDGE_STAT_RENAME,
+    }).drop(columns=['score'])  # 'score' here just duplicates 'nodeMetricValue' (nodeRank's score is the node metric itself)
+
+    # PageRank+ only ranks nodes present in edges_diff's graph -- a node with zero surviving edges
+    # (e.g. after filter_differential) has no PageRank+ rank/score, but still keeps its
+    # nodeMetricRank/nodeMetricValue from the stc_ranking base above.
+    pagerank_scores = pagerank_ranking.rename(columns={'node': 'id'})[['id', 'rank', 'score']]
+    points_df = points_df.merge(pagerank_scores, on='id', how='left')
     # 'group' (the data layer a variable belongs to, e.g. phenotype/protein/metabolite, drives
     # point coloring on the frontend), 'display_name' (human-readable variable name) and
     # 'description' (a longer blurb) all come from the same place the main network page gets
@@ -144,6 +160,9 @@ def _shape_modina_result(edges_diff: pd.DataFrame, ranking: pd.DataFrame, name1:
         'points': _df_records(points_df),
         'links': _df_records(links_df),
         'edgeRanking': _df_records(edge_ranking_df),
+        'nodeMetric': MODINA_NODE_METRIC,
+        'edgeMetric': MODINA_EDGE_METRIC,
+        'rankingAlgorithm': MODINA_RANKING_ALGORITHM,
     }
 
 
@@ -198,12 +217,16 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
                 filter_method='density', filter_param=filter_param,
             )
 
-        ranking = compute_ranking(
+        stc_ranking = compute_ranking(
             edges_diff=edges_diff, nodes_diff=nodes_diff, ranking_alg='nodeRank',
             meta_file=meta_df, edge_node_stats=edge_node_stats,
         )
+        pagerank_ranking = compute_ranking(
+            edges_diff=edges_diff, nodes_diff=nodes_diff, ranking_alg=MODINA_RANKING_ALGORITHM,
+            meta_file=meta_df, edge_node_stats=edge_node_stats,
+        )
 
-        result = _shape_modina_result(edges_diff, ranking, name1, name2)
+        result = _shape_modina_result(edges_diff, stc_ranking, pagerank_ranking, name1, name2)
     finally:
         if os.path.exists(dir_path) and os.path.isdir(dir_path):
             shutil.rmtree(dir_path)
