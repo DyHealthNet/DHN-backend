@@ -49,31 +49,44 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
 
         params = request.data
         if not params:
-            return HttpResponseBadRequest('No parameters provided.', status=405)
+            return JsonResponse({'status': 'error', 'message': 'No parameters provided.'}, status=405)
 
         context1_value = params.get('context1')
         context2_value = params.get('context2')
         if context1_value is None or context2_value is None:
-            return HttpResponseBadRequest("Both 'context1' and 'context2' must be provided.", status=400)
+            return JsonResponse(
+                {'status': 'error', 'message': "Both 'context1' and 'context2' must be provided."}, status=400)
 
         filter_target = params.get('filterTarget')
         if filter_target not in (None, 'context-specific', 'differential'):
-            return HttpResponseBadRequest(
-                "Parameter 'filterTarget' must be 'context-specific', 'differential' or null.", status=405)
+            return JsonResponse({'status': 'error',
+                                 'message': "Parameter 'filterTarget' must be 'context-specific', 'differential' "
+                                            "or null."},
+                                status=405)
 
         try:
             context1, data1, meta1 = _resolve_context_data(request.user, context1_value, all_data, layers, meta_file)
             context2, data2, meta2 = _resolve_context_data(request.user, context2_value, all_data, layers, meta_file)
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=405)
+            return JsonResponse({'status': 'error', 'message': str(ex)}, status=405)
 
         if context1 is None or context2 is None:
-            return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            return JsonResponse(
+                {'status': 'error', 'message': 'One or both contexts were not found for the current user.'},
+                status=404)
+
+        if len(data1.index.intersection(data2.index)) > 0:
+            return JsonResponse({'status': 'error',
+                                 'message': 'These contexts have overlapping patients, which would introduce '
+                                            'statistical bias into the differential context analysis. Please '
+                                            'choose two contexts with disjoint patient sets.'},
+                                status=400)
 
         if not data1.columns.equals(data2.columns):
-            return HttpResponseBadRequest(
-                'The two contexts do not share the same set of variables. Please choose two '
-                'contexts built on the same data layers.', status=400)
+            return JsonResponse({'status': 'error',
+                                 'message': 'The two contexts do not share the same set of variables. Please '
+                                            'choose two contexts built on the same data layers.'},
+                                status=400)
 
         # testType/correction are properties of each context's already-computed association
         # scores (fixed at context-creation time), not something to re-pick here -- we reuse the
@@ -83,14 +96,17 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
         test_type1, test_type2 = context1.params.get('testType'), context2.params.get('testType')
         correction1, correction2 = context1.params.get('correction'), context2.params.get('correction')
         if not test_type1 or not test_type2 or not correction1 or not correction2:
-            return HttpResponseBadRequest(
-                "Both contexts must have already-computed association scores (a recorded "
-                "'testType' and 'correction') before they can be compared.", status=400)
+            return JsonResponse({'status': 'error',
+                                 'message': "Both contexts must have already-computed association scores (a "
+                                            "recorded 'testType' and 'correction') before they can be compared."},
+                                status=400)
         if test_type1 != test_type2 or correction1 != correction2:
-            return HttpResponseBadRequest(
-                'The two contexts were built with different test types or correction methods, so '
-                'their association scores are not directly comparable. Please choose two contexts '
-                'that used the same test type and correction method.', status=400)
+            return JsonResponse({'status': 'error',
+                                 'message': 'The two contexts were built with different test types or correction '
+                                            'methods, so their association scores are not directly comparable. '
+                                            'Please choose two contexts that used the same test type and '
+                                            'correction method.'},
+                                status=400)
 
         run_id = str(uuid.uuid4())
         dir_path = os.path.join('/tmp', f'dyhealthnet-modina-{run_id}')

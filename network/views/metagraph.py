@@ -18,9 +18,7 @@ if not django_apps.ready:
 
 import igraph as ig
 import leidenalg
-import pandas as pd
 import numpy as np
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, rand_score
 from django.apps import apps
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -39,7 +37,6 @@ logger = logging.getLogger('network')
 
 DEFAULT_LEIDEN_RESOLUTIONS = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
 SUPPORTED_COMMUNITY_METHODS = ('louvain', 'leiden', 'recursive_leiden', 'agglomerative', 'infomap', 'hierarchical_infomap', 'hsbm')
-BENCHMARK_DEFAULT_EDGE_WEIGHT = 'final_p_value'
 
 def resolution_to_key(value):
     """Normalize resolution keys so 1.0 and 3.0 keep one decimal."""
@@ -127,22 +124,11 @@ def parse_query_params(request):
         return None, None, per_node_limit, None
     
     # Ensure at least one parameter is provided
-    if limit is None and threshold is None and per_node_limit is None:
-        return HttpResponseBadRequest('At least one of limit, threshold or per_node_limit must be provided.', status=405), None, None
-    
+    if limit is None and threshold is None and per_node_limit is None and density is None:
+        return HttpResponseBadRequest('At least one of limit, threshold, per_node_limit or density must be provided.', status=405), None, None, None
+
     return limit, threshold, per_node_limit, density
 
-
-def parse_edge_weight_mode(request):
-    raw_value = request.GET.get('weight', request.GET.get('edge_weight', BENCHMARK_DEFAULT_EDGE_WEIGHT))
-    weight_mode = (raw_value or BENCHMARK_DEFAULT_EDGE_WEIGHT).strip().lower()
-    allowed_modes = {'final_p_value', 'raw_p', 'raw_e', 'pre_ls', 'post_ls'}
-    if weight_mode not in allowed_modes:
-        return HttpResponseBadRequest(
-            f"weight must be one of: {', '.join(sorted(allowed_modes))}.",
-            status=405,
-        )
-    return weight_mode
 
 def parse_test_type(request):
     test_type = (request.GET.get('testType') or '').strip().lower()
@@ -153,22 +139,98 @@ def parse_test_type(request):
         )
     return test_type
 
+def _compute_minus_log_p(p_value):
+    """-log10(p), clamped so p<=0 stays a large finite number instead of 0/inf."""
+    if p_value is None:
+        return 0.0
+    if p_value <= 0:
+        p_value = np.finfo(float).tiny
+    return -np.log10(p_value)
+
+
+def _compute_edge_weight(edge):
+    """Mirrors community_detection_benchmark's '-logp_e_abs_raw' mode: -log10(p) * |effect size|."""
+    minus_log_p = _compute_minus_log_p(edge.get('final_p_value'))
+    final_e_value = edge.get('final_e_value')
+    abs_e_value = abs(final_e_value) if final_e_value is not None else 0.0
+    return minus_log_p * abs_e_value
+
+
 def build_weighted_graph(selected_links, used_node_ids):
-    """Build an undirected igraph Graph from edges, with every edge weight set to 1."""
+    """Build an undirected igraph Graph, weighting edges by -log10(p) * |effect size|."""
     sorted_nodes = sorted(map(str, used_node_ids))
     node_to_idx = {n: i for i, n in enumerate(sorted_nodes)}
 
-    edges = [
-        (node_to_idx[edge['source']], node_to_idx[edge['target']])
-        for edge in selected_links
-        if edge['source'] in node_to_idx and edge['target'] in node_to_idx
-    ]
+    edges = []
+    weights = []
+    for edge in selected_links:
+        if edge['source'] not in node_to_idx or edge['target'] not in node_to_idx:
+            continue
+        edges.append((node_to_idx[edge['source']], node_to_idx[edge['target']]))
+        weights.append(_compute_edge_weight(edge))
 
     graph = ig.Graph(n=len(sorted_nodes), edges=edges, directed=False)
     graph.vs["name"] = sorted_nodes
-    graph.es["weight"] = [1] * len(edges)
+    graph.es["weight"] = weights
 
     return graph
+
+def compute_modularity(graph, node_to_community):
+    if graph.vcount() == 0:
+        return 0.0
+
+    try:
+        membership = [node_to_community.get(vertex['name'], idx) for idx, vertex in enumerate(graph.vs)]
+        if graph.ecount() == 0:
+            return 0.0
+        return float(graph.modularity(membership, weights=graph.es['weight']))
+    except Exception:
+        return 0.0
+
+def compute_conductance(graph, node_to_community):
+    if graph.vcount() == 0 or graph.ecount() == 0 or not node_to_community:
+        return 0.0
+
+    try:
+        membership = [node_to_community.get(vertex['name'], idx) for idx, vertex in enumerate(graph.vs)]
+        if not membership:
+            return 0.0
+
+        weights = graph.es['weight'] if 'weight' in graph.es.attributes() else None
+        strengths = graph.strength(weights=weights)
+        total_strength = float(sum(strengths))
+        if total_strength <= 0:
+            return 0.0
+
+        community_vertices = defaultdict(list)
+        for vertex_index, community_id in enumerate(membership):
+            community_vertices[community_id].append(vertex_index)
+
+        boundary_weights = defaultdict(float)
+        for edge in graph.es:
+            source = int(edge.source)
+            target = int(edge.target)
+            if membership[source] == membership[target]:
+                continue
+            weight = float(edge['weight']) if 'weight' in edge.attributes() else 1.0
+            boundary_weights[membership[source]] += weight
+            boundary_weights[membership[target]] += weight
+
+        conductances = []
+        for community_id, vertices in community_vertices.items():
+            community_volume = float(sum(strengths[index] for index in vertices))
+            other_volume = total_strength - community_volume
+            denominator = min(community_volume, other_volume)
+            if denominator <= 0:
+                continue
+            conductances.append(boundary_weights.get(community_id, 0.0) / denominator)
+
+        if not conductances:
+            return 0.0
+
+        return float(sum(conductances) / len(conductances))
+    except Exception:
+        return 0.0
 
 def _assign_membership(graph, membership):
     return {graph.vs[idx]['name']: community_id for idx, community_id in enumerate(membership)}
@@ -221,7 +283,6 @@ class GetCosmographView(generics.GenericAPIView):
     def get(request):
         limit, threshold, per_node_limit, density = parse_query_params(request)
         test_type = parse_test_type(request)
-       # edge_weight = parse_edge_weight_mode(request)
 
         # Handle error responses
         if isinstance(limit, HttpResponseBadRequest):
@@ -234,8 +295,6 @@ class GetCosmographView(generics.GenericAPIView):
             return density
         if isinstance(test_type, HttpResponseBadRequest):
             return test_type
-        #if isinstance(edge_weight, HttpResponseBadRequest):
-        #    return edge_weight
 
         logger.info(
             'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s',
@@ -262,7 +321,7 @@ class GetCosmographView(generics.GenericAPIView):
         ]
 
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description')
 
         points = [
             {
@@ -270,6 +329,7 @@ class GetCosmographView(generics.GenericAPIView):
                 'label': node.get('display_name') or node['node_id'],
                 'type': node.get('node_group') or '',
                 'source_table': node.get('node_group'),
+                'description': node.get('description') or '',
             }
             for node in cohort_nodes
             if node.get('node_id')
@@ -310,7 +370,6 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         start_whole_request = time.perf_counter()
         limit, threshold, per_node_limit, density = parse_query_params(request)
         test_type = parse_test_type(request)
-        #edge_weight = parse_edge_weight_mode(request)
 
         if isinstance(limit, HttpResponseBadRequest):
             return limit
@@ -322,8 +381,6 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             return density
         if isinstance(test_type, HttpResponseBadRequest):
             return test_type
-        #if isinstance(edge_weight, HttpResponseBadRequest):
-        #    return edge_weight
 
         # Parse resolutions parameter (defaults to all standard resolutions)
         resolutions = parse_resolution_values(request)
@@ -370,6 +427,8 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # Run the selected community detection method for each resolution
         resolution_results = {}
         community_counts_by_resolution = {}
+        modularity_by_resolution = {}
+        conductance_by_resolution = {}
         clustering_algorithm = 'unknown'
 
         graph = build_weighted_graph(selected_links, used_node_ids)
@@ -387,7 +446,10 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             clustering_algorithm = algo  # Store algorithm (same for all)
             resolution_results[resolution] = node_to_community
             community_count = len(set(node_to_community.values())) if node_to_community else 0
-            community_counts_by_resolution[resolution_to_key(resolution)] = community_count
+            resolution_key = resolution_to_key(resolution)
+            community_counts_by_resolution[resolution_key] = community_count
+            modularity_by_resolution[resolution_key] = round(compute_modularity(graph, node_to_community), 6)
+            conductance_by_resolution[resolution_key] = round(compute_conductance(graph, node_to_community), 6)
             end = time.perf_counter()
             print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
@@ -396,10 +458,14 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             for edge in selected_links
         ]
 
+        # All nodes, not just used_node_ids (the ones clustered) -- matches
+        # GetCosmographView's node set, so switching between "Send Whole Network"
+        # and "Run Leiden Clustering" doesn't change which nodes are shown, only
+        # their coloring. A node outside used_node_ids has no entry in any
+        # resolution_results dict, so its community_rX fields below come back
+        # None/null -- the frontend already renders that as an "Unassigned" bucket.
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.filter(
-            node_id__in=used_node_ids,
-        ).values('node_id', 'display_name', 'node_group')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description')
 
         # Build points with community fields for each resolution
         points = []
@@ -412,6 +478,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'label': node.get('display_name') or node['node_id'],
                 'type': node.get('node_group') or '',
                 'source_table': node.get('node_group'),
+                'description': node.get('description') or '',
             }
 
             # Add community field for each resolution
@@ -439,6 +506,8 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                     'link_count': len(response_links),
                     'candidate_link_count': len(candidate_links),
                     'community_counts_by_resolution': community_counts_by_resolution,
+                    'modularity_by_resolution': modularity_by_resolution,
+                    'conductance_by_resolution': conductance_by_resolution,
                     'resolutions': [resolution_to_key(r) for r in resolutions],
                     'algorithm': clustering_algorithm,
                     'seed': seed,

@@ -1,4 +1,5 @@
 import timeit
+from math import ceil
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -25,16 +26,19 @@ class GetTableView(generics.GenericAPIView):
         def layer_counts(context_layers=None):
             counts = {}
             for group_name in layers:
+                idx = group_name.capitalize() if group_name.endswith('s') else group_name.capitalize() + 's'
                 if context_layers is not None and group_name not in context_layers:
-                    counts[group_name.capitalize() + 's'] = 0
+
+                    counts[idx] = 0
                     continue
                 data = group_data.get(group_name)
-                counts[group_name.capitalize() + 's'] = len(data.columns) if data is not None else 0
+                counts[idx] = len(data.columns) if data is not None else 0
             return counts
 
         # build result dict in right format
         if not request.GET.get("contextValue") or not request.user.is_authenticated:
-            req_data_dict = {'Participants': len(all_data), **layer_counts()}
+            req_data_dict = {'Participants': len(all_data), 'preservePrivacy': settings.PRESERVE_PRIVACY,
+                             **layer_counts()}
             response = JsonResponse(req_data_dict, safe=True)
             response = add_cache_header(response, True)
             return response
@@ -45,7 +49,8 @@ class GetTableView(generics.GenericAPIView):
         if not context:
             # context not created yet (e.g. brand-new tab) or no longer exists;
             # fall back to the unfiltered counts rather than erroring
-            req_data_dict = {'Participants': len(all_data), **layer_counts()}
+            req_data_dict = {'Participants': len(all_data), 'preservePrivacy': settings.PRESERVE_PRIVACY,
+                             **layer_counts()}
             response = JsonResponse(req_data_dict, safe=True)
             response = add_cache_header(response, True)
             return response
@@ -63,9 +68,10 @@ class GetTableView(generics.GenericAPIView):
             if participants < settings.CRITICAL_NUMBER:
                 participants = 0
             else:
-                participants = max(settings.CRITICAL_NUMBER, int(round(participants / 100) * 100))
+                participants = max(settings.CRITICAL_NUMBER, int(ceil(participants / 100) * 100))
 
-        req_data_dict = {'Participants': participants, **layer_counts(context.params['layers'])}
+        req_data_dict = {'Participants': participants, 'preservePrivacy': settings.PRESERVE_PRIVACY,
+                         **layer_counts(context.params['layers'])}
         return JsonResponse(req_data_dict, safe=True)
 
 
@@ -103,6 +109,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
 
         df = pd.DataFrame(line_plot_df[[x_idx, y_idx]])
+        send_warning = False
 
         # Continuous x variables are (near-)unique per participant, so grouping by the raw value
         # leaves every group under the privacy threshold and the whole plot comes back empty.
@@ -138,6 +145,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
 
             if settings.PRESERVE_PRIVACY:
                 agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+                if len(agg_df_mean) < len(df):
+                    send_warning = True
 
             agg_df_mean = (agg_df_mean.groupby([x_idx, c_idx], observed=True)[y_idx].mean()
                            .reset_index().sort_values(x_idx, ascending=True))
@@ -165,6 +174,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
             agg_df_mean = df.groupby(x_idx)
             if settings.PRESERVE_PRIVACY:
                 agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+                if len(agg_df_mean) < len(df):
+                    send_warning = True
 
             agg_df_mean = agg_df_mean.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
 
@@ -179,6 +190,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
             'labels': var_label_mapping(x_idx, agg_df_mean[x_idx].unique().tolist(), var_label_map),
             'datasets': temp
         }
+        if send_warning:
+            req_data_dict["warning"] = "Some groups have been removed to protect privacy."
         response = JsonResponse(req_data_dict, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
         return response
@@ -206,7 +219,13 @@ class GetDataBarCountView(generics.GenericAPIView):
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
 
-        bar_plot_df = context_subset(request, all_data)
+        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
+            bar_plot_df, _, _ = context_compare_subset(request, all_data)
+            if bar_plot_df is None:
+                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            c = '__context__'
+        else:
+            bar_plot_df = context_subset(request, all_data)
 
         if x_idx not in bar_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
@@ -229,8 +248,10 @@ class GetDataBarCountView(generics.GenericAPIView):
             df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx], observed=True).size().reset_index(name='counts')
 
             if settings.PRESERVE_PRIVACY:
-                df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
-                send_warning = True
+                below_threshold = df_count['counts'] < settings.CRITICAL_NUMBER
+                if below_threshold.any():
+                    send_warning = True
+                df_count.loc[below_threshold, 'counts'] = 0
 
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the count values with the corresponding x value
@@ -251,8 +272,10 @@ class GetDataBarCountView(generics.GenericAPIView):
             # Make df subset with x var and a count variable
             df_count = pd.DataFrame(bar_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
             if settings.PRESERVE_PRIVACY:
-                df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
-                send_warning = True
+                below_threshold = df_count['counts'] < settings.CRITICAL_NUMBER
+                if below_threshold.any():
+                    send_warning = True
+                df_count.loc[below_threshold, 'counts'] = 0
 
             # Add dict for y axis containing the y label, black as the color and the aggregated values
             temp.append({
@@ -301,8 +324,10 @@ class GetDataPieCountView(generics.GenericAPIView):
         # Make df subset with x var and a count variable
         df_count = pd.DataFrame(pie_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
         if settings.PRESERVE_PRIVACY:
-            df_count.loc[df_count['counts'] < settings.CRITICAL_NUMBER, 'counts'] = 0
-            send_warning = True
+            below_threshold = df_count['counts'] < settings.CRITICAL_NUMBER
+            if below_threshold.any():
+                send_warning = True
+            df_count.loc[below_threshold, 'counts'] = 0
 
         num_colors = len(df_count["counts"].tolist())
         colormap_local = get_palette(request.GET.get('colors', 'tab10'), n_colors=num_colors)
@@ -345,7 +370,16 @@ class GetDataDensityPlotView(generics.GenericAPIView):
         # Extract var_id from x (for phenotype or protein)
         x_idx = extract_var_id(x)
 
-        density_plot_df = context_subset(request, all_data)
+        # Two-context comparison mode: group by a synthetic '__context__' column instead of
+        # (or filtering by) a single contextValue, reusing the exact same c-grouping
+        # aggregation below rather than a separate code path (same pattern as GetDataBoxPlotView).
+        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
+            density_plot_df, _, _ = context_compare_subset(request, all_data)
+            if density_plot_df is None:
+                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
+            c = '__context__'
+        else:
+            density_plot_df = context_subset(request, all_data)
 
         # Check if there is in general enough data != nan to ensure privacy protection
         if settings.PRESERVE_PRIVACY:
@@ -476,6 +510,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                 'y Variable is not numerical and can not be visualized in this plot.', status=405)
 
         # helper function to calculate boxplot stats or return nan boxplot when privacy restrictions are violated
+        privacy_triggered = [False]
+
         def boxplot_stats(group):
             if (settings.PRESERVE_PRIVACY and group[y_idx].notna().sum() >= settings.CRITICAL_NUMBER or
                     not settings.PRESERVE_PRIVACY):
@@ -488,6 +524,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
                     'max': group[y_idx].max(),
                 }
             else:
+                if settings.PRESERVE_PRIVACY:
+                    privacy_triggered[0] = True
                 return nan_boxplot
 
         temp = []
@@ -558,6 +596,8 @@ class GetDataBoxPlotView(generics.GenericAPIView):
             'labels': var_label_mapping(x_idx, grouped.index.tolist(), var_label_map),
             'datasets': temp
         }
+        if privacy_triggered[0]:
+            req_data_dict["warning"] = "Some groups' statistics have been hidden to protect privacy."
         response = JsonResponse(req_data_dict, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
         return response
@@ -583,6 +623,8 @@ class GetDataHeatmapView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
         y_idx = extract_var_id(y)
 
+        send_warning = False
+
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
             # Two-context comparison: a heatmap has no spare dimension to group a third
             # ('context') variable into the way box/line plots do via c, so this builds a
@@ -606,7 +648,19 @@ class GetDataHeatmapView(generics.GenericAPIView):
             tab1 = tab1.reindex(index=x_index, columns=y_index, fill_value=0)
             tab2 = tab2.reindex(index=x_index, columns=y_index, fill_value=0)
 
+            # Totals are taken before zeroing small cells below, so a visible cell's proportion
+            # still reflects its true share of that context rather than being inflated by
+            # excluding the suppressed cells from the denominator.
             total1, total2 = tab1.values.sum(), tab2.values.sum()
+
+            if settings.PRESERVE_PRIVACY:
+                if (tab1.values < settings.CRITICAL_NUMBER).any():
+                    send_warning = True
+                    tab1 = tab1.where(tab1 >= settings.CRITICAL_NUMBER, 0)
+                if (tab2.values < settings.CRITICAL_NUMBER).any():
+                    send_warning = True
+                    tab2 = tab2.where(tab2 >= settings.CRITICAL_NUMBER, 0)
+
             prop1 = (tab1 / total1) if total1 else tab1.astype(float)
             prop2 = (tab2 / total2) if total2 else tab2.astype(float)
             contingency_tab = prop1 - prop2
@@ -616,6 +670,13 @@ class GetDataHeatmapView(generics.GenericAPIView):
             if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
                 return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
             contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
+
+            # Zero out cells representing fewer participants than the privacy threshold, same
+            # pattern as GetDataBarCountView/GetDataPieCountView (counts, not proportions, so
+            # there's no denominator to preserve here).
+            if settings.PRESERVE_PRIVACY and (contingency_tab.values < settings.CRITICAL_NUMBER).any():
+                send_warning = True
+                contingency_tab = contingency_tab.where(contingency_tab >= settings.CRITICAL_NUMBER, 0)
 
         x_categories = var_label_mapping(x_idx, [str(v) for v in contingency_tab.index], var_label_map)
         y_categories = var_label_mapping(y_idx, [str(v) for v in contingency_tab.columns], var_label_map)
@@ -635,6 +696,8 @@ class GetDataHeatmapView(generics.GenericAPIView):
             'yCategories': y_categories,
             'values': values,
         }
+        if send_warning:
+            req_data_dict["warning"] = "Some cells have been removed to protect privacy."
 
         response = JsonResponse(req_data_dict, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
