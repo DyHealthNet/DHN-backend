@@ -109,6 +109,11 @@ create_context_schema = extend_schema(
                         "phenotype",
                         "metabolite"
                       ],
+                      "subLayers": {
+                        "phenotype": [
+                          "cardio"
+                        ]
+                      },
                       "tests": {
                         "catCat": {
                           "label": "Chi-squared test",

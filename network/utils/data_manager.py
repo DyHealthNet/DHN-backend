@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 
 import environ
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger('network')
@@ -67,29 +68,30 @@ TYPE_TO_DTYPE = {
 }
 
 
-def _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column):
+def _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column,
+                          subgroup_column=None):
     """
-    Rename label_column/type_column/description_column/group_column to their
-    canonical names ('label'/'type'/'description'/'group') in a single atomic
-    `.rename()` call, rather than one sequential rename per attribute. Each is
+    Rename label_column/type_column/description_column/group_column/subgroup_column to
+    their canonical names ('label'/'type'/'description'/'group'/'subgroup') in a single
+    atomic `.rename()` call, rather than one sequential rename per attribute. Each is
     resolved against `meta`'s *original* column names at once, so no attribute can
     clobber a source column another attribute still needs regardless of which order
     they're processed in
 
-    type_column/description_column/group_column may each be either the name of an
-    existing column or a literal value applied to every row (e.g. a fixed group name
-    for a source with no per-row grouping of its own); a falsy value skips that
-    attribute entirely. label_column must always be an existing column (checked by
+    type_column/description_column/group_column/subgroup_column may each be either the
+    name of an existing column or a literal value applied to every row (e.g. a fixed
+    group name for a source with no per-row grouping of its own); a falsy value skips
+    that attribute entirely. label_column must always be an existing column (checked by
     the caller before this is called).
 
     Raises if two attributes are configured to the same source column with different
     targets (ambiguous - a column can't become two different things, so there's no
     safe default).
 
-    If a target name ('label'/'type'/'description'/'group') is otherwise already
-    occupied by an existing column that no attribute claims, that column is unrelated
-    to this source's configuration - it's dropped, logging a warning, before the
-    rename/literal assignment runs. Left in place it would otherwise either silently
+    If a target name ('label'/'type'/'description'/'group'/'subgroup') is otherwise
+    already occupied by an existing column that no attribute claims, that column is
+    unrelated to this source's configuration - it's dropped, logging a warning, before
+    the rename/literal assignment runs. Left in place it would otherwise either silently
     collide with the renamed column (pandas allows duplicate column names) or be
     silently overwritten by a literal value with no indication anything happened.
     """
@@ -100,7 +102,8 @@ def _rename_meta_columns(meta, meta_path, label_column, type_column, description
         )
 
     targets = {"label": label_column, "type": type_column,
-               "description": description_column, "group": group_column}
+               "description": description_column, "group": group_column,
+               "subgroup": subgroup_column}
 
     rename_map = {}
     literals = {}
@@ -168,7 +171,7 @@ def _sample_ids(ids, limit=20):
 
 
 def _load_typed_data_source(data_path, meta_path, label_column, type_column, patient_id_column,
-                             description_column=None, group_column=None):
+                             description_column=None, group_column=None, subgroup_column=None):
     """
     Load one data/meta pair, restricting the (potentially huge) data file to the
     columns modina can actually use. The meta file is read first since it's tiny, so
@@ -176,10 +179,12 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     variables with an unrecognized type and any per-column dtype inference are
     skipped entirely via `usecols`/`dtype` instead of being parsed and then dropped.
 
-    `description_column`/`group_column` are optional and, like `type_column`, may
-    each be either the name of a column already in the meta file or a literal value
-    applied to every row (e.g. a fixed group name for a data source that has no
-    per-variable grouping of its own).
+    `description_column`/`group_column`/`subgroup_column` are optional and, like
+    `type_column`, may each be either the name of a column already in the meta file or
+    a literal value applied to every row (e.g. a fixed group name for a data source
+    that has no per-variable grouping of its own). `subgroup_column` values are scoped
+    to their `group` - the same subgroup value under two different groups is treated
+    as two independent subgroups.
 
     `patient_id_column` may be None, in which case the file's default RangeIndex is
     used in place of a real patient id. This is only sound when this is the only data
@@ -187,8 +192,8 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     multiple sources must supply a real patient_id_column (enforced in load_data_sources).
 
     Raises if `label_column` isn't a column in `meta_path`, or if renaming
-    label_column/type_column/description_column/group_column to their canonical
-    names is ambiguous - see _rename_meta_columns.
+    label_column/type_column/description_column/group_column/subgroup_column to their
+    canonical names is ambiguous - see _rename_meta_columns.
 
     Raises if `data_path` contains columns with no matching label in `meta_path`,
     since modina cannot assign those a type and would error out later anyway. Meta
@@ -196,7 +201,7 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     collected) are dropped, logging how many.
 
     :return: tuple (data, meta) - meta has columns ['label', 'type'], plus
-             'description'/'group' if the corresponding argument is given.
+             'description'/'group'/'subgroup' if the corresponding argument is given.
     """
     meta_sep = _infer_separator(meta_path)
     meta = pd.read_csv(meta_path, sep=meta_sep, low_memory=False)
@@ -205,8 +210,9 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
             f"{meta_path}: configured label column '{label_column}' not found in file "
             f"(available columns: {list(meta.columns)})"
         )
-    meta = _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column)
-    keep_cols = ["label", "type"] + [c for c in ("description", "group") if c in meta.columns]
+    meta = _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column,
+                                 subgroup_column)
+    keep_cols = ["label", "type"] + [c for c in ("description", "group", "subgroup") if c in meta.columns]
     meta = meta[keep_cols]
     all_meta_labels = set(meta["label"])
 
@@ -275,9 +281,12 @@ def load_data_sources(env):
     DATA_META_PATHS, DATA_LABEL_COLUMNS and DATA_TYPE_COLUMNS, which must all have the
     same number of entries (one per source) and at least one entry. DATA_ROOT, if set,
     is prepended to any relative entry in DATA_PATHS/DATA_META_PATHS. DATA_DESCRIPTION_
-    COLUMNS and DATA_GROUP_COLUMNS are optional and, like DATA_TYPE_COLUMNS, each entry
-    may be either a column name in that source's meta file or a literal value applied
-    to every row of that source (pad an entry with nothing to skip it for one source).
+    COLUMNS, DATA_GROUP_COLUMNS and DATA_SUBGROUP_COLUMNS are optional and, like
+    DATA_TYPE_COLUMNS, each entry may be either a column name in that source's meta file
+    or a literal value applied to every row of that source (pad an entry with nothing
+    to skip it for one source). DATA_SUBGROUP_COLUMNS values are scoped to their group -
+    the same subgroup value under two different groups is treated as two independent
+    subgroups.
 
     PATIENT_ID_COLUMN may be left unset only when a single data source is configured,
     in which case that file's row order is used as the patient id. With more than one
@@ -316,19 +325,23 @@ def load_data_sources(env):
 
     description_columns = _parse_aligned_list_env(env, "DATA_DESCRIPTION_COLUMNS", len(data_paths))
     group_columns = _parse_aligned_list_env(env, "DATA_GROUP_COLUMNS", len(data_paths))
+    subgroup_columns = _parse_aligned_list_env(env, "DATA_SUBGROUP_COLUMNS", len(data_paths))
     if len(description_columns) != len(data_paths):
         raise ValueError("DATA_DESCRIPTION_COLUMNS, if set, must have one entry per data source.")
     if len(group_columns) != len(data_paths):
         raise ValueError("DATA_GROUP_COLUMNS, if set, must have one entry per data source.")
+    if len(subgroup_columns) != len(data_paths):
+        raise ValueError("DATA_SUBGROUP_COLUMNS, if set, must have one entry per data source.")
 
     sources = {}
-    for data_path, meta_path, label_column, type_column, description_column, group_column in zip(
-        data_paths, meta_paths, label_columns, type_columns, description_columns, group_columns
+    for data_path, meta_path, label_column, type_column, description_column, group_column, subgroup_column in zip(
+        data_paths, meta_paths, label_columns, type_columns, description_columns, group_columns, subgroup_columns
     ):
         data, meta = _load_typed_data_source(
             data_path, meta_path, label_column, type_column, patient_id_column,
             description_column=description_column or None,
             group_column=group_column or None,
+            subgroup_column=subgroup_column or None,
         )
         logger.info(f"Loaded {data_path}: {data.shape[0]} patients, {data.shape[1]} variables.")
         sources[data_path] = (data, meta)
@@ -395,10 +408,31 @@ def _group_labels(meta_file):
     return meta_file.groupby("group")["label"].apply(list).to_dict()
 
 
+def _group_subgroup_labels(meta_file):
+    """
+    dict mapping each 'group' value to {subgroup: [labels]}, or {} if no source
+    configured a group/subgroup. A group with no non-null subgroup values among its own
+    labels simply has no key - callers should treat that as "this group has no
+    subgroups". Subgroup values are scoped to their group: the same subgroup name under
+    two different groups is kept independent (never merged).
+    """
+    if "group" not in meta_file.columns or "subgroup" not in meta_file.columns:
+        return {}
+    with_subgroup = meta_file.dropna(subset=["subgroup"])
+    if with_subgroup.empty:
+        return {}
+    return {
+        group: grp.groupby("subgroup")["label"].apply(list).to_dict()
+        for group, grp in with_subgroup.groupby("group")
+    }
+
+
 class DataManager:
     # Groups are fully user-defined via DATA_GROUP_COLUMNS - see _load_typed_data_source's
     # group_column. Every group present in the data gets a slot in _group_data/_group_meta,
     # consumed generically by GetVariablesView, GetTableView and the contexts feature.
+    # Subgroups (DATA_SUBGROUP_COLUMNS) work the same way, one level deeper: every group's
+    # subgroups (if any) get a slot in _layer_subgroups, keyed first by group then subgroup.
 
     def __init__(self):
         self._var_label_map: dict | None = None
@@ -409,6 +443,7 @@ class DataManager:
         self._meta_file: pd.DataFrame | None = None
         self._group_data: dict[str, pd.DataFrame] = {}
         self._group_meta: dict[str, pd.DataFrame] = {}
+        self._layer_subgroups: dict[str, dict[str, pd.Index]] = {}
 
         self._data_loaded = False
         self.switch = {}
@@ -437,6 +472,7 @@ class DataManager:
             'meta_file': self._meta_file,
             'group_data': self._group_data,
             'group_meta': self._group_meta,
+            'layer_subgroups': self._layer_subgroups,
             'var_label_map': self._var_label_map
             }
 
@@ -447,11 +483,13 @@ class DataManager:
             return None, None
         data = self._all_data.loc[:, self._all_data.columns.isin(labels)].copy()
         meta = meta_file[meta_file["group"] == group_name].set_index("label", drop=False)
+        meta = meta.copy()
         if "description" not in meta.columns:
             # list_group_variables always expects this column; default to NaN when
             # DATA_DESCRIPTION_COLUMNS wasn't configured for this group.
-            meta = meta.copy()
             meta["description"] = None
+        if "subgroup" not in meta.columns:
+            meta["subgroup"] = None
         return data, meta
 
     def _load_and_combine(self):
@@ -461,9 +499,31 @@ class DataManager:
         sources = load_data_sources(env)
         self._all_data = _join_all_data(sources)
 
+        # NAN_VALUE is the sentinel modina's own stats code (network/tasks.py) already
+        # treats as missing; replaced here too so every API view built on this data
+        # (plots, context filters, tables) sees real NaNs instead of the raw integer.
+        # Category columns go through cat.remove_categories() rather than .replace():
+        # besides .replace() being deprecated for CategoricalDtype value changes, it
+        # would still leave -89 as an unused category, which value_counts() (used e.g.
+        # by VariableInfoView for the context page's variable distribution) reports
+        # with a count of 0 - i.e. the sentinel would still show up as a bin/label.
+        # remove_categories() drops the category itself and sets its values to NaN.
+        nan_value = env("NAN_VALUE", cast=int, default=-89)
+        cat_cols = self._all_data.select_dtypes(include="category").columns
+        other_cols = self._all_data.columns.difference(cat_cols)
+        self._all_data[other_cols] = self._all_data[other_cols].replace(nan_value, np.nan)
+        for col in cat_cols:
+            if nan_value in self._all_data[col].cat.categories:
+                self._all_data[col] = self._all_data[col].cat.remove_categories(nan_value)
+
         meta_file = pd.concat([meta for _data, meta in sources.values()], ignore_index=True)
         group_labels = _group_labels(meta_file)
         self._layers = {group: pd.Index(labels) for group, labels in group_labels.items()}
+        group_subgroup_labels = _group_subgroup_labels(meta_file)
+        self._layer_subgroups = {
+            group: {subgroup: pd.Index(labels) for subgroup, labels in subgroups.items()}
+            for group, subgroups in group_subgroup_labels.items()
+        }
 
         for group_name in group_labels:
             data, meta = self._slice_group(group_labels, meta_file, group_name)

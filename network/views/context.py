@@ -20,7 +20,7 @@ from network.utils.data_manager import DataManager
 from drf_spectacular.utils import extend_schema_view
 import logging
 
-from network.utils.utils import var_label_mapping
+from network.utils.utils import var_label_mapping, filter_layers
 
 logger = logging.getLogger('network')
 
@@ -31,7 +31,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
-        all_data, layers, meta_file = self.data_manager.get_df_copy(['all_data', 'layers', 'meta_file'])
+        all_data, layers, meta_file, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'layers', 'meta_file', 'layer_subgroups']
+        )
 
         params = request.data
         if not params:
@@ -65,11 +67,8 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         logger.info(f"The user {request.user.username} can create another context.")
 
-        # remove layers not requested
-        context_data = all_data
-        for layer in list(set(layers.keys()) - set(params['layers'])):
-            logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-            context_data = context_data.drop(layers[layer], axis=1)
+        # remove layers/subgroups not requested
+        context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
 
         params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
 
@@ -139,15 +138,12 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
     data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
-        all_data, layers = self.data_manager.get_df_copy(['all_data', 'layers'])
+        all_data, layers, layer_subgroups = self.data_manager.get_df_copy(['all_data', 'layers', 'layer_subgroups'])
         params = request.data
         if not params:
             return HttpResponseBadRequest('No subset parameters provided.', status=405)
         try:
-            context_data = all_data
-            for layer in list(set(layers.keys()) - set(params['layers'])):
-                logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-                context_data = context_data.drop(layers[layer], axis=1)
+            context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
             out_df = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)

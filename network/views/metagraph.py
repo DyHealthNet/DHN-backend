@@ -139,6 +139,27 @@ def parse_test_type(request):
         )
     return test_type
 
+
+def parse_context_id(request):
+    """
+    Resolve the optional 'c' (context value) query param to a context_id for the
+    requesting user, mirroring read_in_network_request()'s context resolution
+    (network/views/network.py). Returns None when no context is selected --
+    Cosmograph/Leiden then run against the global edges_parametric/nonparametric
+    tables as before.
+    """
+    context_value = request.GET.get('c')
+    if context_value in ('', 'null', None):
+        return None
+    if not request.user.is_authenticated:
+        return HttpResponseBadRequest('Permission denied. User not authenticated.', status=400)
+    try:
+        user_context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
+    except UserContextLink.DoesNotExist:
+        return HttpResponseBadRequest('Context not found.', status=404)
+    return user_context.context_id
+
+
 def _compute_minus_log_p(p_value):
     """-log10(p), clamped so p<=0 stays a large finite number instead of 0/inf."""
     if p_value is None:
@@ -245,8 +266,78 @@ def run_community_clustering(graph, method='leiden', resolution=1.0, seed=42):
         return _run_leiden_clustering(graph, resolution=resolution, seed=seed)
     if method == 'louvain':
         return _run_louvain_clustering(graph)
+    if method == 'infomap':
+        return _run_infomap_clustering(graph)
+    if method == 'hsbm':
+        return _run_hsbm_clustering(graph, seed=seed)
 
     raise ValueError(f"Unsupported community detection method '{method}'. Choose from: {', '.join(SUPPORTED_COMMUNITY_METHODS)}.")
+
+# Methods whose result doesn't depend on the resolution parameter -- computed
+# once per request and reused across every requested resolution instead of
+# being rerun (rerunning would be pure waste, and for hsbm's nested blockmodel
+# inference it's expensive enough to matter).
+RESOLUTION_INDEPENDENT_METHODS = frozenset({'louvain', 'infomap', 'hsbm'})
+
+def _run_infomap_clustering(graph, trials=10):
+    """Run flat Infomap via python-igraph's built-in community_infomap."""
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'infomap'
+
+    communities = graph.community_infomap(edge_weights=graph.es['weight'] if graph.ecount() else None, trials=trials)
+    return _assign_membership(graph, communities.membership), 'infomap'
+
+def _run_hsbm_clustering(graph, seed=42):
+    """Run a hierarchical stochastic block model (graph-tool) and return its finest-level blocks.
+
+    Unlike Leiden/Louvain (modularity optimization), hsbm fits a generative
+    block model to the graph -- a fundamentally different clustering approach.
+    graph-tool is a heavy, non-pip-installable dependency (conda-forge/apt
+    only), so it's imported lazily here rather than at module load, so
+    environments without it can still serve every other algorithm.
+    """
+    if graph.vcount() == 0:
+        return {}, 'none'
+
+    try:
+        import graph_tool.all as gt
+    except ImportError as exc:
+        raise ImportError(
+            "The `graph-tool` package is required for hsbm clustering. Install it via conda "
+            "(conda install -c conda-forge graph-tool) in the active environment."
+        ) from exc
+
+    if graph.ecount() == 0:
+        return _assign_membership(graph, _singleton_membership(graph)), 'hsbm'
+
+    gt.seed_rng(seed)
+
+    edges = np.array([(edge.source, edge.target) for edge in graph.es], dtype="int32")
+    weights = np.array(
+        [edge['weight'] if 'weight' in edge.attributes() else 1.0 for edge in graph.es],
+        dtype="float64",
+    )
+
+    gt_graph = gt.Graph(directed=False)
+    gt_graph.add_vertex(graph.vcount())  # keep vertex indices aligned with `graph`, including isolated nodes
+    gt_graph.add_edge_list(edges)
+    gt_graph.ep.weight = gt_graph.new_edge_property("double")
+    gt_graph.ep.weight.a = weights
+
+    state = gt.minimize_nested_blockmodel_dl(gt_graph, state_args={'deg_corr': True})
+    blocks = state.get_bs()[0]  # finest level, matching Leiden/Louvain's flat output
+    raw_membership = [int(blocks[vertex]) for vertex in gt_graph.vertices()]
+
+    # graph-tool's block ids are internal slots from its merge/split search --
+    # e.g. {6, 100} instead of {0, 1} -- so remap to a compact 0..k-1 range to
+    # match what Leiden/Louvain/Infomap already return.
+    compact_id = {raw_id: idx for idx, raw_id in enumerate(sorted(set(raw_membership)))}
+    membership = [compact_id[raw_id] for raw_id in raw_membership]
+
+    return _assign_membership(graph, membership), 'hsbm'
 
 def _run_leiden_clustering(graph, resolution=1.0, seed=42):
     """Run Leiden on an igraph graph."""
@@ -282,7 +373,6 @@ class GetCosmographView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         limit, threshold, per_node_limit, density = parse_query_params(request)
-        test_type = parse_test_type(request)
 
         # Handle error responses
         if isinstance(limit, HttpResponseBadRequest):
@@ -293,16 +383,31 @@ class GetCosmographView(generics.GenericAPIView):
             return per_node_limit
         if isinstance(density, HttpResponseBadRequest):
             return density
-        if isinstance(test_type, HttpResponseBadRequest):
-            return test_type
+
+        context_id = parse_context_id(request)
+        if isinstance(context_id, HttpResponseBadRequest):
+            return context_id
+
+        # A context has its own fixed testType (Context.params['testType']) --
+        # only require/parse the request's testType when no context is selected.
+        if context_id is None:
+            test_type = parse_test_type(request)
+            if isinstance(test_type, HttpResponseBadRequest):
+                return test_type
+        else:
+            try:
+                _, test_type = resolve_context_edge_table(context_id)
+            except ValueError as ex:
+                return HttpResponseBadRequest(str(ex), status=405)
 
         logger.info(
-            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s',
+            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s context_id=%s',
             limit,
             threshold,
             per_node_limit,
             density,
             test_type,
+            context_id,
         )
 
         # Extract candidate_links, selected_links, and nodes from the database
@@ -312,6 +417,7 @@ class GetCosmographView(generics.GenericAPIView):
             limit=limit,
             per_node_limit=per_node_limit,
             density=density,
+            context_id=context_id,
         )
 
         # Format response links (remove final_p_value which is internal)
@@ -321,7 +427,13 @@ class GetCosmographView(generics.GenericAPIView):
         ]
 
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description', 'xrefs')
+        if context_id is not None:
+            # Nodes/points are otherwise every row of the (context-independent) Nodes
+            # table -- restrict to only the variables actually part of this context
+            # (e.g. a protein-only context shouldn't surface phenotype/metabolite nodes).
+            context_node_ids = get_context_node_ids(context_id)
+            cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
 
         points = [
             {
@@ -330,6 +442,7 @@ class GetCosmographView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
+                'xrefs': node.get('xrefs') or '',
             }
             for node in cohort_nodes
             if node.get('node_id')
@@ -352,6 +465,7 @@ class GetCosmographView(generics.GenericAPIView):
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
                     'test_type': test_type,
+                    'context_id': context_id,
                     #'edge_weight': edge_weight,
                 },
                 'points': points,
@@ -369,7 +483,6 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
 
         start_whole_request = time.perf_counter()
         limit, threshold, per_node_limit, density = parse_query_params(request)
-        test_type = parse_test_type(request)
 
         if isinstance(limit, HttpResponseBadRequest):
             return limit
@@ -379,8 +492,22 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             return per_node_limit
         if isinstance(density, HttpResponseBadRequest):
             return density
-        if isinstance(test_type, HttpResponseBadRequest):
-            return test_type
+
+        context_id = parse_context_id(request)
+        if isinstance(context_id, HttpResponseBadRequest):
+            return context_id
+
+        # A context has its own fixed testType (Context.params['testType']) --
+        # only require/parse the request's testType when no context is selected.
+        if context_id is None:
+            test_type = parse_test_type(request)
+            if isinstance(test_type, HttpResponseBadRequest):
+                return test_type
+        else:
+            try:
+                _, test_type = resolve_context_edge_table(context_id)
+            except ValueError as ex:
+                return HttpResponseBadRequest(str(ex), status=405)
 
         # Parse resolutions parameter (defaults to all standard resolutions)
         resolutions = parse_resolution_values(request)
@@ -406,12 +533,13 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             )
 
         logger.info(
-            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s seed=%s algorithm=%s',
+            'Start metagraph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s context_id=%s seed=%s algorithm=%s',
             limit,
             threshold,
             per_node_limit,
             density,
             test_type,
+            context_id,
             seed,
             method,
         )
@@ -422,6 +550,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             limit=limit,
             per_node_limit=per_node_limit,
             density=density,
+            context_id=context_id,
         )
 
         # Run the selected community detection method for each resolution
@@ -433,16 +562,25 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
 
         graph = build_weighted_graph(selected_links, used_node_ids)
 
+        cached_result = None
         for resolution in resolutions:
             # Measure runtime
 
             start_one_leiden_run = time.perf_counter()
-            node_to_community, algo = run_community_clustering(
-                graph,
-                method=method,
-                resolution=resolution,
-                seed=seed,
-            )
+            try:
+                if method in RESOLUTION_INDEPENDENT_METHODS:
+                    if cached_result is None:
+                        cached_result = run_community_clustering(graph, method=method, resolution=resolution, seed=seed)
+                    node_to_community, algo = cached_result
+                else:
+                    node_to_community, algo = run_community_clustering(
+                        graph,
+                        method=method,
+                        resolution=resolution,
+                        seed=seed,
+                    )
+            except ImportError as ex:
+                return HttpResponseBadRequest(str(ex), status=503)
             clustering_algorithm = algo  # Store algorithm (same for all)
             resolution_results[resolution] = node_to_community
             community_count = len(set(node_to_community.values())) if node_to_community else 0
@@ -465,7 +603,12 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # resolution_results dict, so its community_rX fields below come back
         # None/null -- the frontend already renders that as an "Unassigned" bucket.
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description', 'xrefs')
+        if context_id is not None:
+            # Restrict to this context's own variables (e.g. a protein-only context
+            # shouldn't surface phenotype/metabolite nodes) -- see GetCosmographView.
+            context_node_ids = get_context_node_ids(context_id)
+            cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
 
         # Build points with community fields for each resolution
         points = []
@@ -479,6 +622,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
+                'xrefs': node.get('xrefs') or '',
             }
 
             # Add community field for each resolution
@@ -515,6 +659,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                     'threshold': threshold,
                     'per_node_limit': per_node_limit,
                     'test_type': test_type,
+                    'context_id': context_id,
                     #'edge_weight': edge_weight,
                 },
                 'points': points,

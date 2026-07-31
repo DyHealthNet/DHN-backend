@@ -13,11 +13,12 @@ from network.contexts.contexts import subset_patients
 from network.utils.db_utils import get_context
 from network.tasks import create_comparison_wrapper
 from network.schemas.modina_schemas import *
+from network.utils.utils import filter_layers
 
 logger = logging.getLogger('network')
 
 
-def _resolve_context_data(user, context_value, all_data, layers, meta_file):
+def _resolve_context_data(user, context_value, all_data, layers, meta_file, layer_subgroups):
     """
     Reconstruct a context's raw per-patient subset the same way CreateUserContext does at context
     creation time, driven entirely by the persisted Context.params (layers + filter conditions) --
@@ -29,9 +30,7 @@ def _resolve_context_data(user, context_value, all_data, layers, meta_file):
         return None, None, None
 
     params = context.params
-    context_data = all_data
-    for layer in list(set(layers.keys()) - set(params['layers'])):
-        context_data = context_data.drop(layers[layer], axis=1)
+    context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
 
     partial_data = subset_patients(context_data, params)
     context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
@@ -45,7 +44,9 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
     data_manager = None
 
     def post(self, request, *args, **kwargs):
-        all_data, layers, meta_file = self.data_manager.get_df_copy(['all_data', 'layers', 'meta_file'])
+        all_data, layers, meta_file, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'layers', 'meta_file', 'layer_subgroups']
+        )
 
         params = request.data
         if not params:
@@ -65,8 +66,10 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
                                 status=405)
 
         try:
-            context1, data1, meta1 = _resolve_context_data(request.user, context1_value, all_data, layers, meta_file)
-            context2, data2, meta2 = _resolve_context_data(request.user, context2_value, all_data, layers, meta_file)
+            context1, data1, meta1 = _resolve_context_data(
+                request.user, context1_value, all_data, layers, meta_file, layer_subgroups)
+            context2, data2, meta2 = _resolve_context_data(
+                request.user, context2_value, all_data, layers, meta_file, layer_subgroups)
         except ValueError as ex:
             return JsonResponse({'status': 'error', 'message': str(ex)}, status=405)
 

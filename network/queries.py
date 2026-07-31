@@ -84,6 +84,59 @@ def _query_new_schema_nodes(node_ids):
     ]
 
 
+def query_node_annotation_details(node_ids):
+    """
+    Fetch the raw group/subgroup/description/xrefs fields for a list of node IDs, for use
+    as LLM prompt context (e.g. the Gemini community-labeling feature). Unlike
+    _query_new_schema_nodes, this does not rename node_group to source_table -- callers
+    need the actual group/subgroup values.
+    """
+    node_model = apps.get_model('network', 'Nodes')
+    return list(
+        node_model.objects.filter(node_id__in=node_ids).values(
+            'node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs'
+        )
+    )
+
+
+def resolve_context_edge_table(context_id):
+    """
+    Validate context_id and return (table_name, test_type) for its per-context edge
+    table (edges_{test_type}_{context_id}, created by insert_context). test_type is
+    read from Context.params['testType'] — a context always has exactly one.
+    Raises ValueError if the context doesn't exist or has no recorded testType.
+    """
+    context_model = apps.get_model('network', 'Context')
+    try:
+        context = context_model.objects.get(context_id=context_id)
+    except context_model.DoesNotExist:
+        raise ValueError(f"Context {context_id} not found.")
+    test_type = context.params.get('testType')
+    if test_type not in ('parametric', 'nonparametric'):
+        raise ValueError(f"Context {context_id} has no valid testType recorded (got {test_type!r}).")
+    return f'edges_{test_type}_{context_id}', test_type
+
+
+def get_context_node_ids(context_id):
+    """
+    Full set of node_ids that belong to a context — every variable that was part
+    of the context's pairwise test computation, regardless of any
+    density/threshold/limit filtering a particular whole-network request applies
+    to its edges. Mirrors get_whole_network()'s "show every node regardless of
+    edge filtering" behavior for the global case (there it's every row of the
+    Nodes table; here it's scoped down to the context's own variable set instead
+    of the entire database).
+    """
+    table_name, _ = resolve_context_edge_table(context_id)
+    sql = (
+        f"SELECT node_id_1 AS node_id FROM {table_name} "
+        f"UNION SELECT node_id_2 AS node_id FROM {table_name}"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(sql)
+        return {row[0] for row in cursor.fetchall() if row[0]}
+
+
 def _get_flat_edge_models(context_id=None, test_type=None):
     """
     Return (edge_type_label, edge_model) pairs for flat-schema edge queries.
@@ -101,16 +154,7 @@ def _get_flat_edge_models(context_id=None, test_type=None):
             return [(label, model) for stat, label, model in all_models if stat == test_type]
         return [(label, model) for stat, label, model in all_models]
 
-    context_model = apps.get_model('network', 'Context')
-    try:
-        context = context_model.objects.get(context_id=context_id)
-    except context_model.DoesNotExist:
-        raise ValueError(f"Context {context_id} not found.")
-    test_type = context.params.get('testType')
-    if test_type not in ('parametric', 'nonparametric'):
-        raise ValueError(f"Context {context_id} has no valid testType recorded (got {test_type!r}).")
-
-    table_name = f'edges_{test_type}_{context_id}'
+    table_name, _ = resolve_context_edge_table(context_id)
     return [(table_name, create_dynamic_model(EdgesContextBase, table_name))]
 
 
@@ -206,12 +250,13 @@ def get_group_network_new(query_ids, thresh=None, limit=None, context_id=None, t
     return edges, nodes, []
 
 
-def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
+def get_whole_network_new(stat_type=None, thresh=None, limit=None, sort=True, context_id=None):
     """
     Extract the complete network from the flat table structure.
 
     Args:
         stat_type: Which edge table to query — 'parametric' or 'nonparametric'.
+            Ignored when context_id is given.
         thresh: Significance threshold for filtering edges (optional)
         limit: Overall limit on the number of edges to return (optional)
         sort: Whether candidate_links must come back ordered by ascending p_value.
@@ -220,6 +265,11 @@ def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
             Pass False there when nothing downstream depends on order (e.g. no
             per_node_limit filtering afterward) - skips the Python-side sort and
             builds the output in a single pass over DB fetch order instead of two.
+        context_id: When given, reads the single precomputed per-context edge table
+            (edges_{test_type}_{context_id}) instead of the global
+            edges_parametric/edges_nonparametric tables — test_type is then taken
+            from the context itself (see resolve_context_edge_table), not from the
+            stat_type argument.
 
     Returns:
         tuple: (candidate_links, nodes)
@@ -232,7 +282,9 @@ def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
     from math import ceil
     from collections import defaultdict
 
-    if stat_type == 'parametric':
+    if context_id is not None:
+        edge_type_label, stat_type = resolve_context_edge_table(context_id)
+    elif stat_type == 'parametric':
         edge_type_label = 'edges_parametric'
     elif stat_type == 'nonparametric':
         edge_type_label = 'edges_nonparametric'
@@ -245,7 +297,9 @@ def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
     # queryset iteration (values_list().iterator()) was ~58% of total time for the
     # unbounded ~35M-row case. connection.cursor()/fetchall() is the same pattern
     # already used for bulk reads elsewhere (see contexts.py::load_context_scores);
-    # edge_type_label is one of the two literal table names above, never user input.
+    # edge_type_label is either one of the two literal global table names, or a
+    # per-context table name built from a context_id already validated to exist by
+    # resolve_context_edge_table() above — never raw user input either way.
     sql = f"SELECT id, node_id_1, node_id_2, p_value, effect_size, test_type FROM {edge_type_label}"
     params = []
     if thresh is not None:
@@ -335,17 +389,23 @@ def get_whole_network_new(stat_type, thresh=None, limit=None, sort=True):
     return candidate_links, nodes
 
 
-def get_whole_network(test_type, thresh=None, limit=None, per_node_limit=None, density=None):
+def get_whole_network(test_type=None, thresh=None, limit=None, per_node_limit=None, density=None, context_id=None):
     """
     Extract the complete network for a single stat type (parametric or nonparametric)
     from the flat table structure, built on top of get_whole_network_new().
 
     Args:
         test_type: Which edge table to query - 'parametric' or 'nonparametric'.
+            Ignored when context_id is given.
         thresh: Significance threshold for filtering edges (optional)
         limit: Overall limit on the number of edges to return (optional)
         per_node_limit: Limit the number of edges per node (optional)
         density: Desired network density (optional, overrides thresh and limit)
+        context_id: When given, restricts the whole network to a single precomputed
+            per-context edge table instead of the global tables (see
+            get_whole_network_new/resolve_context_edge_table). The node universe
+            (all patients' variables) is unaffected by context — only which
+            patient subset the edge statistics were computed over.
 
     Returns:
         tuple: (candidate_links, selected_links, nodes)
@@ -368,7 +428,9 @@ def get_whole_network(test_type, thresh=None, limit=None, per_node_limit=None, d
     # p_value LIMIT) regardless of the sort argument, so this only needs to force a
     # Python-side sort for the unbounded (limit=None) + per_node_limit combination.
     needs_sort = limit is None and per_node_limit is not None
-    candidate_links, _ = get_whole_network_new(stat_type=test_type, thresh=thresh, limit=limit, sort=needs_sort)
+    candidate_links, _ = get_whole_network_new(
+        stat_type=test_type, thresh=thresh, limit=limit, sort=needs_sort, context_id=context_id,
+    )
 
     # Apply per_node_limit filtering if specified
     if per_node_limit is not None:

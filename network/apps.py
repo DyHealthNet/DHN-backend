@@ -41,9 +41,10 @@ class NetworksConfig(AppConfig):
 
         all_keys = self.DATA_MANAGER.get_valid_keys()
         available_omics = [key for key in all_keys if self.DATA_MANAGER.is_available(key) and not key.startswith('all')]
-        # layers/group_data/group_meta are all keyed by the same node-group names; report
-        # that once by name instead of once per (uninformative, always-present) dict.
-        skip_keys = {'layers', 'group_data', 'group_meta'}
+        # layers/group_data/group_meta/layer_subgroups are all keyed by the same
+        # node-group names; report that once by name instead of once per
+        # (uninformative, always-present) dict.
+        skip_keys = {'layers', 'group_data', 'group_meta', 'layer_subgroups'}
         for key in available_omics:
             if key in skip_keys:
                 continue

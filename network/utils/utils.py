@@ -12,11 +12,12 @@ def list_group_variables(meta, data):
     """
     Build the statistical-type grouping and display identifier for every variable in one
     data group (phenotype/protein/metabolite/... - any group produced by DataManager).
-    :param meta: metadata DataFrame for this group, indexed by label, with 'type' and
-                 'description' columns (description may be all-NaN if not configured).
+    :param meta: metadata DataFrame for this group, indexed by label, with 'type',
+                 'description' and 'subgroup' columns (description/subgroup may be
+                 all-NaN if not configured for this group).
     :param data: data DataFrame for this group (columns = variable labels).
     :return: DataFrame indexed by label with columns 'group' (continuous/binaryCategorical/
-             nonbinaryCategorical) and 'identifier' (display string).
+             nonbinaryCategorical), 'identifier' (display string) and 'subgroup' (may be NaN).
     """
     def make_group(cols):
         ctype = cols['type']
@@ -29,10 +30,11 @@ def list_group_variables(meta, data):
 
     type_col = 'type'
     desc_col = 'description'
+    subgroup_col = 'subgroup'
 
     # get subtable of meta data for the variables that are actually in the data
     filtered_rows = meta[meta.index.isin(data.columns)]
-    values = filtered_rows[[type_col, desc_col]].copy()
+    values = filtered_rows[[type_col, desc_col, subgroup_col]].copy()
 
     values.loc[:, 'num_cat'] = pd.Series(data.nunique())
     values.loc[:, 'group'] = values.loc[:, [type_col, 'num_cat']].apply(make_group, axis=1)
@@ -46,6 +48,40 @@ def list_group_variables(meta, data):
 
     values.drop(columns=[desc_col, 'num_cat', type_col], inplace=True)
     return values
+
+
+def filter_layers(data, layers, layer_subgroups, selected_layers, selected_sub_layers=None):
+    """
+    Drop columns from `data` that aren't covered by the selected layers/subgroups.
+
+    :param data: DataFrame to filter (columns = variable labels).
+    :param layers: dict mapping each group name to a pd.Index of all its labels.
+    :param layer_subgroups: dict mapping each group name (that has any) to
+                             {subgroup: pd.Index of labels}.
+    :param selected_layers: iterable of group names to keep.
+    :param selected_sub_layers: optional dict mapping a group name to the list of its
+                                 subgroup names to keep. A group absent from this dict,
+                                 or with no subgroups configured at all, keeps all of
+                                 its columns once the group itself is selected - this is
+                                 what makes a context saved before subgroups existed (no
+                                 'subLayers' key at all) behave as fully unrestricted.
+    :return: filtered DataFrame.
+    """
+    selected_sub_layers = selected_sub_layers or {}
+    selected_layers = set(selected_layers)
+    for group in layers:
+        if group not in selected_layers:
+            data = data.drop(layers[group], axis=1)
+            continue
+        subgroups = layer_subgroups.get(group)
+        wanted = selected_sub_layers.get(group)
+        if not subgroups or wanted is None:
+            continue
+        wanted = set(wanted)
+        for subgroup, labels in subgroups.items():
+            if subgroup not in wanted:
+                data = data.drop(labels, axis=1)
+    return data
 
 
 # Function to extract the variable Id from the user-friendly input

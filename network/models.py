@@ -153,6 +153,7 @@ class Nodes(models.Model):
     display_name = models.CharField(max_length=200, blank=True, null=True)
     data_type = models.CharField(max_length=200, blank=True, null=True)
     node_group = models.CharField(max_length=200, blank=True, null=True)
+    node_subgroup = models.CharField(max_length=200, blank=True, null=True)
     description = models.CharField(max_length=200, blank=True, null=True)
     xrefs = models.CharField(max_length=200, blank=True, null=True)
 

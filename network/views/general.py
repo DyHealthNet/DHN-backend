@@ -21,7 +21,9 @@ class GetVariablesView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        layers, group_data, group_meta = self.data_manager.get_df_copy(['layers', 'group_data', 'group_meta'])
+        layers, group_data, group_meta, layer_subgroups = self.data_manager.get_df_copy(
+            ['layers', 'group_data', 'group_meta', 'layer_subgroups']
+        )
         has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
         context_layers = None
@@ -43,9 +45,12 @@ class GetVariablesView(generics.GenericAPIView):
             # create output dict with type as key and identifier as value, plus an explicit
             # per-variable layer map so consumers don't need to infer layer from the identifier
             variable_layers = {}
+            variable_sub_layers = {}
             for group_name, values in group_values.items():
-                for identifier in values['identifier']:
+                for identifier, subgroup in zip(values['identifier'], values['subgroup']):
                     variable_layers[identifier] = group_name
+                    if pd.notna(subgroup):
+                        variable_sub_layers[identifier] = subgroup
 
             if group_values:
                 combined_vals = pd.concat(group_values.values(), axis=0)
@@ -60,6 +65,12 @@ class GetVariablesView(generics.GenericAPIView):
 
             values_dict['variableLayers'] = variable_layers
             values_dict['availableLayers'] = list(group_values.keys())
+            values_dict['variableSubLayers'] = variable_sub_layers
+            values_dict['layerSubLayers'] = {
+                group_name: sorted(layer_subgroups[group_name].keys())
+                for group_name in group_values
+                if layer_subgroups.get(group_name)
+            }
 
             response = JsonResponse(values_dict, safe=True)
             if not settings.NO_CACHE and not has_context:
