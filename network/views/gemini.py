@@ -10,12 +10,20 @@ from network.queries import query_node_annotation_details
 
 logger = logging.getLogger('network')
 
-GEMINI_MODEL = 'gemini-3.5-flash'
-GEMINI_ENDPOINT = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+# Tried in order; only falls through to the next entry when THIS model specifically is
+# unusable -- 404 (retired/no longer available, as gemini-2.5-flash already is for new
+# users), 429 (rate-limited/quota), 503 (overloaded), or a read timeout -- see
+# _call_gemini. Deliberately excludes preview-tagged models (e.g. gemini-3-flash-preview,
+# gemini-2.5-flash-lite-preview-09-2025): those are the ones that get retired abruptly, so
+# they aren't used as a silent fallback target here.
+GEMINI_MODEL_FALLBACKS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
 GEMINI_TIMEOUT_SECONDS = 30
 # Bulk community-labeling prompts are much larger (many communities' worth of nodes in
 # one request) and take Gemini noticeably longer to generate than a single-node prompt.
 GEMINI_BULK_TIMEOUT_SECONDS = 90
+# Status codes that mean "this specific model is unusable right now" rather than "the
+# request itself is wrong" -- worth trying the next model in the list rather than failing.
+GEMINI_FALLBACK_STATUS_CODES = (404, 429, 503)
 
 
 class GeminiCallError(Exception):
@@ -33,32 +41,53 @@ def _require_gemini_configured():
     return None
 
 
-def _call_gemini(prompt, timeout=GEMINI_TIMEOUT_SECONDS):
+def _gemini_endpoint(model):
+    return f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+
+
+def _call_gemini(prompt, timeout=GEMINI_TIMEOUT_SECONDS, models=GEMINI_MODEL_FALLBACKS):
     """
-    POSTs prompt to Gemini and returns the parsed JSON response dict. Raises
-    GeminiCallError on any request/parsing failure (network error, bad status,
-    unexpected response shape, invalid JSON).
+    POSTs prompt to Gemini, trying each model in `models` in order. Falls through to the
+    next model only when this specific model is unusable (404 retired/not found, 429
+    rate-limited/quota, 503 overloaded, or a read timeout) -- any other failure (bad key,
+    malformed response) raises immediately, since retrying it against a different model
+    wouldn't fix it and would only add latency. Returns the parsed JSON response dict.
+    Raises GeminiCallError if every model fails.
     """
-    try:
-        response = requests.post(
-            GEMINI_ENDPOINT,
-            params={"key": settings.GEMINI_API_KEY},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"response_mime_type": "application/json"},
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        text = payload["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
-    except (requests.RequestException, KeyError, IndexError, ValueError) as ex:
-        # Gemini's error body (esp. for 429s) names the specific quota that was hit
-        # and its limit -- raise_for_status() discards it, so log it explicitly.
-        error_body = ex.response.text if isinstance(ex, requests.HTTPError) and ex.response is not None else ""
-        logger.error("Gemini request failed: %s | response body: %s", ex, error_body)
-        raise GeminiCallError(str(ex)) from ex
+    for i, model in enumerate(models):
+        has_next_model = i < len(models) - 1
+        try:
+            response = requests.post(
+                _gemini_endpoint(model),
+                params={"key": settings.GEMINI_API_KEY},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"response_mime_type": "application/json"},
+                },
+                timeout=timeout,
+            )
+            if response.status_code in GEMINI_FALLBACK_STATUS_CODES and has_next_model:
+                logger.warning(
+                    "Gemini model %s returned %d (unusable), falling back to %s",
+                    model, response.status_code, models[i + 1],
+                )
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            text = payload["candidates"][0]["content"]["parts"][0]["text"]
+            return json.loads(text)
+        except requests.Timeout as ex:
+            if has_next_model:
+                logger.warning("Gemini model %s timed out, falling back to %s", model, models[i + 1])
+                continue
+            logger.error("Gemini request failed: %s | response body: (timeout, no response)", ex)
+            raise GeminiCallError(str(ex)) from ex
+        except (requests.RequestException, KeyError, IndexError, ValueError) as ex:
+            # Gemini's error body (esp. for 429s) names the specific quota that was hit
+            # and its limit -- raise_for_status() discards it, so log it explicitly.
+            error_body = ex.response.text if isinstance(ex, requests.HTTPError) and ex.response is not None else ""
+            logger.error("Gemini request failed: %s | response body: %s", ex, error_body)
+            raise GeminiCallError(str(ex)) from ex
 
 
 def _format_node_line(node):

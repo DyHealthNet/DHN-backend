@@ -327,7 +327,16 @@ def _run_hsbm_clustering(graph, seed=42):
     gt_graph.ep.weight = gt_graph.new_edge_property("double")
     gt_graph.ep.weight.a = weights
 
-    state = gt.minimize_nested_blockmodel_dl(gt_graph, state_args={'deg_corr': True})
+    state = gt.minimize_nested_blockmodel_dl(
+        gt_graph,
+        base_state=gt.WeightedBlockState,
+        state_args={'deg_corr': True},
+        # Fit on the actual -log10(p)*|effect size| edge weights (real-valued
+        # covariate), not just unweighted topology -- otherwise hsbm ignores
+        # the same significance/effect-size signal that Leiden/Louvain/Infomap
+        # all use.
+        base_state_args={'rec': [gt_graph.ep.weight], 'rec_types': ['real-exponential']},
+    )
     blocks = state.get_bs()[0]  # finest level, matching Leiden/Louvain's flat output
     raw_membership = [int(blocks[vertex]) for vertex in gt_graph.vertices()]
 

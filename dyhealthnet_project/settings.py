@@ -29,7 +29,10 @@ env = environ.Env(
 
     CALCULATED_EDGES_PATH=(str, None),
     VAR_LABEL_MAPPING=(str, None),
-    PATIENT_ID_COLUMN=(str, None)
+    PATIENT_ID_COLUMN=(str, None),
+
+    PLATFORM_BASIC_AUTH_ENABLED=(bool, True),
+    PLATFORM_BASIC_AUTH_USERS=(str, ''),
 )
 environ.Env.read_env()
 
@@ -47,6 +50,14 @@ SECRET_KEY = env('SECRET_KEY')
 
 FRONTEND_HOME_URL = env('FRONTEND_HOME_URL')
 
+# HTTP Basic Auth gate in front of the whole backend (see network/middleware.py).
+# Independent of per-user login (allauth) and DRF permissions.
+# PLATFORM_BASIC_AUTH_USERS format: "user1:pass1,user2:pass2,..."
+PLATFORM_BASIC_AUTH_ENABLED = env('PLATFORM_BASIC_AUTH_ENABLED')
+PLATFORM_BASIC_AUTH_USERS = dict(
+    pair.split(':', 1) for pair in env('PLATFORM_BASIC_AUTH_USERS').split(',') if ':' in pair
+)
+
 OAUTH_GITHUB_CLIENT_ID = env('OAUTH_GITHUB_CLIENT_ID')
 
 OAUTH_GITHUB_SECRET = env('OAUTH_GITHUB_SECRET')
@@ -54,8 +65,8 @@ OAUTH_GITHUB_SECRET = env('OAUTH_GITHUB_SECRET')
 # Free-tier API key from Google AI Studio, used by the Gemini community-labeling feature.
 # Optional: the feature returns a clean error if left blank rather than failing at startup.
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
-
-ALLOWED_HOSTS = ['*']
+# TODO remove gnext.gm.eurac.edu and add comment to add users own allowed hosts
+ALLOWED_HOSTS = ['gnext.gm.eurac.edu', '127.0.0.1', 'localhost']
 
 SITE_ID = 1 # Django’s Sites framework is required for django-allauth
 
@@ -130,6 +141,13 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS':'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    # Per-user auth is session-cookie based (see LoginView); dropping the
+    # BasicAuthentication default avoids it intercepting requests that carry
+    # a browser-cached Authorization header from the PlatformBasicAuthMiddleware
+    # gate and rejecting them before the view's own logic runs.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -147,6 +165,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    'network.middleware.PlatformBasicAuthMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -255,7 +274,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True  # TODO set to false in production
+CORS_ALLOW_ALL_ORIGINS = False  # TODO set to false in production
 
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
 
