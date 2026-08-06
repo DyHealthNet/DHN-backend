@@ -9,8 +9,10 @@ class PlatformBasicAuthMiddleware:
     """Gates the whole backend behind HTTP Basic Auth, checked against
     settings.PLATFORM_BASIC_AUTH_USERS (a {username: password} dict).
 
-    Runs ahead of CORS/session/auth middleware so unauthenticated requests are
-    rejected before anything else executes. Independent of per-user login
+    Placed right after CorsMiddleware (which must stay first) so that even a
+    401 from here still gets Access-Control-* headers attached on the way
+    out -- otherwise the browser reports a same-origin-looking auth failure
+    as an opaque CORS error instead. Independent of per-user login
     (django-allauth) and DRF permission classes.
     """
 

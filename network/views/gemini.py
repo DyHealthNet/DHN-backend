@@ -16,7 +16,7 @@ logger = logging.getLogger('network')
 # _call_gemini. Deliberately excludes preview-tagged models (e.g. gemini-3-flash-preview,
 # gemini-2.5-flash-lite-preview-09-2025): those are the ones that get retired abruptly, so
 # they aren't used as a silent fallback target here.
-GEMINI_MODEL_FALLBACKS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
+GEMINI_MODEL_FALLBACKS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview']
 GEMINI_TIMEOUT_SECONDS = 30
 # Bulk community-labeling prompts are much larger (many communities' worth of nodes in
 # one request) and take Gemini noticeably longer to generate than a single-node prompt.

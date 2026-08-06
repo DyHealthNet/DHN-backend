@@ -165,8 +165,8 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
-    'network.middleware.PlatformBasicAuthMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'network.middleware.PlatformBasicAuthMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
