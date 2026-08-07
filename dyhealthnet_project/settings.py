@@ -33,6 +33,14 @@ env = environ.Env(
 
     PLATFORM_BASIC_AUTH_ENABLED=(bool, True),
     PLATFORM_BASIC_AUTH_USERS=(str, ''),
+
+    # biodigest (gene/disease-set enrichment scoring for community-detection clusterings) needs
+    # numpy==1.24.3/scipy==1.8.0, which conflict with napypi's numpy==1.26.*/scipy==1.11.0 pins used
+    # elsewhere in this project -- it lives in its own conda env, called out-of-process. See
+    # environment_biodigest.yml for how to build that env.
+    BIODIGEST_PYTHON=(str, '/home/brehor/miniforge3/envs/biodigest/bin/python'),
+    BIODIGEST_SCORE_SCRIPT=(str, str(Path(__file__).resolve().parent.parent / 'scripts' / 'biodigest_score_clusters.py')),
+    BIODIGEST_TIMEOUT_SECONDS=(int, 3600),
 )
 environ.Env.read_env()
 
@@ -166,11 +174,13 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    # Must run ahead of PlatformBasicAuthMiddleware so request.session exists
+    # there (it checks a session flag set by the platform-login page).
+    'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
     'network.middleware.PlatformBasicAuthMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware', # Associates users with requests using sessions.
@@ -347,6 +357,10 @@ CRITICAL_NUMBER = env("CRITICAL_NUMBER", cast=int)
 # can display what was actually used instead of a misleading editable toggle.
 MULTIPLE_TESTING = env("MULTIPLE_TESTING")
 NO_CACHE = env("NO_CACHE", cast=bool)
+
+BIODIGEST_PYTHON = env("BIODIGEST_PYTHON")
+BIODIGEST_SCORE_SCRIPT = env("BIODIGEST_SCORE_SCRIPT")
+BIODIGEST_TIMEOUT_SECONDS = env("BIODIGEST_TIMEOUT_SECONDS", cast=int)
 
 
 # TODO add real email functionality

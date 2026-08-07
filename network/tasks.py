@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import subprocess
 
 from celery import shared_task
 import time
@@ -231,6 +232,41 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
         if os.path.exists(dir_path) and os.path.isdir(dir_path):
             shutil.rmtree(dir_path)
 
+    return result
+
+
+@shared_task(bind=True)
+def score_clustering_wrapper(self, clustering_data: str, dir_path: str, node_group: str, tar_id: str,
+                             input_node_count: int, distance: str = 'jaccard', runs: int = 1000):
+    """
+    Scores a community-detection clustering's biological coherence via biodigest, run as a
+    subprocess in its own conda env (numpy==1.24.3/scipy==1.8.0, incompatible with napypi's
+    numpy==1.26.*/scipy==1.11.0 pins used elsewhere in this project -- see
+    environment_biodigest.yml). Only cluster members of `node_group` with a `tar_id`-scheme xref
+    are scoreable at all (e.g. proteins via UniProt); other node types in the same clustering are
+    silently excluded -- `input_node_count` vs this result's scored count is the caller's coverage
+    signal, since a low-coverage score should be caveated rather than read at face value.
+    """
+    scored_node_count = len(pd.read_pickle(clustering_data))
+    try:
+        proc = subprocess.run(
+            [settings.BIODIGEST_PYTHON, settings.BIODIGEST_SCORE_SCRIPT,
+             '--input', clustering_data, '--tar-id', tar_id, '--output', os.path.join(dir_path, 'output.json'),
+             '--distance', distance, '--runs', str(runs)],
+            capture_output=True, text=True, timeout=settings.BIODIGEST_TIMEOUT_SECONDS,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f'biodigest scoring failed:\n{proc.stderr[-4000:]}')
+        with open(os.path.join(dir_path, 'output.json')) as f:
+            result = json.load(f)
+    finally:
+        if os.path.exists(dir_path) and os.path.isdir(dir_path):
+            shutil.rmtree(dir_path)
+
+    result['coverage'] = {
+        'nodeGroup': node_group, 'tarId': tar_id,
+        'inputNodeCount': input_node_count, 'scoredNodeCount': scored_node_count,
+    }
     return result
 
 

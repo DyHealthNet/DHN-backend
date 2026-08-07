@@ -30,6 +30,12 @@ class PlatformBasicAuthMiddleware:
         if request.method == "OPTIONS":
             return self.get_response(request)
 
+        # The platform-login page (network/views/platform_authentication.py) has to be
+        # reachable before a session exists, otherwise nobody could ever authenticate.
+        # Remove this bypass if the platform-login feature is removed.
+        if request.path.startswith("/platform-auth/"):
+            return self.get_response(request)
+
         if self._is_authorized(request):
             return self.get_response(request)
 
@@ -39,6 +45,11 @@ class PlatformBasicAuthMiddleware:
 
     @staticmethod
     def _is_authorized(request):
+        # Session flag set by the platform-login page's PlatformLoginView. Remove this
+        # check if the platform-login feature is removed.
+        if request.session.get("platform_authenticated"):
+            return True
+
         header = request.META.get("HTTP_AUTHORIZATION", "")
         scheme, _, credentials = header.partition(" ")
         if scheme.lower() != "basic" or not credentials:
