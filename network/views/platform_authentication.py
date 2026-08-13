@@ -6,6 +6,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import generics
 
+from network.middleware import PlatformBasicAuthMiddleware
+
 # Platform-wide login page: an in-app replacement for the browser's native
 # Basic-Auth popup used by PlatformBasicAuthMiddleware (network/middleware.py).
 # Self-contained on purpose (no drf_spectacular schema, separate url module)
@@ -34,5 +36,9 @@ class PlatformCheckStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         enabled = settings.PLATFORM_BASIC_AUTH_ENABLED
-        is_authenticated = (not enabled) or bool(request.session.get('platform_authenticated'))
+        # Recognize a request already authorized via cached Basic Auth (e.g. the
+        # native browser popup on the initial page load), not just the session
+        # flag this page's own form sets - otherwise a request that already
+        # satisfies the middleware still gets redirected here redundantly.
+        is_authenticated = (not enabled) or PlatformBasicAuthMiddleware._is_authorized(request)
         return JsonResponse({'platform_auth_enabled': enabled, 'is_authenticated': is_authenticated}, status=200)

@@ -39,9 +39,14 @@ class PlatformBasicAuthMiddleware:
         if self._is_authorized(request):
             return self.get_response(request)
 
-        response = HttpResponse("Authentication required", status=401)
-        response["WWW-Authenticate"] = 'Basic realm="DyHealthNet"'
-        return response
+        # Deliberately no WWW-Authenticate header: that's what makes a browser pop up
+        # its own native credential dialog on a 401. The platform-login page is meant
+        # to be the only credential prompt a browser user ever sees; a bare 401 here
+        # just fails the request quietly and the frontend router guard (platformAuth.js)
+        # redirects to that page instead. Non-browser clients (curl -u, scripts) are
+        # unaffected since they send Authorization proactively rather than in response
+        # to this header.
+        return HttpResponse("Authentication required", status=401)
 
     @staticmethod
     def _is_authorized(request):
