@@ -1,7 +1,6 @@
 import os
 import json
 import shutil
-import subprocess
 
 from celery import shared_task
 import time
@@ -10,6 +9,12 @@ from django.conf import settings
 
 from network.models import Context, UserContextLink, Nodes
 from network.contexts.contexts import insert_context, load_context_scores
+from network.queries import query_node_annotation_details
+from network.enrichment import (
+    extract_protein_accessions, resolve_metabolite_chebi_ids,
+    run_gprofiler_multi_query, run_reactome_analysis,
+)
+from network.views.gemini import _call_gemini, _build_multi_community_prompt_with_enrichment, GEMINI_BULK_TIMEOUT_SECONDS
 from modina.context_net_inference import compute_context_scores
 from modina.diff_net_construction import compute_diff_network
 from modina.edge_filtering import filter as modina_filter, filter_differential
@@ -236,38 +241,78 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
 
 
 @shared_task(bind=True)
-def score_clustering_wrapper(self, clustering_data: str, dir_path: str, node_group: str, tar_id: str,
-                             input_node_count: int, distance: str = 'jaccard', runs: int = 1000):
+def run_community_annotation_task(self, communities: dict, resolution: str):
     """
-    Scores a community-detection clustering's biological coherence via biodigest, run as a
-    subprocess in its own conda env (numpy==1.24.3/scipy==1.8.0, incompatible with napypi's
-    numpy==1.26.*/scipy==1.11.0 pins used elsewhere in this project -- see
-    environment_biodigest.yml). Only cluster members of `node_group` with a `tar_id`-scheme xref
-    are scoreable at all (e.g. proteins via UniProt); other node types in the same clustering are
-    silently excluded -- `input_node_count` vs this result's scored count is the caller's coverage
-    signal, since a low-coverage score should be caveated rather than read at face value.
+    For every community, runs g:Profiler + Reactome enrichment on its proteins/metabolites and
+    feeds the results into a single bulk Gemini call (one request covering all communities) so
+    each label/rationale is grounded in actual pathway evidence rather than node names alone.
+    Backs the Community Annotation tab's "Run Community Annotation" button (via
+    RunCommunityAnnotationView.delay(...)/CommunityAnnotationStatusView's AsyncResult polling).
+    `communities`: {community_id: [node_id, ...]}. Progress is reported via self.update_state so
+    CommunityAnnotationStatusView can show which stage/community is in flight -- this can take a
+    few minutes (one g:Profiler call total, but one Reactome call per community).
     """
-    scored_node_count = len(pd.read_pickle(clustering_data))
-    try:
-        proc = subprocess.run(
-            [settings.BIODIGEST_PYTHON, settings.BIODIGEST_SCORE_SCRIPT,
-             '--input', clustering_data, '--tar-id', tar_id, '--output', os.path.join(dir_path, 'output.json'),
-             '--distance', distance, '--runs', str(runs)],
-            capture_output=True, text=True, timeout=settings.BIODIGEST_TIMEOUT_SECONDS,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f'biodigest scoring failed:\n{proc.stderr[-4000:]}')
-        with open(os.path.join(dir_path, 'output.json')) as f:
-            result = json.load(f)
-    finally:
-        if os.path.exists(dir_path) and os.path.isdir(dir_path):
-            shutil.rmtree(dir_path)
+    all_node_ids = sorted({node_id for node_ids in communities.values() for node_id in node_ids})
+    node_rows = query_node_annotation_details(all_node_ids)
+    nodes_by_id = {row['node_id']: row for row in node_rows}
 
-    result['coverage'] = {
-        'nodeGroup': node_group, 'tarId': tar_id,
-        'inputNodeCount': input_node_count, 'scoredNodeCount': scored_node_count,
+    communities_details = {}
+    community_proteins = {}
+    community_chebi_ids = {}
+    for community_id, node_ids in communities.items():
+        details = [nodes_by_id[node_id] for node_id in node_ids if node_id in nodes_by_id]
+        if not details:
+            continue
+        communities_details[community_id] = details
+
+        proteins = []
+        for node in details:
+            if node['node_group'] == 'protein':
+                for accession in extract_protein_accessions(node['display_name']):
+                    if accession not in proteins:
+                        proteins.append(accession)
+        community_proteins[community_id] = proteins
+
+        chebi_ids = []
+        for node in details:
+            if node['node_group'] != 'metabolite':
+                continue
+            for chebi_id in resolve_metabolite_chebi_ids(node['node_id'], node['xrefs']):
+                if chebi_id not in chebi_ids:
+                    chebi_ids.append(chebi_id)
+        community_chebi_ids[community_id] = chebi_ids
+
+    total_communities = len(communities_details)
+    self.update_state(state='PROGRESS', meta={'stage': 'gprofiler', 'completed': 0, 'total': total_communities})
+    gprofiler_results = run_gprofiler_multi_query({
+        community_id: proteins for community_id, proteins in community_proteins.items() if proteins
+    })
+
+    reactome_results = {}
+    for i, community_id in enumerate(communities_details):
+        identifiers = community_proteins.get(community_id, []) + community_chebi_ids.get(community_id, [])
+        if identifiers:
+            reactome_results[community_id] = run_reactome_analysis(identifiers)
+        self.update_state(
+            state='PROGRESS',
+            meta={'stage': 'reactome', 'completed': i + 1, 'total': total_communities},
+        )
+
+    self.update_state(state='PROGRESS', meta={'stage': 'gemini', 'completed': 0, 'total': 1})
+    prompt = _build_multi_community_prompt_with_enrichment(communities_details, gprofiler_results, reactome_results)
+    label_data = _call_gemini(prompt, timeout=GEMINI_BULK_TIMEOUT_SECONDS)
+    labels = label_data.get('communities', {})
+
+    return {
+        community_id: {
+            'label': labels.get(community_id, {}).get('label', ''),
+            'rationale': labels.get(community_id, {}).get('rationale', ''),
+            'node_count': len(details),
+            'gprofiler': gprofiler_results.get(community_id, []),
+            'reactome': reactome_results.get(community_id, []),
+        }
+        for community_id, details in communities_details.items()
     }
-    return result
 
 
 @shared_task

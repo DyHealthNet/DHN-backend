@@ -150,6 +150,64 @@ def _build_multi_community_prompt(communities_details):
     return "\n".join(lines)
 
 
+def _format_enrichment_lines(gprofiler_terms, reactome_pathways, top_n=5):
+    """
+    Renders a community's top gProfiler terms / Reactome pathways as prompt lines (names only,
+    keeps the prompt bounded even with many communities). Returns [] if neither is available,
+    so the caller can fall back to the plain node-list format.
+    """
+    lines = []
+    if gprofiler_terms:
+        names = ', '.join(term['name'] for term in gprofiler_terms[:top_n])
+        lines.append(f"Top enriched terms (g:Profiler): {names}")
+    if reactome_pathways:
+        names = ', '.join(pathway['name'] for pathway in reactome_pathways[:top_n])
+        lines.append(f"Top enriched pathways (Reactome): {names}")
+    return lines
+
+
+def _build_multi_community_prompt_with_enrichment(communities_details, communities_gprofiler, communities_reactome):
+    """
+    Same as _build_multi_community_prompt, but additionally gives each community its top
+    g:Profiler terms and Reactome pathways (from network.enrichment.run_gprofiler_multi_query /
+    run_reactome_analysis) as grounding evidence, so the label/rationale reflects actual
+    pathway enrichment rather than only node names/descriptions. communities_gprofiler and
+    communities_reactome are {community_id: [...]} -- a community missing from either (or with
+    an empty list) just gets the plain node-list format for that part.
+    """
+    lines = [
+        "You are helping annotate the communities/clusters produced by running community detection on a "
+        "multi-omics heterogenous association network. Each node is a gene, phenotype, "
+        "protein, metabolite, or similar omics variable; edges represent associations between them. Below are "
+        "ALL communities from this resolution at once, each with its member nodes and, where available, the "
+        "results of functional enrichment analysis (g:Profiler) and pathway over-representation analysis "
+        "(Reactome) run on that community's proteins/metabolites. For EACH community, propose ONE short label "
+        "(a single concise phrase, not a list) and a one-sentence rationale. When enrichment results are given "
+        "for a community, ground the label and rationale in that evidence rather than guessing from node names "
+        "alone. Synthesize a single overarching theme per community even when it spans several biological "
+        "categories or subgroups -- do not enumerate multiple sub-themes or list the distinct subgroups "
+        "separately within one community's label. If a community truly has no coherent theme at all (and no "
+        "supporting enrichment), say so plainly in one short phrase. Since you can see every community "
+        "together, also make the labels mutually distinctive across communities -- avoid giving two different "
+        "communities the same or a near-identical label unless their node sets are genuinely indistinguishable.",
+        "",
+    ]
+    for community_id, node_details in communities_details.items():
+        lines.append(f"Community {community_id} ({len(node_details)} nodes):")
+        lines.extend(_format_enrichment_lines(
+            communities_gprofiler.get(community_id), communities_reactome.get(community_id),
+        ))
+        lines.extend(_format_node_line(node) for node in node_details)
+        lines.append("")
+    community_ids = ", ".join(f'"{cid}"' for cid in communities_details.keys())
+    lines.append(
+        "Respond with a JSON object of the form "
+        '{"communities": {"<community_id>": {"label": "...", "rationale": "..."}, ...}}, '
+        f"using exactly these community id keys: {community_ids}."
+    )
+    return "\n".join(lines)
+
+
 class GetGeminiLabelView(generics.GenericAPIView):
     @staticmethod
     def post(request):
