@@ -117,6 +117,8 @@ def resolve_metabolite_chebi_ids(node_id, xrefs_string):
     direct_chebi = parsed.get('chebi')
     if direct_chebi:
         return list(dict.fromkeys(direct_chebi))
+    else:
+        return []
 
     raw_segments = re.split(r'[|;]', xrefs_string) if isinstance(xrefs_string, str) else []
     candidates = list(dict.fromkeys(
