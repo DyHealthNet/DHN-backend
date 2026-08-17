@@ -1,8 +1,6 @@
 import logging
 
 from celery.result import AsyncResult
-from django.conf import settings
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseBadRequest, JsonResponse
 from rest_framework import generics
 
@@ -12,14 +10,16 @@ from network.views.gemini import _require_gemini_configured
 logger = logging.getLogger('network')
 
 
-class RunCommunityAnnotationView(LoginRequiredMixin, generics.GenericAPIView):
+class RunCommunityAnnotationView(generics.GenericAPIView):
     """
     Kicks off the Community Annotation batch job (g:Profiler + Reactome + Gemini for every
     community) as a background Celery task -- this can take several minutes, so it's dispatched
     rather than run inline. See CommunityAnnotationStatusView for polling and
-    network.tasks.run_community_annotation_task for the actual work.
+    network.tasks.run_community_annotation_task for the actual work. Not login-restricted --
+    unlike biodigest scoring (whose LoginRequiredMixin pattern this otherwise mirrors), nothing
+    here is persisted per-user; results only ever live in the Celery result backend keyed by
+    runId, same as the unrestricted GetGeminiLabelView/GetGeminiClusterLabelsView.
     """
-    login_url = settings.FRONTEND_HOME_URL
 
     def post(self, request, *args, **kwargs):
         communities = request.data.get('communities')
@@ -46,9 +46,7 @@ class RunCommunityAnnotationView(LoginRequiredMixin, generics.GenericAPIView):
         return JsonResponse({'status': 'success', 'runId': task.id}, status=200)
 
 
-class CommunityAnnotationStatusView(LoginRequiredMixin, generics.GenericAPIView):
-    login_url = settings.FRONTEND_HOME_URL
-
+class CommunityAnnotationStatusView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         run_id = request.GET.get('runId')
