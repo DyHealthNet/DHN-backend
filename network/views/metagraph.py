@@ -436,7 +436,7 @@ class GetCosmographView(generics.GenericAPIView):
         ]
 
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description', 'xrefs')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
         if context_id is not None:
             # Nodes/points are otherwise every row of the (context-independent) Nodes
             # table -- restrict to only the variables actually part of this context
@@ -449,6 +449,7 @@ class GetCosmographView(generics.GenericAPIView):
                 'id': node['node_id'],
                 'label': node.get('display_name') or node['node_id'],
                 'type': node.get('node_group') or '',
+                'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
@@ -612,7 +613,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # resolution_results dict, so its community_rX fields below come back
         # None/null -- the frontend already renders that as an "Unassigned" bucket.
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'description', 'xrefs')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
         if context_id is not None:
             # Restrict to this context's own variables (e.g. a protein-only context
             # shouldn't surface phenotype/metabolite nodes) -- see GetCosmographView.
@@ -629,6 +630,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'id': node['node_id'],
                 'label': node.get('display_name') or node['node_id'],
                 'type': node.get('node_group') or '',
+                'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
