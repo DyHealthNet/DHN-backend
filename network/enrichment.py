@@ -48,15 +48,13 @@ def parse_xrefs(xrefs_string):
     result = {}
     if not isinstance(xrefs_string, str) or not xrefs_string:
         return result
-    for entry in xrefs_string.split('|'):
-        if '.' not in entry:
-            continue
-        prefix, _, value = entry.partition('.')
-        prefix = prefix.strip().lower()
-        value = value.strip()
-        if not prefix or not value:
-            continue
-        result.setdefault(prefix, []).append(value)
+    for entry in xrefs_string.split(';'):
+        if 'HMDB' in entry:
+            result.setdefault('hmdb', []).append(value)
+        elif 'CHEBI:' in entry:
+            prefix, _, value = entry.partition(':')
+            prefix = prefix.lower
+            result.setdefault(prefix, []).append(value) 
     return result
 
 
@@ -122,7 +120,7 @@ def resolve_metabolite_chebi_ids(node_id, xrefs_string):
 
     raw_segments = re.split(r'[|;]', xrefs_string) if isinstance(xrefs_string, str) else []
     candidates = list(dict.fromkeys(
-        parsed.get('hmdb', []) + [segment.strip() for segment in raw_segments if segment.strip()] + [node_id]
+        parsed.get('HMDB', []) + [segment.strip() for segment in raw_segments if segment.strip()] + [node_id]
     ))
     chebi_ids = []
     for candidate in candidates:
