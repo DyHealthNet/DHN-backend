@@ -57,5 +57,11 @@ class CommunityAnnotationStatusView(LoginRequiredMixin, generics.GenericAPIView)
 
         task = AsyncResult(run_id)
         if task.status == 'FAILURE':
-            return JsonResponse({'status': task.status, 'result': str(task.result)}, status=200)
+            # task.traceback is the formatted traceback string Celery stores separately from
+            # the exception itself -- str(task.result) alone only gives the exception's message
+            # (e.g. "cannot access local variable 'x'..."), not where it happened.
+            logger.error("Community annotation run %s failed:\n%s", run_id, task.traceback)
+            return JsonResponse(
+                {'status': task.status, 'result': str(task.result), 'traceback': task.traceback}, status=200
+            )
         return JsonResponse({'status': task.status, 'result': task.result})
