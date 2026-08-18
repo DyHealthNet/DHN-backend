@@ -171,18 +171,18 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return something when there are 5 or more values =! NaN
             # (opposite is very unlikely)
-            agg_df_mean = df.groupby(x_idx)
+            agg_df_mean = df.groupby(x_idx, observed=True)
             if settings.PRESERVE_PRIVACY:
                 agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
                 if len(agg_df_mean) < len(df):
                     send_warning = True
 
-            agg_df_mean = agg_df_mean.groupby(x_idx)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            agg_df_mean = agg_df_mean.groupby(x_idx, observed=True)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
 
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Cohort",
-                "backgroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
+                "backgssroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
                 "data": agg_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
