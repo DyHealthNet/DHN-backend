@@ -14,16 +14,16 @@ logger = logging.getLogger('network')
 
 def apply_soft_limit(sorted_edges, limit):
     """
-    Retrieve the top limit edges from a list of edges sorted by the 'final_p_value' column. If any edges are excluded
-    due to the limit but share the same 'final_p_value' as the last included edge, they are also retained and returned.
+    Retrieve the top limit edges from a list of edges sorted by the 'p_value' column. If any edges are excluded
+    due to the limit but share the same 'p_value' as the last included edge, they are also retained and returned.
     """
     top_edges = sorted_edges[:limit]
 
-    # Extract the last final_p_value from the top edges
-    last_edge_final_p_value = top_edges[-1]['final_p_value'] if top_edges else None
+    # Extract the last p_value from the top edges
+    last_edge_p_value = top_edges[-1]['p_value'] if top_edges else None
 
-    # Get additional edges with the same final_p_value
-    additional_overall_edges = [edge for edge in sorted_edges if edge['final_p_value'] == last_edge_final_p_value]
+    # Get additional edges with the same p_value
+    additional_overall_edges = [edge for edge in sorted_edges if edge['p_value'] == last_edge_p_value]
 
     # Filter additional edges that already exist in top_edges
     existing_ids = {edge['id'] for edge in top_edges}
@@ -46,8 +46,8 @@ def _shape_edge_row(row, edge_type_label):
         'source': source,
         'target': target,
         'edge_type': edge_type_label,
-        'final_p_value': row.get('p_value'),
-        'final_e_value': row.get('effect_size'),
+        'p_value': row.get('p_value'),
+        'effect_size': row.get('effect_size'),
         'test_type': row.get('test_type'),
     }
 
@@ -182,7 +182,7 @@ def get_node_network_new(query_id, thresh=None, limit=None, per_type=None, conte
                 candidate_links.append(shaped)
 
     candidate_links.sort(
-        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0
+        key=lambda edge: float(edge['p_value']) if edge['p_value'] is not None else 1.0
     )
 
     message = ""
@@ -255,7 +255,7 @@ def get_group_network_new(query_ids, thresh=None, limit=None, context_id=None, t
                 candidate_links.append(shaped)
 
     candidate_links.sort(
-        key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0
+        key=lambda edge: float(edge['p_value']) if edge['p_value'] is not None else 1.0
     )
 
     if limit is not None:
@@ -374,8 +374,8 @@ def get_whole_network_new(stat_type=None, thresh=None, limit=None, sort=True, co
                 'source': sources[i],
                 'target': targets[i],
                 'edge_type': edge_type_label,
-                'final_p_value': p_values[i],
-                'final_e_value': effect_sizes[i],
+                'p_value': p_values[i],
+                'effect_size': effect_sizes[i],
                 'test_type': test_types[i],
             }
             for i in order
@@ -396,8 +396,8 @@ def get_whole_network_new(stat_type=None, thresh=None, limit=None, sort=True, co
                 'source': source,
                 'target': target,
                 'edge_type': edge_type_label,
-                'final_p_value': p_value,
-                'final_e_value': effect_size,
+                'p_value': p_value,
+                'effect_size': effect_size,
                 'test_type': test_type,
             })
             nodes.add(source)
@@ -473,7 +473,7 @@ def get_whole_network(test_type=None, thresh=None, limit=None, per_node_limit=No
 
         selected_links = [edge_lookup[edge_id] for edge_id in selected_edge_ids]
         selected_links.sort(
-            key=lambda edge: float(edge['final_p_value']) if edge['final_p_value'] is not None else 1.0,
+            key=lambda edge: float(edge['p_value']) if edge['p_value'] is not None else 1.0,
         )
     else:
         selected_links = candidate_links

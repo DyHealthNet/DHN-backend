@@ -171,9 +171,9 @@ def _compute_minus_log_p(p_value):
 
 def _compute_edge_weight(edge):
     """Mirrors community_detection_benchmark's '-logp_e_abs_raw' mode: -log10(p) * |effect size|."""
-    minus_log_p = _compute_minus_log_p(edge.get('final_p_value'))
-    final_e_value = edge.get('final_e_value')
-    abs_e_value = abs(final_e_value) if final_e_value is not None else 0.0
+    minus_log_p = _compute_minus_log_p(edge.get('p_value'))
+    effect_size = edge.get('effect_size')
+    abs_e_value = abs(effect_size) if effect_size is not None else 0.0
     return minus_log_p * abs_e_value
 
 
@@ -429,11 +429,7 @@ class GetCosmographView(generics.GenericAPIView):
             context_id=context_id,
         )
 
-        # Format response links (remove final_p_value which is internal)
-        response_links = [
-            {key: value for key, value in edge.items() if key != 'final_p_value'}
-            for edge in selected_links
-        ]
+        response_links = selected_links
 
         node_model = apps.get_model('network', 'Nodes')
         cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
@@ -601,10 +597,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             end = time.perf_counter()
             print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
-        response_links = [
-            {key: value for key, value in edge.items() if key != 'final_p_value'}
-            for edge in selected_links
-        ]
+        response_links = selected_links
 
         # All nodes, not just used_node_ids (the ones clustered) -- matches
         # GetCosmographView's node set, so switching between "Send Whole Network"

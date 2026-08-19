@@ -430,7 +430,7 @@ def calculate_minium_spanning_tree(result_nodes, result_edges):
             graph.add_node(node['id'], description=node['description'], display_name=node['display_name'])
 
     logger.debug(f"result_edges {result_edges}")
-    # Add edges to the graph (use 'final_p_value' as the weight)
+    # Add edges to the graph (use 'p_value' as the weight)
     edge_lookup = {}
     edge_group_lookup = {}
     filtered_edges = {}
@@ -444,7 +444,7 @@ def calculate_minium_spanning_tree(result_nodes, result_edges):
                 edge_key = tuple(sorted([node_1, node_2]))
                 edge_lookup[edge_key] = edge
                 edge_group_lookup[edge_key] = edge_group
-                weight = edge['final_p_value']  # Using final_p_value as the weight
+                weight = edge['p_value']  # Using p_value as the weight
                 graph.add_edge(node_1, node_2, weight=weight)
 
     # Calculate the minimum spanning tree (MST)
