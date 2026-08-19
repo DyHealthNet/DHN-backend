@@ -187,10 +187,35 @@ def get_node_network_new(query_id, thresh=None, limit=None, per_type=None, conte
 
     message = ""
     if limit is not None:
-        candidate_links = apply_soft_limit(candidate_links, limit)
-        if per_type and len(candidate_links) > limit:
-            message = (f"More than {limit} edges have been returned because some edges share the "
-                       f"same significance level")
+        if per_type:
+            # Apply the limit separately within each neighbor node's node_group, so that
+            # nodes from less-significant groups aren't crowded out by a single group's
+            # strongest hits (see get_node_network_new docstring).
+            neighbor_ids = {
+                edge['target'] if edge['source'] == query_id else edge['source']
+                for edge in candidate_links
+            }
+            node_model = apps.get_model('network', 'Nodes')
+            group_by_id = dict(
+                node_model.objects.filter(node_id__in=neighbor_ids).values_list('node_id', 'node_group')
+            )
+            grouped_links = defaultdict(list)
+            for edge in candidate_links:
+                neighbor_id = edge['target'] if edge['source'] == query_id else edge['source']
+                grouped_links[group_by_id.get(neighbor_id)].append(edge)
+
+            candidate_links = []
+            truncated = False
+            for group_edges in grouped_links.values():
+                limited_group = apply_soft_limit(group_edges, limit)
+                if len(limited_group) > limit:
+                    truncated = True
+                candidate_links.extend(limited_group)
+            if truncated:
+                message = (f"More than {limit} edges have been returned for some node groups because "
+                           f"some edges share the same significance level")
+        else:
+            candidate_links = apply_soft_limit(candidate_links, limit)
 
     node_ids = {query_id}
     for edge in candidate_links:
