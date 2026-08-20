@@ -24,6 +24,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.db.models import Value
 from django.db.models.functions import Least, Coalesce
+from django.conf import settings
+from django.core.cache import cache
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
@@ -419,6 +421,21 @@ class GetCosmographView(generics.GenericAPIView):
             context_id,
         )
 
+        # Same Redis cache GetVariablesView (network/views/general.py) uses for
+        # 'all_variables', including the same has_context bypass -- a context
+        # (FilterToolbar's cohort selector, sends 'c') scopes the whole/nonparametric
+        # edge tables to that context, so its response is never the same as the
+        # no-context static network and must never be served from or written to
+        # this cache. Only the no-context request -- one fixed response per
+        # parameter combo, same shape as 'all_variables' being one fixed response
+        # -- is cached, and forever (timeout=None), busted only via the
+        # clear_cache management command.
+        has_context = context_id is not None
+        cache_key = f'cosmograph_{test_type}_{limit}_{threshold}_{per_node_limit}_{density}'
+        if not settings.NO_CACHE and not has_context and cache_key in cache:
+            logger.info(f"Cache hit: {cache_key}")
+            return cache.get(cache_key)
+
         # Extract candidate_links, selected_links, and nodes from the database
         candidate_links, selected_links, used_node_ids = get_whole_network(
             test_type=test_type,
@@ -461,7 +478,7 @@ class GetCosmographView(generics.GenericAPIView):
             len(candidate_links),
         )
 
-        return JsonResponse(
+        response = JsonResponse(
             {
                 'meta': {
                     'point_count': len(points),
@@ -479,6 +496,9 @@ class GetCosmographView(generics.GenericAPIView):
             },
             status=200,
         )
+        if not settings.NO_CACHE and not has_context:
+            cache.set(cache_key, response, timeout=None)
+        return response
 
 
 #TODO: add @extend_schema_view
