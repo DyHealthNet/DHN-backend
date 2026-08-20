@@ -29,7 +29,6 @@ urlpatterns = [
     path("gemini/", include('network.urls.gemini_urls')),
     path("context/", include('network.urls.context_urls')),
     path("modina/", include('network.urls.modina_urls')),
-    path("biodigest/", include('network.urls.biodigest_urls')),
     path("community-annotation/", include('network.urls.community_annotation_urls')),
     path("plotting/", include('network.urls.plotting_urls')),
     path("auth/", include('network.urls.authentication_urls')),

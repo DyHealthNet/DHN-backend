@@ -16,9 +16,8 @@ class RunCommunityAnnotationView(generics.GenericAPIView):
     community) as a background Celery task -- this can take several minutes, so it's dispatched
     rather than run inline. See CommunityAnnotationStatusView for polling and
     network.tasks.run_community_annotation_task for the actual work. Not login-restricted --
-    unlike biodigest scoring (whose LoginRequiredMixin pattern this otherwise mirrors), nothing
-    here is persisted per-user; results only ever live in the Celery result backend keyed by
-    runId, same as the unrestricted GetGeminiLabelView/GetGeminiClusterLabelsView.
+    nothing here is persisted per-user; results only ever live in the Celery result backend keyed
+    by runId, same as the unrestricted GetGeminiLabelView/GetGeminiClusterLabelsView.
     """
 
     def post(self, request, *args, **kwargs):
