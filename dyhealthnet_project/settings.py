@@ -33,13 +33,6 @@ env = environ.Env(
 
     PLATFORM_BASIC_AUTH_ENABLED=(bool, True),
     PLATFORM_BASIC_AUTH_USERS=(str, ''),
-
-    # DIGEST (gene/disease-set enrichment scoring for community-detection clusterings, see
-    # network/views/biodigest_scoring.py) is a self-hosted REST API, see
-    # docker-compose.digest.yml. Default assumes it's running on the same host with its
-    # docker-compose.digest.yml default port mapping.
-    DIGEST_API_BASE_URL=(str, 'http://localhost:8072'),
-    DIGEST_API_TIMEOUT_SECONDS=(int, 3600),
 )
 environ.Env.read_env()
 
@@ -356,9 +349,6 @@ CRITICAL_NUMBER = env("CRITICAL_NUMBER", cast=int)
 # can display what was actually used instead of a misleading editable toggle.
 MULTIPLE_TESTING = env("MULTIPLE_TESTING")
 NO_CACHE = env("NO_CACHE", cast=bool)
-
-DIGEST_API_BASE_URL = env("DIGEST_API_BASE_URL")
-DIGEST_API_TIMEOUT_SECONDS = env("DIGEST_API_TIMEOUT_SECONDS", cast=int)
 
 
 # TODO add real email functionality
