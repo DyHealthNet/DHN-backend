@@ -122,6 +122,25 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     return variables[overall_mask]
 
 
+def restrict_variables(data: pd.DataFrame, selected_variables) -> pd.DataFrame:
+    """
+    Restrict `data` to the explicitly selected variable columns (mapping each display
+    identifier back to its raw column id via extract_var_id), then drop any row with a
+    missing value in any of them. Every pair of the selected variables is going to be
+    tested against every other, so a participant missing even one of them can't
+    contribute a complete-case row to any of those tests -- this keeps the reported
+    participant count and the actually-computed data consistent with each other.
+    Returns `data` unchanged if no explicit selection was provided.
+    """
+    if not selected_variables:
+        return data
+    selected_ids = {extract_var_id(var) for var in selected_variables}
+    keep_columns = [col for col in data.columns if col in selected_ids]
+    if not keep_columns:
+        raise ValueError('None of the selected variables are available.')
+    return data[keep_columns].dropna(subset=keep_columns)
+
+
 def update_buffer(updates, conn, table_name: str = 'edges'):
     cursor = conn.cursor()
 

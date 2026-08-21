@@ -11,7 +11,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from rest_framework import generics
 
 from network.utils.color_utils import define_context_color
-from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables
+from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables, restrict_variables
 from network.models import UserContextLink, Context
 from network.tasks import create_context_wrapper
 from network.schemas.context_schemas import *
@@ -20,7 +20,7 @@ from network.utils.data_manager import DataManager
 from drf_spectacular.utils import extend_schema_view
 import logging
 
-from network.utils.utils import var_label_mapping, filter_layers, extract_var_id
+from network.utils.utils import var_label_mapping, filter_layers
 
 logger = logging.getLogger('network')
 
@@ -74,18 +74,13 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         try:
             partial_data = subset_patients(context_data, params)
+            # further restrict to the explicitly selected variables (if any were provided)
+            # and drop any participant missing data in one of them, so only complete-case
+            # samples over that exact variable set end up as nodes in the context's
+            # calculated association network
+            partial_data = restrict_variables(partial_data, params.get('variables'))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
-
-        # further restrict to the explicitly selected variables (if any were provided) so
-        # only those end up as nodes in the context's calculated association network
-        selected_variables = params.get('variables')
-        if selected_variables:
-            selected_ids = {extract_var_id(var) for var in selected_variables}
-            keep_columns = [col for col in partial_data.columns if col in selected_ids]
-            if not keep_columns:
-                return HttpResponseBadRequest('None of the selected variables are available.', status=405)
-            partial_data = partial_data[keep_columns]
 
         context_id = create_context_id()
         logger.info(f"Creating context with id {context_id}, {partial_data.shape[1]} variables, "
@@ -155,6 +150,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         try:
             context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
             out_df = subset_patients(context_data, params)
+            out_df = restrict_variables(out_df, params.get('variables'))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
