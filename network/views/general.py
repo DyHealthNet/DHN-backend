@@ -27,9 +27,11 @@ class GetVariablesView(generics.GenericAPIView):
         has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
         context_layers = None
+        context_variables = None
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
             context_layers = context.params['layers']
+            context_variables = context.params.get('variables')
 
         group_values = {}
         for group_name in layers:
@@ -39,7 +41,10 @@ class GetVariablesView(generics.GenericAPIView):
                 continue
             if context_layers is not None and group_name not in context_layers:
                 continue
-            group_values[group_name] = list_group_variables(meta, data)
+            values = list_group_variables(meta, data)
+            if context_variables:
+                values = values[values['identifier'].isin(context_variables)]
+            group_values[group_name] = values
 
         if 'all_variables' not in cache or settings.NO_CACHE or has_context:
             # create output dict with type as key and identifier as value, plus an explicit

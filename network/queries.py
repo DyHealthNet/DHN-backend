@@ -560,13 +560,14 @@ def external_query(query_id, cohort_node=True):
     return mapped_externals, cohort_nodes, external_nodes
 
 # Search for 'query' in all fields of the flat nodes table.
-def typeahead_query(query, groups=None, limit=20):
+def typeahead_query(query, groups=None, node_ids=None, limit=20):
     """
     Search Nodes by display_name/description/node_id/xrefs, optionally restricted to
-    a set of node_group values. Replaces the old ViewDescriptionFTS-based lookup,
-    which only covers the old per-node-type tables and has no knowledge of `nodes`.
-    Returns values aliased to the old view's field names (id/source_table) so
-    TypeaheadView's response shape doesn't change.
+    a set of node_group values and/or an explicit set of node_ids (e.g. a context's
+    ground-truth node set from get_context_node_ids()). Replaces the old
+    ViewDescriptionFTS-based lookup, which only covers the old per-node-type tables and
+    has no knowledge of `nodes`. Returns values aliased to the old view's field names
+    (id/source_table) so TypeaheadView's response shape doesn't change.
     """
     model = apps.get_model('network', 'Nodes')
     filters = (Q(description__icontains=query) |
@@ -575,6 +576,8 @@ def typeahead_query(query, groups=None, limit=20):
               Q(xrefs__icontains=query))
     if groups:
         filters &= Q(node_group__in=groups)
+    if node_ids is not None:
+        filters &= Q(node_id__in=node_ids)
     return model.objects.filter(filters)[:limit].values(
         'description', 'display_name', 'xrefs', id=F('node_id'), source_table=F('node_group')
     )

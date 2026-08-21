@@ -294,13 +294,25 @@ class TypeaheadView(generics.GenericAPIView):
                 # node_group values match layer names directly in the flat schema (no
                 # cohort_* table-name translation needed, unlike layers_to_source_table)
                 groups = context_layers
+                try:
+                    # ground-truth node set actually part of the context's calculated
+                    # network (already reflects layers/subLayers/variables, since it's
+                    # derived straight from the context's own edge table) - narrows the
+                    # `groups`-only filter above, which knows nothing of subLayers/variables
+                    node_ids = get_context_node_ids(context_id)
+                except ValueError as ex:
+                    # context calculation hasn't produced its edge table yet (e.g. still
+                    # pending) - fall back to the coarser layers-only filter
+                    logger.debug(f"Could not resolve context node ids for typeahead: {ex}")
+                    node_ids = None
             except UserContextLink.DoesNotExist:
                 return HttpResponseBadRequest('Context not found.', status=404)
         else:
             groups = None
+            node_ids = None
 
         # retrieve recommendations using the queries/typeahead_query function
-        res = typeahead_query(s, groups)
+        res = typeahead_query(s, groups, node_ids)
         # reformat and return as json
         dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
                                            'source_table': item['source_table'], 'x_refs': item['xrefs']} for item in

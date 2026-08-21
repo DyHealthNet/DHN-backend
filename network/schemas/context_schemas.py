@@ -114,6 +114,10 @@ create_context_schema = extend_schema(
                           "cardio"
                         ]
                       },
+                      "variables": [
+                        "Sex (x0_sex)",
+                        "Type of diabetes (x0dm02)"
+                      ],
                       "tests": {
                         "catCat": {
                           "label": "Chi-squared test",

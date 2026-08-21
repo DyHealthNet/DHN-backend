@@ -20,7 +20,7 @@ from network.utils.data_manager import DataManager
 from drf_spectacular.utils import extend_schema_view
 import logging
 
-from network.utils.utils import var_label_mapping, filter_layers
+from network.utils.utils import var_label_mapping, filter_layers, extract_var_id
 
 logger = logging.getLogger('network')
 
@@ -76,6 +76,16 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
             partial_data = subset_patients(context_data, params)
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
+
+        # further restrict to the explicitly selected variables (if any were provided) so
+        # only those end up as nodes in the context's calculated association network
+        selected_variables = params.get('variables')
+        if selected_variables:
+            selected_ids = {extract_var_id(var) for var in selected_variables}
+            keep_columns = [col for col in partial_data.columns if col in selected_ids]
+            if not keep_columns:
+                return HttpResponseBadRequest('None of the selected variables are available.', status=405)
+            partial_data = partial_data[keep_columns]
 
         context_id = create_context_id()
         logger.info(f"Creating context with id {context_id}, {partial_data.shape[1]} variables, "
