@@ -9,7 +9,8 @@ from django.conf import settings
 from drf_spectacular.utils import extend_schema_view
 from scipy.stats import gaussian_kde
 
-from network.contexts.contexts import subset_patients, context_subset, context_compare_subset, context_compare_subsets
+from network.contexts.contexts import subset_patients, context_subset, context_compare_subset, context_compare_subsets, \
+    restrict_variables
 from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
 from network.utils.db_utils import get_context
@@ -23,7 +24,8 @@ class GetTableView(generics.GenericAPIView):
     def get(self, request):
         all_data, layers, group_data = self.data_manager.get_df_copy(['all_data', 'layers', 'group_data'])
 
-        def layer_counts(context_layers=None):
+        def layer_counts(context_layers=None, context_variables=None):
+            selected_ids = {extract_var_id(v) for v in context_variables} if context_variables else None
             counts = {}
             for group_name in layers:
                 idx = group_name.capitalize() if group_name.endswith('s') else group_name.capitalize() + 's'
@@ -32,7 +34,12 @@ class GetTableView(generics.GenericAPIView):
                     counts[idx] = 0
                     continue
                 data = group_data.get(group_name)
-                counts[idx] = len(data.columns) if data is not None else 0
+                if data is None:
+                    counts[idx] = 0
+                elif selected_ids is not None:
+                    counts[idx] = len([col for col in data.columns if col in selected_ids])
+                else:
+                    counts[idx] = len(data.columns)
             return counts
 
         # build result dict in right format
@@ -62,7 +69,14 @@ class GetTableView(generics.GenericAPIView):
             logger.debug(f"Retrieved participants from cache in {timeit.default_timer() - start} seconds")
         else:
             start = timeit.default_timer()
-            participants = subset_patients(all_data, context.params).shape[0]
+            subset = subset_patients(all_data, context.params)
+            try:
+                subset = restrict_variables(subset, context.params.get('variables'), context.params.get('dropMissing', False))
+            except ValueError:
+                # selected variables no longer resolve to any real column - fall back to
+                # the rule-only subset rather than erroring on a display-only endpoint
+                pass
+            participants = subset.shape[0]
             logger.debug(f"Subsetted participants in {timeit.default_timer() - start} seconds")
         if settings.PRESERVE_PRIVACY:
             if participants < settings.CRITICAL_NUMBER:
@@ -71,7 +85,7 @@ class GetTableView(generics.GenericAPIView):
                 participants = max(settings.CRITICAL_NUMBER, int(ceil(participants / 100) * 100))
 
         req_data_dict = {'Participants': participants, 'preservePrivacy': settings.PRESERVE_PRIVACY,
-                         **layer_counts(context.params['layers'])}
+                         **layer_counts(context.params['layers'], context.params.get('variables'))}
         return JsonResponse(req_data_dict, safe=True)
 
 
