@@ -74,11 +74,10 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         try:
             partial_data = subset_patients(context_data, params)
-            # further restrict to the explicitly selected variables (if any were provided)
-            # and drop any participant missing data in one of them, so only complete-case
-            # samples over that exact variable set end up as nodes in the context's
-            # calculated association network
-            partial_data = restrict_variables(partial_data, params.get('variables'))
+            # further restrict to the explicitly selected variables (if any were provided);
+            # if the user opted into "Remove samples with missing values", also drop any
+            # participant missing data in one of them
+            partial_data = restrict_variables(partial_data, params.get('variables'), params.get('dropMissing', False))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
@@ -150,7 +149,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         try:
             context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
             out_df = subset_patients(context_data, params)
-            out_df = restrict_variables(out_df, params.get('variables'))
+            out_df = restrict_variables(out_df, params.get('variables'), params.get('dropMissing', False))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 

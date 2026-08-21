@@ -122,15 +122,15 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     return variables[overall_mask]
 
 
-def restrict_variables(data: pd.DataFrame, selected_variables) -> pd.DataFrame:
+def restrict_variables(data: pd.DataFrame, selected_variables, drop_missing: bool = False) -> pd.DataFrame:
     """
     Restrict `data` to the explicitly selected variable columns (mapping each display
-    identifier back to its raw column id via extract_var_id), then drop any row with a
-    missing value in any of them. Every pair of the selected variables is going to be
-    tested against every other, so a participant missing even one of them can't
-    contribute a complete-case row to any of those tests -- this keeps the reported
-    participant count and the actually-computed data consistent with each other.
-    Returns `data` unchanged if no explicit selection was provided.
+    identifier back to its raw column id via extract_var_id). If `drop_missing` is True
+    (the user checked "Remove samples with missing values" during context creation),
+    also drop any row with a missing value in any of them -- every pair of the selected
+    variables is going to be tested against every other, so under that opt-in a
+    participant missing even one of them can't contribute a complete-case row to any of
+    those tests. Returns `data` unchanged if no explicit selection was provided.
     """
     if not selected_variables:
         return data
@@ -138,7 +138,10 @@ def restrict_variables(data: pd.DataFrame, selected_variables) -> pd.DataFrame:
     keep_columns = [col for col in data.columns if col in selected_ids]
     if not keep_columns:
         raise ValueError('None of the selected variables are available.')
-    return data[keep_columns].dropna(subset=keep_columns)
+    data = data[keep_columns]
+    if drop_missing:
+        data = data.dropna(subset=keep_columns)
+    return data
 
 
 def update_buffer(updates, conn, table_name: str = 'edges'):

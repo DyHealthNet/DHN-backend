@@ -118,6 +118,7 @@ create_context_schema = extend_schema(
                         "Sex (x0_sex)",
                         "Type of diabetes (x0dm02)"
                       ],
+                      "dropMissing": True,
                       "tests": {
                         "catCat": {
                           "label": "Chi-squared test",
