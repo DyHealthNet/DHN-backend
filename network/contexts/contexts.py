@@ -122,15 +122,16 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     return variables[overall_mask]
 
 
-def restrict_variables(data: pd.DataFrame, selected_variables, drop_missing: bool = False) -> pd.DataFrame:
+def restrict_variables(data: pd.DataFrame, selected_variables, missingness_variables=None) -> pd.DataFrame:
     """
     Restrict `data` to the explicitly selected variable columns (mapping each display
-    identifier back to its raw column id via extract_var_id). If `drop_missing` is True
-    (the user checked "Remove samples with missing values" during context creation),
-    also drop any row with a missing value in any of them -- every pair of the selected
-    variables is going to be tested against every other, so under that opt-in a
-    participant missing even one of them can't contribute a complete-case row to any of
-    those tests. Returns `data` unchanged if no explicit selection was provided.
+    identifier back to its raw column id via extract_var_id). `missingness_variables` is
+    an opt-in subset of `selected_variables` (picked via the "Remove samples with missing
+    values in" selector during context creation) -- any row with a missing value in one of
+    THOSE columns is dropped, but every selected-variable column is still kept for the
+    rows that survive, so the resulting complete-case sample set is used for the whole
+    context, not just for the checked subset. Returns `data` unchanged if no explicit
+    variable selection was provided.
     """
     if not selected_variables:
         return data
@@ -139,8 +140,11 @@ def restrict_variables(data: pd.DataFrame, selected_variables, drop_missing: boo
     if not keep_columns:
         raise ValueError('None of the selected variables are available.')
     data = data[keep_columns]
-    if drop_missing:
-        data = data.dropna(subset=keep_columns)
+    if missingness_variables:
+        missingness_ids = {extract_var_id(var) for var in missingness_variables}
+        check_columns = [col for col in keep_columns if col in missingness_ids]
+        if check_columns:
+            data = data.dropna(subset=check_columns)
     return data
 
 

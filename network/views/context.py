@@ -75,9 +75,9 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
         try:
             partial_data = subset_patients(context_data, params)
             # further restrict to the explicitly selected variables (if any were provided);
-            # if the user opted into "Remove samples with missing values", also drop any
-            # participant missing data in one of them
-            partial_data = restrict_variables(partial_data, params.get('variables'), params.get('dropMissing', False))
+            # also drop any participant missing data in one of the (opt-in) subset picked
+            # via "Remove samples with missing values in"
+            partial_data = restrict_variables(partial_data, params.get('variables'), params.get('missingnessVariables'))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
@@ -132,7 +132,7 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
             return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
-        if task.status == 'SUCCESS' and task.result == False:
+        if task.status == 'SUCCESS' and isinstance(task.result, dict) and not task.result.get('success'):
             return JsonResponse({'status': 'error', 'result': 'Context calculation failed!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
@@ -149,7 +149,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         try:
             context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
             out_df = subset_patients(context_data, params)
-            out_df = restrict_variables(out_df, params.get('variables'), params.get('dropMissing', False))
+            out_df = restrict_variables(out_df, params.get('variables'), params.get('missingnessVariables'))
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 

@@ -71,7 +71,7 @@ class GetTableView(generics.GenericAPIView):
             start = timeit.default_timer()
             subset = subset_patients(all_data, context.params)
             try:
-                subset = restrict_variables(subset, context.params.get('variables'), context.params.get('dropMissing', False))
+                subset = restrict_variables(subset, context.params.get('variables'), context.params.get('missingnessVariables'))
             except ValueError:
                 # selected variables no longer resolve to any real column - fall back to
                 # the rule-only subset rather than erroring on a display-only endpoint
