@@ -94,7 +94,11 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
             new_context.params['variables'] = [
                 c for c in context_df.columns if c not in removed_raw_ids
             ]
-        new_context.save(update_fields=['params'])
+    # persisted alongside the other UI-facing fields in `params` so the removal log
+    # survives a page reload (RetrieveContextsView serves `params` back as `content`)
+    new_context.params['removedVariables'] = removed_display
+    new_context.params['droppedEdgeCount'] = dropped_edge_count
+    new_context.save(update_fields=['params'])
 
     user_context_link.context_status = "Finished"
     user_context_link.save()
