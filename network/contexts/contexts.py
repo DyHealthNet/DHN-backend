@@ -127,17 +127,22 @@ def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=N
                        layers=None, layer_subgroups=None) -> pd.DataFrame:
     """
     Restrict `data` to the context's selected variable columns, and (opt-in) drop rows
-    missing a completeness-checked one.
+    missing a completeness-checked one. This is the sole source of truth for which
+    variables/rows are actually part of a context -- a context's top-level `layers`/
+    `subLayers` are never consulted here (or anywhere server-side); they only exist to
+    redraw the "Select layers" UI when a saved context is reopened.
 
     Both the variable selection itself and its missingness check are expressed the same
     compact way, resolved via resolve_layer_selection() against `layers`/`layer_subgroups`
-    (the same group->labels dicts filter_layers() uses):
+    (group->labels dicts DataManager provides):
     - `selected_variables` / `missingness_variables`: explicit display identifiers
       (individual exceptions, or the whole set if the frontend never had layer metadata to
       compact it) -- mapped back to raw column ids via extract_var_id.
     - `variable_layers` / `variable_sub_layers` and `missingness_layers` /
       `missingness_sub_layers`: whole (sub)layers that were fully selected/checked, stored
-      compactly by name instead of enumerating every variable in them.
+      compactly by name instead of enumerating every variable in them -- self-sufficient,
+      since the frontend only ever compacts a (sub)layer reference when literally every
+      variable it refers to is selected.
 
     Any row with a missing value in one of the resolved missingness columns is dropped,
     but every selected-variable column is still kept for the rows that survive, so the

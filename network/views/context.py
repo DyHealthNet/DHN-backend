@@ -20,7 +20,7 @@ from network.utils.data_manager import DataManager
 from drf_spectacular.utils import extend_schema_view
 import logging
 
-from network.utils.utils import var_label_mapping, filter_layers
+from network.utils.utils import var_label_mapping
 
 logger = logging.getLogger('network')
 
@@ -67,16 +67,18 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         logger.info(f"The user {request.user.username} can create another context.")
 
-        # remove layers/subgroups not requested
-        context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
-
         params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
 
         try:
-            partial_data = subset_patients(context_data, params)
-            # further restrict to the selected variables (given as explicit identifiers
-            # and/or compactly as whole (sub)layers), and drop any participant missing
-            # data in the (opt-in) missingness-check subset (same two representations)
+            # row-filter by the defined rules first (subset_patients only ever touches
+            # the specific columns rule conditions reference, which are always a subset
+            # of the selected variables, so this can run directly on all_data)
+            partial_data = subset_patients(all_data, params)
+            # then restrict to the selected variables (given as explicit identifiers
+            # and/or compactly as whole (sub)layers - layers/subLayers themselves are
+            # never consulted server-side, only variables/variablesLayers/
+            # variablesSubLayers), and drop any participant missing data in the (opt-in)
+            # missingness-check subset (same two representations)
             partial_data = restrict_variables(
                 partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
                 params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
@@ -151,8 +153,7 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         if not params:
             return HttpResponseBadRequest('No subset parameters provided.', status=405)
         try:
-            context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
-            out_df = subset_patients(context_data, params)
+            out_df = subset_patients(all_data, params)
             out_df = restrict_variables(
                 out_df, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
                 params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),

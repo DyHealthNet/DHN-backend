@@ -26,13 +26,11 @@ class GetVariablesView(generics.GenericAPIView):
         )
         has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
-        context_layers = None
         context_variables = None
         context_variable_layers = None
         context_variable_sub_layers = {}
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
-            context_layers = context.params['layers']
             context_variables = context.params.get('variables')
             context_variable_layers = context.params.get('variablesLayers')
             context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
@@ -43,14 +41,15 @@ class GetVariablesView(generics.GenericAPIView):
             meta = group_meta.get(group_name)
             if data is None or meta is None:
                 continue
-            if context_layers is not None and group_name not in context_layers:
-                continue
             values = list_group_variables(meta, data)
-            if context_variables or context_variable_layers:
+            if has_context:
                 # the group's variable selection is either compact (the whole group, or
                 # some of its subgroups, was fully picked - variablesLayers/
-                # variablesSubLayers) and/or explicit (individual leftover exceptions -
-                # context_variables); a variable counts as included by either.
+                # variablesSubLayers, which always mean literally the whole (sub)layer,
+                # unconditionally) and/or explicit (individual leftover exceptions -
+                # context_variables); a variable counts as included by either. A group
+                # with zero presence in both simply ends up with an empty mask below - no
+                # separate whole-layer gate needed, these two fields are self-sufficient.
                 if context_variable_layers and group_name in context_variable_layers:
                     wanted_subgroups = context_variable_sub_layers.get(group_name)
                     keep_mask = (

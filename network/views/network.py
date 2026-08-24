@@ -289,11 +289,14 @@ class TypeaheadView(generics.GenericAPIView):
                 user_context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
                 context_id = user_context.context_id
                 context = Context.objects.get(context_id=int(context_id))
-                context_layers = context.params['layers']
-                logger.debug(f"layer: {context_layers}")
+                context_variable_layers = context.params.get('variablesLayers')
+                logger.debug(f"variable layers: {context_variable_layers}")
                 # node_group values match layer names directly in the flat schema (no
-                # cohort_* table-name translation needed, unlike layers_to_source_table)
-                groups = context_layers
+                # cohort_* table-name translation needed, unlike layers_to_source_table).
+                # Only an approximation (fully-selected layers, not leftover individual
+                # variables) - fine as a short-lived fallback while the context is still
+                # pending and the precise node set (below) isn't available yet.
+                groups = context_variable_layers
                 try:
                     # ground-truth node set actually part of the context's calculated
                     # network (already reflects layers/subLayers/variables, since it's

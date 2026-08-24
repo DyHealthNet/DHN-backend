@@ -50,48 +50,23 @@ def list_group_variables(meta, data):
     return values
 
 
-def filter_layers(data, layers, layer_subgroups, selected_layers, selected_sub_layers=None):
-    """
-    Drop columns from `data` that aren't covered by the selected layers/subgroups.
-
-    :param data: DataFrame to filter (columns = variable labels).
-    :param layers: dict mapping each group name to a pd.Index of all its labels.
-    :param layer_subgroups: dict mapping each group name (that has any) to
-                             {subgroup: pd.Index of labels}.
-    :param selected_layers: iterable of group names to keep.
-    :param selected_sub_layers: optional dict mapping a group name to the list of its
-                                 subgroup names to keep. A group absent from this dict,
-                                 or with no subgroups configured at all, keeps all of
-                                 its columns once the group itself is selected - this is
-                                 what makes a context saved before subgroups existed (no
-                                 'subLayers' key at all) behave as fully unrestricted.
-    :return: filtered DataFrame.
-    """
-    selected_sub_layers = selected_sub_layers or {}
-    selected_layers = set(selected_layers)
-    for group in layers:
-        if group not in selected_layers:
-            data = data.drop(layers[group], axis=1)
-            continue
-        subgroups = layer_subgroups.get(group)
-        wanted = selected_sub_layers.get(group)
-        if not subgroups or wanted is None:
-            continue
-        wanted = set(wanted)
-        for subgroup, labels in subgroups.items():
-            if subgroup not in wanted:
-                data = data.drop(labels, axis=1)
-    return data
-
-
 def resolve_layer_selection(layer_names, sub_layers_map, layers, layer_subgroups):
     """
     Resolve a compact (sub)layer selection -- a list of layer names plus an optional
-    lowercase-keyed map of layer -> selected subgroup names (same "absent = all
-    subgroups" convention as filter_layers()'s selected_sub_layers) -- into the union of
-    raw column ids it refers to, via the same `layers`/`layer_subgroups` dicts
-    filter_layers() uses (group name -> pd.Index of labels; group name ->
+    lowercase-keyed map of layer -> selected subgroup names -- into the union of raw
+    column ids it refers to, via the `layers`/`layer_subgroups` dicts DataManager
+    provides (group name -> pd.Index of all its labels; group name ->
     {subgroup: pd.Index of labels}).
+
+    A layer name present in `layer_names` without its own entry in `sub_layers_map` means
+    literally every subgroup that layer has -- the whole layer, full stop. There is no
+    outer restriction to fall back on: the frontend only ever compacts a (sub)layer
+    reference when EVERY variable it refers to, globally, is actually selected (see
+    ContextSetup.vue's layerCoverage()/variablesAvailableIn*), so `variablesLayers`/
+    `missingnessLayers` are unambiguous on their own, independent of a context's
+    top-level `layers`/`subLayers` (which is only ever used client-side, to narrow what
+    the layer/variable pickers show as options, and to redraw them on reopening a saved
+    context -- never consulted here).
 
     Used to expand a context's compact variable selection (variablesLayers/
     variablesSubLayers) and its compact missingness-check selection (missingnessLayers/

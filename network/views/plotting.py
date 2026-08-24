@@ -26,8 +26,11 @@ class GetTableView(generics.GenericAPIView):
             ['all_data', 'layers', 'group_data', 'layer_subgroups']
         )
 
-        def layer_counts(context_layers=None, context_variables=None,
-                         context_variable_layers=None, context_variable_sub_layers=None):
+        def layer_counts(context_variables=None, context_variable_layers=None, context_variable_sub_layers=None):
+            # a group with zero presence in either context_variables or
+            # context_variable_layers naturally gets a count of 0 below (no column of
+            # its ever matches selected_ids), so there's no separate whole-layer gate
+            # needed - variables/variablesLayers alone are a complete description.
             selected_ids = None
             if context_variables or context_variable_layers:
                 selected_ids = set()
@@ -39,10 +42,6 @@ class GetTableView(generics.GenericAPIView):
             counts = {}
             for group_name in layers:
                 idx = group_name.capitalize() if group_name.endswith('s') else group_name.capitalize() + 's'
-                if context_layers is not None and group_name not in context_layers:
-
-                    counts[idx] = 0
-                    continue
                 data = group_data.get(group_name)
                 if data is None:
                     counts[idx] = 0
@@ -100,8 +99,8 @@ class GetTableView(generics.GenericAPIView):
                 participants = max(settings.CRITICAL_NUMBER, int(ceil(participants / 100) * 100))
 
         req_data_dict = {'Participants': participants, 'preservePrivacy': settings.PRESERVE_PRIVACY,
-                         **layer_counts(context.params['layers'], context.params.get('variables'),
-                                        context.params.get('variablesLayers'), context.params.get('variablesSubLayers'))}
+                         **layer_counts(context.params.get('variables'), context.params.get('variablesLayers'),
+                                        context.params.get('variablesSubLayers'))}
         return JsonResponse(req_data_dict, safe=True)
 
 

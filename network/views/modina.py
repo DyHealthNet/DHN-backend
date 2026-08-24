@@ -9,11 +9,10 @@ from celery.result import AsyncResult
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
-from network.contexts.contexts import subset_patients
+from network.contexts.contexts import subset_patients, restrict_variables
 from network.utils.db_utils import get_context
 from network.tasks import create_comparison_wrapper
 from network.schemas.modina_schemas import *
-from network.utils.utils import filter_layers
 
 logger = logging.getLogger('network')
 
@@ -21,18 +20,29 @@ logger = logging.getLogger('network')
 def _resolve_context_data(user, context_value, all_data, layers, meta_file, layer_subgroups):
     """
     Reconstruct a context's raw per-patient subset the same way CreateUserContext does at context
-    creation time, driven entirely by the persisted Context.params (layers + filter conditions) --
-    the raw subset itself isn't kept around after context creation, but is deterministic given
-    Context.params and the (static, process-wide) DataManager data, so it can be re-derived here.
+    creation time, driven entirely by the persisted Context.params (filter conditions, and the
+    selected-variable/missingness restriction -- layers/subLayers are never consulted server-side,
+    only client-side to redraw the "Select layers" UI) -- the raw subset itself isn't kept around
+    after context creation, but is deterministic given Context.params and the (static, process-wide)
+    DataManager data, so it can be re-derived here. Restricting to the same variables/complete-case
+    sample set the context's association scores were actually computed on matters here specifically
+    because the STC node metric compares the two contexts' raw variable distributions directly, and
+    the "do these two contexts share the same variables" check right after this call relies on it.
     """
     context = get_context(user, context_value)
     if context is None:
         return None, None, None
 
     params = context.params
-    context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
-
-    partial_data = subset_patients(context_data, params)
+    # row-filter by the defined rules first (subset_patients only ever touches the
+    # specific columns rule conditions reference, which are always a subset of the
+    # selected variables, so this can run directly on all_data)
+    partial_data = subset_patients(all_data, params)
+    partial_data = restrict_variables(
+        partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
+        params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
+        layers, layer_subgroups,
+    )
     context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
     partial_data = partial_data[context_meta['label'].tolist()]
     return context, partial_data, context_meta
