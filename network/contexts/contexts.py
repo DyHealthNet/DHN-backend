@@ -13,7 +13,7 @@ from django.db.models import Max
 import pandas as pd
 
 from network.utils.db_utils import get_context
-from network.utils.utils import extract_var_id
+from network.utils.utils import extract_var_id, resolve_layer_selection
 
 logger = logging.getLogger('network')
 
@@ -122,29 +122,54 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     return variables[overall_mask]
 
 
-def restrict_variables(data: pd.DataFrame, selected_variables, missingness_variables=None) -> pd.DataFrame:
+def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=None, variable_sub_layers=None,
+                       missingness_variables=None, missingness_layers=None, missingness_sub_layers=None,
+                       layers=None, layer_subgroups=None) -> pd.DataFrame:
     """
-    Restrict `data` to the explicitly selected variable columns (mapping each display
-    identifier back to its raw column id via extract_var_id). `missingness_variables` is
-    an opt-in subset of `selected_variables` (picked via the "Remove samples with missing
-    values in" selector during context creation) -- any row with a missing value in one of
-    THOSE columns is dropped, but every selected-variable column is still kept for the
-    rows that survive, so the resulting complete-case sample set is used for the whole
-    context, not just for the checked subset. Returns `data` unchanged if no explicit
-    variable selection was provided.
+    Restrict `data` to the context's selected variable columns, and (opt-in) drop rows
+    missing a completeness-checked one.
+
+    Both the variable selection itself and its missingness check are expressed the same
+    compact way, resolved via resolve_layer_selection() against `layers`/`layer_subgroups`
+    (the same group->labels dicts filter_layers() uses):
+    - `selected_variables` / `missingness_variables`: explicit display identifiers
+      (individual exceptions, or the whole set if the frontend never had layer metadata to
+      compact it) -- mapped back to raw column ids via extract_var_id.
+    - `variable_layers` / `variable_sub_layers` and `missingness_layers` /
+      `missingness_sub_layers`: whole (sub)layers that were fully selected/checked, stored
+      compactly by name instead of enumerating every variable in them.
+
+    Any row with a missing value in one of the resolved missingness columns is dropped,
+    but every selected-variable column is still kept for the rows that survive, so the
+    resulting complete-case sample set is used for the whole context, not just for the
+    checked subset. Returns `data` unchanged if no variable selection was provided at all.
     """
-    if not selected_variables:
+    selected_ids = set()
+    if selected_variables:
+        selected_ids.update(extract_var_id(var) for var in selected_variables)
+    selected_ids.update(resolve_layer_selection(variable_layers, variable_sub_layers, layers, layer_subgroups))
+
+    if not selected_ids:
         return data
-    selected_ids = {extract_var_id(var) for var in selected_variables}
     keep_columns = [col for col in data.columns if col in selected_ids]
     if not keep_columns:
         raise ValueError('None of the selected variables are available.')
     data = data[keep_columns]
+
+    keep_set = set(keep_columns)
+    check_columns = set()
+
     if missingness_variables:
         missingness_ids = {extract_var_id(var) for var in missingness_variables}
-        check_columns = [col for col in keep_columns if col in missingness_ids]
-        if check_columns:
-            data = data.dropna(subset=check_columns)
+        check_columns.update(col for col in keep_columns if col in missingness_ids)
+
+    check_columns.update(
+        col for col in resolve_layer_selection(missingness_layers, missingness_sub_layers, layers, layer_subgroups)
+        if col in keep_set
+    )
+
+    if check_columns:
+        data = data.dropna(subset=list(check_columns))
     return data
 
 

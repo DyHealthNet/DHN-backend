@@ -84,6 +84,40 @@ def filter_layers(data, layers, layer_subgroups, selected_layers, selected_sub_l
     return data
 
 
+def resolve_layer_selection(layer_names, sub_layers_map, layers, layer_subgroups):
+    """
+    Resolve a compact (sub)layer selection -- a list of layer names plus an optional
+    lowercase-keyed map of layer -> selected subgroup names (same "absent = all
+    subgroups" convention as filter_layers()'s selected_sub_layers) -- into the union of
+    raw column ids it refers to, via the same `layers`/`layer_subgroups` dicts
+    filter_layers() uses (group name -> pd.Index of labels; group name ->
+    {subgroup: pd.Index of labels}).
+
+    Used to expand a context's compact variable selection (variablesLayers/
+    variablesSubLayers) and its compact missingness-check selection (missingnessLayers/
+    missingnessSubLayers) the same way, in restrict_variables() and layer_counts().
+    :return: set of raw column ids.
+    """
+    if not layer_names or layers is None:
+        return set()
+    sub_layers_map = sub_layers_map or {}
+    result = set()
+    for layer in layer_names:
+        layer_key = layer.lower()
+        subgroups = (layer_subgroups or {}).get(layer_key)
+        wanted_subgroups = sub_layers_map.get(layer_key)
+        if subgroups and wanted_subgroups:
+            for subgroup in wanted_subgroups:
+                labels = subgroups.get(subgroup)
+                if labels is not None:
+                    result.update(labels)
+        else:
+            labels = layers.get(layer_key)
+            if labels is not None:
+                result.update(labels)
+    return result
+
+
 # Function to extract the variable Id from the user-friendly input
 # (id is either in brackets at the end or simply the input)
 def extract_var_id(var):

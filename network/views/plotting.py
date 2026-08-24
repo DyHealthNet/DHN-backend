@@ -22,10 +22,20 @@ class GetTableView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, layers, group_data = self.data_manager.get_df_copy(['all_data', 'layers', 'group_data'])
+        all_data, layers, group_data, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'layers', 'group_data', 'layer_subgroups']
+        )
 
-        def layer_counts(context_layers=None, context_variables=None):
-            selected_ids = {extract_var_id(v) for v in context_variables} if context_variables else None
+        def layer_counts(context_layers=None, context_variables=None,
+                         context_variable_layers=None, context_variable_sub_layers=None):
+            selected_ids = None
+            if context_variables or context_variable_layers:
+                selected_ids = set()
+                if context_variables:
+                    selected_ids.update(extract_var_id(v) for v in context_variables)
+                selected_ids.update(
+                    resolve_layer_selection(context_variable_layers, context_variable_sub_layers, layers, layer_subgroups)
+                )
             counts = {}
             for group_name in layers:
                 idx = group_name.capitalize() if group_name.endswith('s') else group_name.capitalize() + 's'
@@ -71,7 +81,12 @@ class GetTableView(generics.GenericAPIView):
             start = timeit.default_timer()
             subset = subset_patients(all_data, context.params)
             try:
-                subset = restrict_variables(subset, context.params.get('variables'), context.params.get('missingnessVariables'))
+                subset = restrict_variables(
+                    subset, context.params.get('variables'), context.params.get('variablesLayers'),
+                    context.params.get('variablesSubLayers'), context.params.get('missingnessVariables'),
+                    context.params.get('missingnessLayers'), context.params.get('missingnessSubLayers'),
+                    layers, layer_subgroups,
+                )
             except ValueError:
                 # selected variables no longer resolve to any real column - fall back to
                 # the rule-only subset rather than erroring on a display-only endpoint
@@ -85,7 +100,8 @@ class GetTableView(generics.GenericAPIView):
                 participants = max(settings.CRITICAL_NUMBER, int(ceil(participants / 100) * 100))
 
         req_data_dict = {'Participants': participants, 'preservePrivacy': settings.PRESERVE_PRIVACY,
-                         **layer_counts(context.params['layers'], context.params.get('variables'))}
+                         **layer_counts(context.params['layers'], context.params.get('variables'),
+                                        context.params.get('variablesLayers'), context.params.get('variablesSubLayers'))}
         return JsonResponse(req_data_dict, safe=True)
 
 

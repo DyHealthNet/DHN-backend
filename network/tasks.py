@@ -22,14 +22,6 @@ from modina.edge_filtering import filter as modina_filter, filter_differential
 from modina.ranking import compute_ranking
 
 
-def _removed_variable_label(raw_id, desc_by_label) -> str:
-    """Display label for a variable dropped by moDiNA, matching list_group_variables'
-    "{description} ({raw_id})" convention (network/utils/utils.py) so it reads the same
-    as elsewhere in the UI."""
-    desc = desc_by_label.get(raw_id) if hasattr(desc_by_label, 'get') else None
-    return f"{desc} ({raw_id})" if desc and pd.notna(desc) else raw_id
-
-
 @shared_task(bind=True)
 def create_context_wrapper(self, context_data: str, meta_file: str, params: dict,
                            context_name: str, user_id: int):
@@ -65,8 +57,6 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
         )
         removed_raw_ids = list(scores.attrs.get('flagged_variables', []))
         dropped_edge_count = len(scores.attrs.get('scores_na', []))
-        desc_by_label = meta_df.set_index('label')['description'] if 'description' in meta_df.columns else {}
-        removed_display = [_removed_variable_label(v, desc_by_label) for v in removed_raw_ids]
         success = insert_context(scores, context_name, test_type)
     except Exception as e:
         print(e)
@@ -96,13 +86,13 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
             ]
     # persisted alongside the other UI-facing fields in `params` so the removal log
     # survives a page reload (RetrieveContextsView serves `params` back as `content`)
-    new_context.params['removedVariables'] = removed_display
+    new_context.params['removedVariables'] = removed_raw_ids
     new_context.params['droppedEdgeCount'] = dropped_edge_count
     new_context.save(update_fields=['params'])
 
     user_context_link.context_status = "Finished"
     user_context_link.save()
-    return {'success': success, 'removed_variables': removed_display, 'dropped_edge_count': dropped_edge_count}
+    return {'success': success, 'removed_variables': removed_raw_ids, 'dropped_edge_count': dropped_edge_count}
 
 
 def _df_records(df: pd.DataFrame) -> list:

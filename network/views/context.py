@@ -74,10 +74,14 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         try:
             partial_data = subset_patients(context_data, params)
-            # further restrict to the explicitly selected variables (if any were provided);
-            # also drop any participant missing data in one of the (opt-in) subset picked
-            # via "Remove samples with missing values in"
-            partial_data = restrict_variables(partial_data, params.get('variables'), params.get('missingnessVariables'))
+            # further restrict to the selected variables (given as explicit identifiers
+            # and/or compactly as whole (sub)layers), and drop any participant missing
+            # data in the (opt-in) missingness-check subset (same two representations)
+            partial_data = restrict_variables(
+                partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
+                params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
+                layers, layer_subgroups,
+            )
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
@@ -149,7 +153,11 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
         try:
             context_data = filter_layers(all_data, layers, layer_subgroups, params['layers'], params.get('subLayers'))
             out_df = subset_patients(context_data, params)
-            out_df = restrict_variables(out_df, params.get('variables'), params.get('missingnessVariables'))
+            out_df = restrict_variables(
+                out_df, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
+                params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
+                layers, layer_subgroups,
+            )
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 

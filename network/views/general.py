@@ -28,10 +28,14 @@ class GetVariablesView(generics.GenericAPIView):
 
         context_layers = None
         context_variables = None
+        context_variable_layers = None
+        context_variable_sub_layers = {}
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
             context_layers = context.params['layers']
             context_variables = context.params.get('variables')
+            context_variable_layers = context.params.get('variablesLayers')
+            context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
 
         group_values = {}
         for group_name in layers:
@@ -42,8 +46,22 @@ class GetVariablesView(generics.GenericAPIView):
             if context_layers is not None and group_name not in context_layers:
                 continue
             values = list_group_variables(meta, data)
-            if context_variables:
-                values = values[values['identifier'].isin(context_variables)]
+            if context_variables or context_variable_layers:
+                # the group's variable selection is either compact (the whole group, or
+                # some of its subgroups, was fully picked - variablesLayers/
+                # variablesSubLayers) and/or explicit (individual leftover exceptions -
+                # context_variables); a variable counts as included by either.
+                if context_variable_layers and group_name in context_variable_layers:
+                    wanted_subgroups = context_variable_sub_layers.get(group_name)
+                    keep_mask = (
+                        values['subgroup'].isin(wanted_subgroups) if wanted_subgroups
+                        else pd.Series(True, index=values.index)
+                    )
+                else:
+                    keep_mask = pd.Series(False, index=values.index)
+                if context_variables:
+                    keep_mask = keep_mask | values['identifier'].isin(context_variables)
+                values = values[keep_mask]
             group_values[group_name] = values
 
         if 'all_variables' not in cache or settings.NO_CACHE or has_context:
