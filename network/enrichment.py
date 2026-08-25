@@ -53,7 +53,7 @@ def parse_xrefs(xrefs_string):
             result.setdefault('hmdb', []).append(entry)
         elif 'CHEBI:' in entry:
             prefix, _, value = entry.partition(':')
-            prefix = prefix.lower
+            prefix = prefix.lower()
             result.setdefault(prefix, []).append(value) 
     return result
 
