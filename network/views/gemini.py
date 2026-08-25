@@ -13,9 +13,8 @@ logger = logging.getLogger('network')
 # Tried in order; only falls through to the next entry when THIS model specifically is
 # unusable -- 404 (retired/no longer available, as gemini-2.5-flash already is for new
 # users), 429 (rate-limited/quota), 503 (overloaded), or a read timeout -- see
-# _call_gemini. Deliberately excludes preview-tagged models (e.g. gemini-3-flash-preview,
-# gemini-2.5-flash-lite-preview-09-2025): those are the ones that get retired abruptly, so
-# they aren't used as a silent fallback target here.
+# _call_gemini. Avoids preview-tagged models where possible (they can be retired abruptly),
+# though the final fallback may still be a preview model as a last resort.
 GEMINI_MODEL_FALLBACKS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview']
 GEMINI_TIMEOUT_SECONDS = 30
 # Bulk community-labeling prompts are much larger (many communities' worth of nodes in
