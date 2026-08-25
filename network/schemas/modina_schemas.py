@@ -26,31 +26,26 @@ create_comparison_schema = extend_schema(
             description="CSRF token for authentication.",
             type=OpenApiTypes.STR,
         ),
-        OpenApiParameter(
-            name='body',
-            description='Comparison parameters as JSON',
-            required=True,
-            type=OpenApiTypes.OBJECT,
-            location=OpenApiParameter.QUERY,
-            examples=[
-                OpenApiExample(
-                    name="Example request body",
-                    value={
-                        "context1": 1,
-                        "context2": 2,
-                        "filterTarget": "differential",
-                        "filterMetric": None,
-                        "filterRule": None,
-                        "filterParam": 0.05,
-                    },
-                    description=(
-                        "testType/correction are not request parameters -- they're read from each "
-                        "context's own params and must match between the two. Only 'density' "
-                        "filtering is supported for filterMethod (implicit)."
-                    ),
-                )
-            ]
-        ),
+    ],
+    request=OpenApiTypes.OBJECT,
+    examples=[
+        OpenApiExample(
+            name="Example request body",
+            value={
+                "context1": 1,
+                "context2": 2,
+                "filterTarget": "differential",
+                "filterMetric": None,
+                "filterRule": None,
+                "filterParam": 0.05,
+            },
+            description=(
+                "testType/correction are not request parameters -- they're read from each "
+                "context's own params and must match between the two. Only 'density' "
+                "filtering is supported for filterMethod (implicit)."
+            ),
+            request_only=True,
+        )
     ],
     responses={
         200: OpenApiResponse(
