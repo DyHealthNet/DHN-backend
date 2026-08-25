@@ -26,7 +26,8 @@ class GetTableView(generics.GenericAPIView):
             ['all_data', 'layers', 'group_data', 'layer_subgroups']
         )
 
-        def layer_counts(context_variables=None, context_variable_layers=None, context_variable_sub_layers=None):
+        def layer_counts(context_variables=None, context_variable_layers=None, context_variable_sub_layers=None,
+                         removed_variable_ids=None):
             # a group with zero presence in either context_variables or
             # context_variable_layers naturally gets a count of 0 below (no column of
             # its ever matches selected_ids), so there's no separate whole-layer gate
@@ -39,6 +40,8 @@ class GetTableView(generics.GenericAPIView):
                 selected_ids.update(
                     resolve_layer_selection(context_variable_layers, context_variable_sub_layers, layers, layer_subgroups)
                 )
+                if removed_variable_ids:
+                    selected_ids -= set(removed_variable_ids)
             counts = {}
             for group_name in layers:
                 idx = group_name.capitalize() if group_name.endswith('s') else group_name.capitalize() + 's'
@@ -84,7 +87,7 @@ class GetTableView(generics.GenericAPIView):
                     subset, context.params.get('variables'), context.params.get('variablesLayers'),
                     context.params.get('variablesSubLayers'), context.params.get('missingnessVariables'),
                     context.params.get('missingnessLayers'), context.params.get('missingnessSubLayers'),
-                    layers, layer_subgroups,
+                    layers, layer_subgroups, context.params.get('removedVariables'),
                 )
             except ValueError:
                 # selected variables no longer resolve to any real column - fall back to
@@ -100,7 +103,8 @@ class GetTableView(generics.GenericAPIView):
 
         req_data_dict = {'Participants': participants, 'preservePrivacy': settings.PRESERVE_PRIVACY,
                          **layer_counts(context.params.get('variables'), context.params.get('variablesLayers'),
-                                        context.params.get('variablesSubLayers'))}
+                                        context.params.get('variablesSubLayers'),
+                                        context.params.get('removedVariables'))}
         return JsonResponse(req_data_dict, safe=True)
 
 

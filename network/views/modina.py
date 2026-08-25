@@ -21,9 +21,10 @@ def _resolve_context_data(user, context_value, all_data, layers, meta_file, laye
     """
     Reconstruct a context's raw per-patient subset the same way CreateUserContext does at context
     creation time, driven entirely by the persisted Context.params (filter conditions, and the
-    selected-variable/missingness restriction -- layers/subLayers are never consulted server-side,
-    only client-side to redraw the "Select layers" UI) -- the raw subset itself isn't kept around
-    after context creation, but is deterministic given Context.params and the (static, process-wide)
+    selected-variable/missingness restriction via variables/variablesLayers/variablesSubLayers --
+    Context.params has no separate top-level layers/subLayers field) -- the raw subset itself
+    isn't kept around after context creation, but is deterministic given Context.params and the
+    (static, process-wide)
     DataManager data, so it can be re-derived here. Restricting to the same variables/complete-case
     sample set the context's association scores were actually computed on matters here specifically
     because the STC node metric compares the two contexts' raw variable distributions directly, and
@@ -41,7 +42,7 @@ def _resolve_context_data(user, context_value, all_data, layers, meta_file, laye
     partial_data = restrict_variables(
         partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
         params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
-        layers, layer_subgroups,
+        layers, layer_subgroups, params.get('removedVariables'),
     )
     context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
     partial_data = partial_data[context_meta['label'].tolist()]

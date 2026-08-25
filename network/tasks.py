@@ -15,7 +15,6 @@ from network.enrichment import (
     run_gprofiler_multi_query, run_reactome_analysis,
 )
 from network.views.gemini import _call_gemini, _build_multi_community_prompt_with_enrichment, GEMINI_BULK_TIMEOUT_SECONDS
-from network.utils.utils import extract_var_id
 from modina.context_net_inference import compute_context_scores
 from modina.diff_net_construction import compute_diff_network
 from modina.edge_filtering import filter as modina_filter, filter_differential
@@ -74,18 +73,12 @@ def create_context_wrapper(self, context_data: str, meta_file: str, params: dict
         Context.objects.filter(context_id=context_name).delete()
         return {'success': False, 'removed_variables': [], 'dropped_edge_count': 0}
 
-    if removed_raw_ids:
-        current_vars = new_context.params.get('variables')
-        if current_vars:
-            new_context.params['variables'] = [
-                v for v in current_vars if extract_var_id(v) not in removed_raw_ids
-            ]
-        else:
-            new_context.params['variables'] = [
-                c for c in context_df.columns if c not in removed_raw_ids
-            ]
     # persisted alongside the other UI-facing fields in `params` so the removal log
-    # survives a page reload (RetrieveContextsView serves `params` back as `content`)
+    # survives a page reload (RetrieveContextsView serves `params` back as `content`).
+    # The saved `variables`/`variablesLayers`/`variablesSubLayers` selection itself is
+    # left untouched - the context page keeps showing exactly what the user picked;
+    # restrict_variables() subtracts removedVariables at read time instead (overview,
+    # moDiNA), so the compact (sub)layer storage never has to be expanded/rewritten here.
     new_context.params['removedVariables'] = removed_raw_ids
     new_context.params['droppedEdgeCount'] = dropped_edge_count
     new_context.save(update_fields=['params'])

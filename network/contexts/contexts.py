@@ -124,13 +124,14 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=None, variable_sub_layers=None,
                        missingness_variables=None, missingness_layers=None, missingness_sub_layers=None,
-                       layers=None, layer_subgroups=None) -> pd.DataFrame:
+                       layers=None, layer_subgroups=None, removed_variable_ids=None) -> pd.DataFrame:
     """
     Restrict `data` to the context's selected variable columns, and (opt-in) drop rows
     missing a completeness-checked one. This is the sole source of truth for which
-    variables/rows are actually part of a context -- a context's top-level `layers`/
-    `subLayers` are never consulted here (or anywhere server-side); they only exist to
-    redraw the "Select layers" UI when a saved context is reopened.
+    variables/rows are actually part of a context -- Context.params has no top-level
+    `layers`/`subLayers` selection field at all; the frontend's variable/missingness
+    pickers work directly off `variables`/`variablesLayers`/`variablesSubLayers` (and the
+    missingness equivalents) below, which is also all that's ever persisted.
 
     Both the variable selection itself and its missingness check are expressed the same
     compact way, resolved via resolve_layer_selection() against `layers`/`layer_subgroups`
@@ -144,6 +145,13 @@ def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=N
       since the frontend only ever compacts a (sub)layer reference when literally every
       variable it refers to is selected.
 
+    `removed_variable_ids` (raw column ids) subtracts out variables moDiNA flagged as not
+    producing a meaningful statistical result (Context.params['removedVariables'], written
+    by create_context_wrapper()) -- callers that want the context's saved selection as-is
+    (context creation/filtering, still driven by in-flight params before removal is even
+    known) simply omit it; callers reflecting what's actually usable (overview, moDiNA
+    itself) pass it.
+
     Any row with a missing value in one of the resolved missingness columns is dropped,
     but every selected-variable column is still kept for the rows that survive, so the
     resulting complete-case sample set is used for the whole context, not just for the
@@ -156,6 +164,8 @@ def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=N
 
     if not selected_ids:
         return data
+    if removed_variable_ids:
+        selected_ids -= set(removed_variable_ids)
     keep_columns = [col for col in data.columns if col in selected_ids]
     if not keep_columns:
         raise ValueError('None of the selected variables are available.')

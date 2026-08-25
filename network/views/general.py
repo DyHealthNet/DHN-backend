@@ -7,7 +7,7 @@ from drf_spectacular.utils import extend_schema_view
 
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-from network.utils.utils import list_group_variables, add_cache_header
+from network.utils.utils import list_group_variables, add_cache_header, extract_var_id
 from network.utils.color_utils import define_context_color, get_palette, rgb_to_hex
 from django.conf import settings
 from django.core.cache import cache
@@ -29,11 +29,17 @@ class GetVariablesView(generics.GenericAPIView):
         context_variables = None
         context_variable_layers = None
         context_variable_sub_layers = {}
+        removed_variable_ids = set()
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
             context_variables = context.params.get('variables')
             context_variable_layers = context.params.get('variablesLayers')
             context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
+            # variables moDiNA flagged as not producing a meaningful statistical result -
+            # still part of the saved selection (so the context page keeps showing exactly
+            # what the user picked), but excluded here since the overview should reflect
+            # what's actually usable.
+            removed_variable_ids = set(context.params.get('removedVariables') or [])
 
         group_values = {}
         for group_name in layers:
@@ -60,6 +66,8 @@ class GetVariablesView(generics.GenericAPIView):
                     keep_mask = pd.Series(False, index=values.index)
                 if context_variables:
                     keep_mask = keep_mask | values['identifier'].isin(context_variables)
+                if removed_variable_ids:
+                    keep_mask = keep_mask & ~values['identifier'].apply(extract_var_id).isin(removed_variable_ids)
                 values = values[keep_mask]
             group_values[group_name] = values
 

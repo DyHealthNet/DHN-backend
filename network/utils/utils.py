@@ -63,10 +63,8 @@ def resolve_layer_selection(layer_names, sub_layers_map, layers, layer_subgroups
     outer restriction to fall back on: the frontend only ever compacts a (sub)layer
     reference when EVERY variable it refers to, globally, is actually selected (see
     ContextSetup.vue's layerCoverage()/variablesAvailableIn*), so `variablesLayers`/
-    `missingnessLayers` are unambiguous on their own, independent of a context's
-    top-level `layers`/`subLayers` (which is only ever used client-side, to narrow what
-    the layer/variable pickers show as options, and to redraw them on reopening a saved
-    context -- never consulted here).
+    `missingnessLayers` are unambiguous on their own -- Context.params has no separate
+    top-level `layers`/`subLayers` selection field to fall back on or consult here.
 
     Used to expand a context's compact variable selection (variablesLayers/
     variablesSubLayers) and its compact missingness-check selection (missingnessLayers/

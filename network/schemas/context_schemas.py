@@ -110,19 +110,19 @@ create_context_schema = extend_schema(
                         ]
                       },
                       "contextName": "example",
-                      "layers": [
-                        "phenotype",
-                        "metabolite"
-                      ],
-                      "subLayers": {
-                        "phenotype": [
-                          "cardio"
-                        ]
-                      },
                       "variables": [
                         "Sex (x0_sex)",
                         "Type of diabetes (x0dm02)"
                       ],
+                      "variablesLayers": [
+                        "phenotype",
+                        "metabolite"
+                      ],
+                      "variablesSubLayers": {
+                        "phenotype": [
+                          "cardio"
+                        ]
+                      },
                       "missingnessVariables": [
                         "Sex (x0_sex)"
                       ],
@@ -281,7 +281,7 @@ filter_context_schema = extend_schema(
                             ]
                         },
                         "contextName": "example",
-                        "layers": [
+                        "variablesLayers": [
                             "phenotype",
                             "metabolite"
                         ],
