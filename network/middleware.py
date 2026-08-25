@@ -63,7 +63,7 @@ class PlatformBasicAuthMiddleware:
         try:
             decoded = base64.b64decode(credentials).decode("utf-8")
             username, _, password = decoded.partition(":")
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, base64.binascii.Error):
             return False
 
         expected_password = settings.PLATFORM_BASIC_AUTH_USERS.get(username)
