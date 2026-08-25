@@ -22,6 +22,7 @@ OPERATORS = {
     'more than (>)': lambda df, col, val: df[col] > float(val),
     'in': lambda df, col, val: df[col].astype(str).isin([str(v) for v in val]),
     'equals (=)': lambda df, col, val: df[col].astype(str) == str(val),
+    'unequals (!=)': lambda df, col, val: df[col].astype(str) != str(val),
     'in range': lambda df, col, val: (df[col] >= float(val[0])) & (df[col] <= float(val[1])),
 }
 
