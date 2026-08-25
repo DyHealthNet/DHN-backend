@@ -30,7 +30,12 @@ context_status_schema = extend_schema(
     responses={
         200: OpenApiResponse(
             description="Successfully retrieved the status of the context\n"
-                        "Can either be 'PENDING', 'SUCCESS', 'ERROR' or 'null'",
+                        "Can either be 'PENDING', 'SUCCESS', 'ERROR' or 'null'.\n"
+                        "On 'SUCCESS', 'result' is an object with 'success' (bool), "
+                        "'removed_variables' (list of raw variable ids moDiNA dropped because "
+                        "they had no usable variation in this context) and "
+                        "'dropped_edge_count' (number of pairwise associations moDiNA could not "
+                        "compute a valid test statistic for).",
         )
     }
 )
@@ -105,10 +110,26 @@ create_context_schema = extend_schema(
                         ]
                       },
                       "contextName": "example",
-                      "layers": [
-                        "phenomics",
-                        "metabolomics"
+                      "variables": [
+                        "Sex (x0_sex)",
+                        "Type of diabetes (x0dm02)"
                       ],
+                      "variablesLayers": [
+                        "phenotype",
+                        "metabolite"
+                      ],
+                      "variablesSubLayers": {
+                        "phenotype": [
+                          "cardio"
+                        ]
+                      },
+                      "missingnessVariables": [
+                        "Sex (x0_sex)"
+                      ],
+                      "missingnessLayers": [
+                        "metabolite"
+                      ],
+                      "missingnessSubLayers": {},
                       "tests": {
                         "catCat": {
                           "label": "Chi-squared test",
@@ -260,9 +281,9 @@ filter_context_schema = extend_schema(
                             ]
                         },
                         "contextName": "example",
-                        "layers": [
-                            "phenomics",
-                            "metabolomics"
+                        "variablesLayers": [
+                            "phenotype",
+                            "metabolite"
                         ],
                         "tests": {
                             "catCat": {

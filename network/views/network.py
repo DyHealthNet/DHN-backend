@@ -1,6 +1,5 @@
 import json
 import timeit
-
 import networkx as nx
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -15,14 +14,6 @@ import logging
 
 logger = logging.getLogger('network')
 
-types = ["protein", "metabolite", "phenotype", "variant"]  # "disorders", "genes"
-layers_to_source_table = {
-    "proteomics": "cohort_protein",
-    "metabolomics": "cohort_metabolite",
-    "phenomics": "cohort_phenotype",
-    "variants": "cohort_variant"
-}
-
 ######### Individual Nodes Network Queries ###########
 @extend_schema_view(
     get=get_network_schema
@@ -31,13 +22,16 @@ class GetNetworkView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         # Get request vars and test valid input
-        request_load = read_in_network_request(request, get_node_type=True, get_limit=True, get_per_type=True)
+        request_load = read_in_network_request(request, get_node_type=True, get_limit=True, get_per_type=True,
+                                               require_test_type=True)
 
-        # retrieve chris nodes & edges + external edges using queries/network_queries function
+        # retrieve nodes & edges from the flat schema (node_type/test_columns are no-ops here -
+        # the new schema has no per-node-type tables or per-correction-method columns to select)
         start = timeit.default_timer()
-        edges, nodes, externals, message = network_query(request_load["query_id"], request_load["node_type"],
-                                                request_load["limit"], request_load["per_type"],
-                                                request_load["significance_thresh"], request_load["test_columns"])
+        edges, nodes, externals, message = get_node_network_new(request_load["query_id"],
+                                                thresh=request_load["significance_thresh"],
+                                                limit=request_load["limit"], per_type=request_load["per_type"],
+                                                test_type=request_load["test_type"])
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
 
         # reformat Edges and Nodes and return as json
@@ -81,12 +75,17 @@ class GetNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
         request_load = read_in_network_request(request, get_node_type=True, get_limit=True, get_per_type=True,
                                                get_context_value=True)
 
-        # retrieve chris nodes & edges + external edges using queries/network_queries function
         start = timeit.default_timer()
-        edges, nodes, externals, message = network_query(request_load["query_id"], request_load["node_type"],
-                                                request_load["limit"], request_load["per_type"],
-                                                request_load["significance_thresh"], request_load["test_columns"],
-                                                request_load["context_id"])
+        try:
+            edges, nodes, externals, message = get_node_network_new(
+                request_load["query_id"],
+                thresh=request_load["significance_thresh"],
+                limit=request_load["limit"],
+                per_type=request_load["per_type"],
+                context_id=request_load["context_id"],
+            )
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -123,12 +122,15 @@ class GetGroupNetworkView(generics.GenericAPIView):
     @staticmethod
     def get(request):
         # Get request vars and test valid input
-        request_load = read_in_network_request(request, query_indiv_node=False, get_spanning_tree=True)
+        request_load = read_in_network_request(request, query_indiv_node=False, get_spanning_tree=True,
+                                               require_test_type=True)
 
-        # retrieve chris nodes & edges + external edges using queries/network_queries function
+        # retrieve nodes & edges from the flat schema (no limit here - the old call for this
+        # view never had one either; test_columns is a no-op, see GetNetworkView)
         start = timeit.default_timer()
-        edges, nodes, externals = network_group_query(request_load["query_ids"], request_load["significance_thresh"],
-                                                      request_load["test_columns"])
+        edges, nodes, externals = get_group_network_new(request_load["query_ids"],
+                                                         thresh=request_load["significance_thresh"], limit=None,
+                                                         test_type=request_load["test_type"])
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -170,10 +172,16 @@ class GetGroupNetworkContextView(LoginRequiredMixin, generics.GenericAPIView):
     def get(request):
         request_load = read_in_network_request(request, query_indiv_node=False,
                                                get_context_value=True, get_spanning_tree=True)
-        # retrieve chris nodes & edges + external edges using queries/network_queries function
         start = timeit.default_timer()
-        edges, nodes, externals = network_group_query(request_load["query_ids"], request_load["significance_thresh"],
-                                                      request_load["test_columns"], request_load["context_id"])
+        try:
+            edges, nodes, externals = get_group_network_new(
+                request_load["query_ids"],
+                thresh=request_load["significance_thresh"],
+                limit=None,
+                context_id=request_load["context_id"],
+            )
+        except ValueError as ex:
+            return HttpResponseBadRequest(str(ex), status=405)
         logger.debug(f"Retrieved nodes and edges in {timeit.default_timer() - start} seconds")
         # reformat Edges and Nodes and return as json
         result_edges = {}
@@ -281,21 +289,37 @@ class TypeaheadView(generics.GenericAPIView):
                 user_context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
                 context_id = user_context.context_id
                 context = Context.objects.get(context_id=int(context_id))
-                context_layers = context.params['layers']
-                logger.debug(f"layer: {context_layers}")
-                tables = [layers_to_source_table[value] for value in context_layers if value in layers_to_source_table]
+                context_variable_layers = context.params.get('variablesLayers')
+                logger.debug(f"variable layers: {context_variable_layers}")
+                # node_group values match layer names directly in the flat schema (no
+                # cohort_* table-name translation needed, unlike layers_to_source_table).
+                # Only an approximation (fully-selected layers, not leftover individual
+                # variables) - fine as a short-lived fallback while the context is still
+                # pending and the precise node set (below) isn't available yet.
+                groups = context_variable_layers
+                try:
+                    # ground-truth node set actually part of the context's calculated
+                    # network (already reflects layers/subLayers/variables, since it's
+                    # derived straight from the context's own edge table) - narrows the
+                    # `groups`-only filter above, which knows nothing of subLayers/variables
+                    node_ids = get_context_node_ids(context_id)
+                except ValueError as ex:
+                    # context calculation hasn't produced its edge table yet (e.g. still
+                    # pending) - fall back to the coarser layers-only filter
+                    logger.debug(f"Could not resolve context node ids for typeahead: {ex}")
+                    node_ids = None
             except UserContextLink.DoesNotExist:
                 return HttpResponseBadRequest('Context not found.', status=404)
         else:
-            tables = None
+            groups = None
+            node_ids = None
 
         # retrieve recommendations using the queries/typeahead_query function
-        res = typeahead_query(s, tables)
+        res = typeahead_query(s, groups, node_ids)
         # reformat and return as json
-        res_filtered = res.values('id', 'description', 'display_name', 'source_table', 'xrefs')
         dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
                                            'source_table': item['source_table'], 'x_refs': item['xrefs']} for item in
-                              res_filtered}
+                              res}
         return JsonResponse(dict_from_queryset, safe=True, status=200)
 
 
@@ -315,7 +339,7 @@ def parse_json_param(request, param_name, default=None):
 
 
 def read_in_network_request(request, query_indiv_node=True, get_node_type=False, get_limit=False, get_per_type=False,
-                            get_context_value=False, get_spanning_tree=False):
+                            get_context_value=False, get_spanning_tree=False, require_test_type=False):
     """Extracts and validates network request parameters."""
     response_data = {}
 
@@ -337,7 +361,7 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
     response_data["significance_thresh"] = request.GET.get("s")
 
     # Get Test configurations
-    selected_options = parse_json_param(request, "o", default={})
+    selected_options = parse_json_param(request, "o", default=None)
     if isinstance(selected_options, HttpResponseBadRequest):
         return selected_options
     try:
@@ -347,10 +371,17 @@ def read_in_network_request(request, query_indiv_node=True, get_node_type=False,
             f'{selected_options["catContM"]["value"]}_p_{selected_options["multTest"]["value"]}',
             f'{selected_options["catCat"]["value"]}_p_{selected_options["multTest"]["value"]}',
         }
-        response_data["test_columns"] = test_columns
-    except KeyError as e:
-        logger.error(f"Missing key in selected_options: {e}")
-        return HttpResponseBadRequest(f"Missing key in selected_options: {e}", status=405)
+    except (KeyError, TypeError):
+        test_columns = set()
+    response_data["test_columns"] = test_columns
+    # New format: {testType: 'parametric'|'nonparametric', correction: 'bh'|'by'}
+    test_type = selected_options.get("testType") if isinstance(selected_options, dict) else None
+    if require_test_type:
+        if test_type not in ('parametric', 'nonparametric'):
+            return HttpResponseBadRequest(
+                "Parameter 'o' must include testType: 'parametric' or 'nonparametric'.", status=405
+            )
+    response_data["test_type"] = test_type
 
     # Optional parameters
     # Get Node Type
@@ -414,7 +445,7 @@ def calculate_minium_spanning_tree(result_nodes, result_edges):
             graph.add_node(node['id'], description=node['description'], display_name=node['display_name'])
 
     logger.debug(f"result_edges {result_edges}")
-    # Add edges to the graph (use 'final_p_value' as the weight)
+    # Add edges to the graph (use 'p_value' as the weight)
     edge_lookup = {}
     edge_group_lookup = {}
     filtered_edges = {}
@@ -422,13 +453,13 @@ def calculate_minium_spanning_tree(result_nodes, result_edges):
         logger.debug(f"edge_group {edge_group}")
         filtered_edges[edge_group] = []
         for edge in result_edges[edge_group]:
-            node_ids = [value for key, value in edge.items() if key.endswith('_id')]
-            if len(node_ids) == 2:  # Ensure there are exactly two nodes (for an undirected edge)
-                node_1, node_2 = node_ids
+            node_1 = edge.get('source')
+            node_2 = edge.get('target')
+            if node_1 is not None and node_2 is not None:
                 edge_key = tuple(sorted([node_1, node_2]))
                 edge_lookup[edge_key] = edge
                 edge_group_lookup[edge_key] = edge_group
-                weight = edge['final_p_value']  # Using final_p_value as the weight
+                weight = edge['p_value']  # Using p_value as the weight
                 graph.add_edge(node_1, node_2, weight=weight)
 
     # Calculate the minimum spanning tree (MST)

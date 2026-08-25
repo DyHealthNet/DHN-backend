@@ -7,48 +7,40 @@ from django.conf import settings
 from django.db import connection
 import logging
 
-from network.contexts.edge_sorting import process_file, add_edges, DB_COLUMNS
+from network.contexts.edge_sorting import add_edges, dataframe_to_buffer_arrow
 from network.models import Context
 from django.db.models import Max
 import pandas as pd
 
 from network.utils.db_utils import get_context
-from network.utils.utils import extract_var_id
+from network.utils.utils import extract_var_id, resolve_layer_selection
 
 logger = logging.getLogger('network')
 
 OPERATORS = {
     'less than (<)': lambda df, col, val: df[col] < float(val),
     'more than (>)': lambda df, col, val: df[col] > float(val),
-    'in': lambda df, col, val: df[col].isin(val),
-    'equals (=)': lambda df, col, val: df[col] == val,
+    'in': lambda df, col, val: df[col].astype(str).isin([str(v) for v in val]),
+    'equals (=)': lambda df, col, val: df[col].astype(str) == str(val),
+    'unequals (!=)': lambda df, col, val: df[col].astype(str) != str(val),
     'in range': lambda df, col, val: (df[col] >= float(val[0])) & (df[col] <= float(val[1])),
 }
 
 
-EDGE_ORDER = {'variant': 3, 'protein': 2, 'metabolite': 1, 'phenotype': 0}
-
-
-def create_table_structure(table_name, context_id, label_table1, label_table2):
-    logger.debug(f"create_table_structure")
-    column_info = DB_COLUMNS[table_name]
-    context_table_name = f"{table_name}_{context_id}"
-    is_same = label_table1 == label_table2
-    logger.debug(f"{label_table1.split('_')[1]}")
-    logger.debug(f"{label_table2.split('_')[1]}")
-    label1_name = f"{label_table1.split('_')[1]}_id{'_1' if is_same else ''}"
-    label2_name = f"{label_table2.split('_')[1]}_id{'_2' if is_same else ''}"
-    table_structure = f"""
-    CREATE TABLE IF NOT EXISTS {context_table_name} (
-    id SERIAL PRIMARY KEY,
-    {label1_name} VARCHAR REFERENCES {label_table1}(cohort_id),
-    {label2_name} VARCHAR REFERENCES {label_table2}(cohort_id),
-    """
-    for column in column_info[2:]:
-        table_structure += f"{column} DOUBLE PRECISION,\n"
-
-    table_structure = table_structure[:-2] + ");"
-    return table_structure
+def _create_context_table(table_name: str, conn):
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id SERIAL PRIMARY KEY,
+            node_id_1 VARCHAR REFERENCES nodes(node_id),
+            node_id_2 VARCHAR REFERENCES nodes(node_id),
+            p_value DOUBLE PRECISION,
+            effect_size DOUBLE PRECISION,
+            test_type VARCHAR
+        )
+    """)
+    conn.commit()
+    logger.debug(f"Created context table {table_name}")
 
 
 def delete_context_tables(context_id: str):
@@ -131,6 +123,72 @@ def subset_patients(variables: pd.DataFrame, params: dict) -> pd.DataFrame:
     return variables[overall_mask]
 
 
+def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=None, variable_sub_layers=None,
+                       missingness_variables=None, missingness_layers=None, missingness_sub_layers=None,
+                       layers=None, layer_subgroups=None, removed_variable_ids=None) -> pd.DataFrame:
+    """
+    Restrict `data` to the context's selected variable columns, and (opt-in) drop rows
+    missing a completeness-checked one. This is the sole source of truth for which
+    variables/rows are actually part of a context -- Context.params has no top-level
+    `layers`/`subLayers` selection field at all; the frontend's variable/missingness
+    pickers work directly off `variables`/`variablesLayers`/`variablesSubLayers` (and the
+    missingness equivalents) below, which is also all that's ever persisted.
+
+    Both the variable selection itself and its missingness check are expressed the same
+    compact way, resolved via resolve_layer_selection() against `layers`/`layer_subgroups`
+    (group->labels dicts DataManager provides):
+    - `selected_variables` / `missingness_variables`: explicit display identifiers
+      (individual exceptions, or the whole set if the frontend never had layer metadata to
+      compact it) -- mapped back to raw column ids via extract_var_id.
+    - `variable_layers` / `variable_sub_layers` and `missingness_layers` /
+      `missingness_sub_layers`: whole (sub)layers that were fully selected/checked, stored
+      compactly by name instead of enumerating every variable in them -- self-sufficient,
+      since the frontend only ever compacts a (sub)layer reference when literally every
+      variable it refers to is selected.
+
+    `removed_variable_ids` (raw column ids) subtracts out variables moDiNA flagged as not
+    producing a meaningful statistical result (Context.params['removedVariables'], written
+    by create_context_wrapper()) -- callers that want the context's saved selection as-is
+    (context creation/filtering, still driven by in-flight params before removal is even
+    known) simply omit it; callers reflecting what's actually usable (overview, moDiNA
+    itself) pass it.
+
+    Any row with a missing value in one of the resolved missingness columns is dropped,
+    but every selected-variable column is still kept for the rows that survive, so the
+    resulting complete-case sample set is used for the whole context, not just for the
+    checked subset. Returns `data` unchanged if no variable selection was provided at all.
+    """
+    selected_ids = set()
+    if selected_variables:
+        selected_ids.update(extract_var_id(var) for var in selected_variables)
+    selected_ids.update(resolve_layer_selection(variable_layers, variable_sub_layers, layers, layer_subgroups))
+
+    if not selected_ids:
+        return data
+    if removed_variable_ids:
+        selected_ids -= set(removed_variable_ids)
+    keep_columns = [col for col in data.columns if col in selected_ids]
+    if not keep_columns:
+        raise ValueError('None of the selected variables are available.')
+    data = data[keep_columns]
+
+    keep_set = set(keep_columns)
+    check_columns = set()
+
+    if missingness_variables:
+        missingness_ids = {extract_var_id(var) for var in missingness_variables}
+        check_columns.update(col for col in keep_columns if col in missingness_ids)
+
+    check_columns.update(
+        col for col in resolve_layer_selection(missingness_layers, missingness_sub_layers, layers, layer_subgroups)
+        if col in keep_set
+    )
+
+    if check_columns:
+        data = data.dropna(subset=list(check_columns))
+    return data
+
+
 def update_buffer(updates, conn, table_name: str = 'edges'):
     cursor = conn.cursor()
 
@@ -164,49 +222,50 @@ def update_buffer(updates, conn, table_name: str = 'edges'):
     conn.commit()
 
 
-def create_context_tables(needed_tables: list[str], context_name: str, conn):
-    cursor = conn.cursor()
-    new_names = {}
-    for table_name in needed_tables:
-        first_table = table_name.split('_')[1]
-        second_table = table_name.split('_')[2]
-        if EDGE_ORDER[first_table] < EDGE_ORDER[second_table]:
-            first_table, second_table = second_table, first_table
+def insert_context(scores: pd.DataFrame, context_name: str, test_type: str) -> bool:
+    """Insert modina context scores into a single flat-schema table.
 
-        cursor.execute(create_table_structure(table_name, context_name,
-                                              f"cohort_{first_table}",
-                                              f"cohort_{second_table}"))
-
-        new_names[table_name] = f"{table_name}_{context_name}"
-    logger.debug(f"Created tables for context {context_name}")
-    conn.commit()
-    return new_names
-
-
-def insert_context(scores: pd.DataFrame, context_name: str, **kwargs):
+    scores columns: label1, label2, raw-P, raw-E, test_type
+    table name:     edges_{test_type}_{context_name}
+    """
     conn = connection
+    table_name = f"edges_{test_type}_{context_name}"
+    _create_context_table(table_name, conn)
 
-    # sort the file buffer into individual edge tables
-    tables = process_file(scores, **kwargs)
+    edges = scores[['label1', 'label2', 'raw-P', 'raw-E', 'test_type']].copy()
+    edges = edges.rename(columns={
+        'label1': 'node_id_1',
+        'label2': 'node_id_2',
+        'raw-P': 'p_value',
+        'raw-E': 'effect_size',
+    })
 
-    # create all needed tables in the database
-    new_names = create_context_tables(list(tables.keys()), context_name, conn)
-
-    # save the tables to CSV files
     if settings.LOW_MEMORY:
-        logger.debug("In low memory mode, saving tables to CSV files")
-        for k, v in tables.items():
-            if os.path.exists(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv"):
-                continue
-            with open(f"/tmp/dyhealthnet-{context_name}/{new_names[k]}.csv", 'wb') as f:
-                f.write(v.getvalue())
-        edge_info = list(new_names.values())
+        csv_path = f"/tmp/dyhealthnet-{context_name}/{table_name}.csv"
+        if not os.path.exists(csv_path):
+            buf = dataframe_to_buffer_arrow(edges)
+            with open(csv_path, 'wb') as f:
+                f.write(buf.getvalue())
+        edge_info = [table_name]
     else:
-        edge_info = {new_names[k]: v for k, v in tables.items()}
+        edge_info = {table_name: dataframe_to_buffer_arrow(edges)}
 
-    # insert the data into the database
-    add_success = add_edges(conn, context_name, edge_info)
-    return add_success
+    return add_edges(conn, context_name, edge_info)
+
+
+def load_context_scores(context_id: str, test_type: str) -> pd.DataFrame:
+    """
+    Load a context's already-computed association scores back out of its
+    edges_{test_type}_{context_id} table, reshaped into the label1/label2/raw-P/raw-E/test_type
+    frame moDiNA's differential-network functions expect -- the inverse of insert_context's
+    rename. Used to build a differential network from two existing contexts without recomputing
+    their (already corrected) association scores.
+    """
+    table_name = f"edges_{test_type}_{context_id}"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT node_id_1, node_id_2, p_value, effect_size, test_type FROM {table_name}")
+        rows = cursor.fetchall()
+    return pd.DataFrame(rows, columns=['label1', 'label2', 'raw-P', 'raw-E', 'test_type'])
 
 
 def context_subset(request, data):
@@ -221,6 +280,54 @@ def context_subset(request, data):
     else:
         df = data.copy()
     return df
+
+
+def context_compare_subsets(request, data):
+    """
+    Resolves two contexts at once (contextValue1/contextValue2 GET params) and subsets
+    `data` to each one's own participants via the same subset_patients() filter
+    context_subset() uses for one context. Shared by both callers that need a two-context
+    comparison: context_compare_subset() (below) concatenates the two for callers that want
+    one merged, context-grouped frame; GetDataHeatmapView keeps them separate since it needs
+    each context's own contingency table before combining them into a difference.
+    Returns (subset1, subset2, context1, context2), or (None, None, None, None) if the user
+    isn't authenticated or either context isn't found.
+    """
+    if not request.user.is_authenticated:
+        return None, None, None, None
+    value1 = request.GET.get('contextValue1')
+    value2 = request.GET.get('contextValue2')
+    if not value1 or not value2:
+        return None, None, None, None
+    context1 = get_context(request.user, value1)
+    context2 = get_context(request.user, value2)
+    if not context1 or not context2:
+        return None, None, None, None
+
+    subset1 = subset_patients(data, context1.params)
+    subset2 = subset_patients(data, context2.params)
+    return subset1, subset2, context1, context2
+
+
+def context_compare_subset(request, data):
+    """
+    Tags each of context_compare_subsets()'s two subsets with a synthetic '__context__'
+    column holding that context's display name, and concatenates them into one frame. A
+    participant satisfying both contexts' filters appears once per context, same as
+    querying each separately would give. Lets callers (plotDataBoxPlot/plotDataLine) reuse
+    their existing c-grouping aggregation unchanged, with context as the group, instead of a
+    bespoke merge path. Returns (combined_df, context1, context2), or (None, None, None).
+    """
+    subset1, subset2, context1, context2 = context_compare_subsets(request, data)
+    if subset1 is None:
+        return None, None, None
+
+    subset1 = subset1.copy()
+    subset2 = subset2.copy()
+    subset1['__context__'] = context1.params.get('contextName', 'Context 1')
+    subset2['__context__'] = context2.params.get('contextName', 'Context 2')
+    combined = pd.concat([subset1, subset2], ignore_index=True)
+    return combined, context1, context2
 
 # Possible future implementation for updating multiple tables concurrently
 # def update_multiple_tables(conn_pool):

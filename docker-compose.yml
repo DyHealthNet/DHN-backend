@@ -15,8 +15,10 @@ services:
         context: .
         dockerfile: Dockerfile
     # we can maybe change this later so that the frontend is in the same network
+    # bound to localhost only: the backend has no per-endpoint auth (DRF default is
+    # AllowAny everywhere), so it must never be reachable directly from outside the host
     ports:
-      - "9900:8000"
+      - "127.0.0.1:9900:8000"
     env_file:
       - .env
     volumes:

@@ -11,9 +11,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from rest_framework import generics
 
 from network.utils.color_utils import define_context_color
-from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables
+from network.contexts.contexts import subset_patients, create_context_id, delete_context_tables, restrict_variables
 from network.models import UserContextLink, Context
-from network.score_calculation import separate_cat_cont
 from network.tasks import create_context_wrapper
 from network.schemas.context_schemas import *
 from network.utils.data_manager import DataManager
@@ -32,18 +31,25 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
     data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
-        # first we retrieve the data we need to process the request
-        all_data, layers, pheno_meta_label, phenotypes, proteins, metabolites = self.data_manager.get_df_copy(
-            ['all_data', 'layers', 'pheno_meta_label', 'phenotypes', 'proteins', 'metabolites'])
+        all_data, layers, meta_file, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'layers', 'meta_file', 'layer_subgroups']
+        )
 
         params = request.data
         if not params:
             return HttpResponseBadRequest('No parameters provided.', status=405)
 
+        if params.get('testType') not in ('parametric', 'nonparametric'):
+            return HttpResponseBadRequest(
+                "Parameter 'testType' must be 'parametric' or 'nonparametric'.", status=405)
+
+        if params.get('correction') not in ('bh', 'by'):
+            return HttpResponseBadRequest(
+                "Parameter 'correction' must be 'bh' or 'by'.", status=405)
+
         logger.debug(f"The user {request.user.username} has the id {request.user.id}")
 
         user_context_query = UserContextLink.objects.filter(user=request.user)
-        # Check that no other context is pending/calculating for that user
         for us_ctxt in user_context_query:
             status = us_ctxt.context_status
             logger.debug(f"Context {us_ctxt.context_id} has status {status}")
@@ -53,7 +59,6 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                 return JsonResponse({'status': 'error',
                                      'message': 'You can only start one context creation at a time.'}, status=429)
 
-        # Check if user has not yet created all settings.MAX_CONTEXT_PER_USER contexts
         user_objects_count = UserContextLink.objects.filter(user=request.user).count()
         if user_objects_count >= settings.MAX_CONTEXT_PER_USER:
             return JsonResponse({'status': 'error',
@@ -62,53 +67,56 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
 
         logger.info(f"The user {request.user.username} can create another context.")
 
-        # nullth step: remove all layers that are not wanted as per params['layers']
-        context_data = all_data
-        for layer in list(set(layers.keys()) - set(params['layers'])):
-            logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-            context_data = context_data.drop(layers[layer], axis=1)
-
-        # first step: set a color for the context
         params['colors'] = define_context_color(value=params.get('contextValue', 1) - 1)
 
-        # second step: subset the data
         try:
-            partial_data = subset_patients(context_data, params)
+            # row-filter by the defined rules first (subset_patients only ever touches
+            # the specific columns rule conditions reference, which are always a subset
+            # of the selected variables, so this can run directly on all_data)
+            partial_data = subset_patients(all_data, params)
+            # then restrict to the selected variables (given as explicit identifiers
+            # and/or compactly as whole (sub)layers - layers/subLayers themselves are
+            # never consulted server-side, only variables/variablesLayers/
+            # variablesSubLayers), and drop any participant missing data in the (opt-in)
+            # missingness-check subset (same two representations)
+            partial_data = restrict_variables(
+                partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
+                params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
+                layers, layer_subgroups,
+            )
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
-        # third step: get the context-name
         context_id = create_context_id()
-        logger.info(f"Creating context with id {context_id}, has {partial_data.shape[1]} columns")
+        logger.info(f"Creating context with id {context_id}, {partial_data.shape[1]} variables, "
+                    f"{partial_data.shape[0]} patients")
 
         try:
             cache.set(f'participants_context_{context_id}', partial_data.shape[0], timeout=3600 * 24 * 30)
         except Exception as ex:
             logger.error(f"Could not save subset data to cache: {ex}, too large?")
 
-        # fourth step: separate the data into categorical and continuous data
-        cat_data, cont_data = separate_cat_cont(partial_data, pheno_meta_label)
-        logger.info(f"Calculating association scores for context {context_id} with shapes {cat_data.shape} and "
-                    f"{cont_data.shape}")
+        # filter meta_file to variables present in partial_data and align partial_data to meta
+        context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
+        partial_data = partial_data[context_meta['label'].tolist()]
 
-        # fifth step: save data to file in order to be able to load it in the celery task
         folder_name = f"dyhealthnet-{context_id}"
         if not os.path.exists(f"/tmp/{folder_name}"):
             os.mkdir(f"/tmp/{folder_name}")
-        cont_file_name = f"/tmp/{folder_name}/cont.pkl"
-        cont_data.to_pickle(cont_file_name)
-        cat_file_name = f"/tmp/{folder_name}/cat.pkl"
-        cat_data.to_pickle(cat_file_name)
 
-        columns = {'protein_set': list(proteins.columns) if isinstance(proteins, pd.DataFrame) else [],
-                   'phenotype_set': list(phenotypes.columns) if isinstance(phenotypes, pd.DataFrame) else [],
-                   'metabolite_set': list(metabolites.columns) if isinstance(metabolites, pd.DataFrame) else [],
-                   'variant_set': []}
+        context_file = f"/tmp/{folder_name}/context_data.pkl"
+        partial_data.to_pickle(context_file)
 
-        # seventh step: start the celery task
-        task = create_context_wrapper.delay(cat_data=cat_file_name, cont_data=cont_file_name, params=params,
-                                            context_name=context_id, user_id=request.user.id,
-                                            **columns)
+        meta_file_path = f"/tmp/{folder_name}/meta_file.pkl"
+        context_meta.to_pickle(meta_file_path)
+
+        task = create_context_wrapper.delay(
+            context_data=context_file,
+            meta_file=meta_file_path,
+            params=params,
+            context_name=context_id,
+            user_id=request.user.id,
+        )
 
         logger.info(f"Context creation for {context_id} successfully started: {task}")
         return JsonResponse({'status': 'success', 'message': 'Context creation started'}, status=200)
@@ -124,12 +132,14 @@ class ContextStatusView(LoginRequiredMixin, generics.GenericAPIView):
             user_context = UserContextLink.objects.get(user_id=request.user.id,
                                                        context_value=request.GET.get("context_value"))
         except UserContextLink.DoesNotExist:
-            return JsonResponse({'status': 'null', 'result': 'No Context for that User and that Tab created'},
+            return JsonResponse({'status': 'error', 'result': 'No Context for that User and that Tab created'},
                                 status=200)
         task_id = user_context.context_task_id
         task = AsyncResult(task_id)
         if task.status == 'FAILURE':
             return JsonResponse({'status': task.status, 'result': 'Something went wrong!'}, status=200)
+        if task.status == 'SUCCESS' and isinstance(task.result, dict) and not task.result.get('success'):
+            return JsonResponse({'status': 'error', 'result': 'Context calculation failed!'}, status=200)
         return JsonResponse({'status': task.status, 'result': task.result})
 
 
@@ -138,16 +148,17 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
     data_manager: DataManager = None
 
     def post(self, request, *args, **kwargs):
-        all_data, layers = self.data_manager.get_df_copy(['all_data', 'layers'])
+        all_data, layers, layer_subgroups = self.data_manager.get_df_copy(['all_data', 'layers', 'layer_subgroups'])
         params = request.data
         if not params:
             return HttpResponseBadRequest('No subset parameters provided.', status=405)
         try:
-            context_data = all_data
-            for layer in list(set(layers.keys()) - set(params['layers'])):
-                logger.debug(f"Removing layer {layer} as it is not wanted in the context")
-                context_data = context_data.drop(layers[layer], axis=1)
-            out_df = subset_patients(context_data, params)
+            out_df = subset_patients(all_data, params)
+            out_df = restrict_variables(
+                out_df, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
+                params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
+                layers, layer_subgroups,
+            )
         except ValueError as ex:
             return HttpResponseBadRequest(str(ex), status=405)
 
@@ -157,10 +168,10 @@ class FilterUserContext(LoginRequiredMixin, generics.GenericAPIView):
             if remaining_users < settings.CRITICAL_NUMBER:
                 remaining_users = 0
             else:
-                remaining_users = max(settings.CRITICAL_NUMBER, int(round(remaining_users / 100) * 100))
+                remaining_users = max(settings.CRITICAL_NUMBER, int(ceil(remaining_users / 100) * 100))
 
         logger.info(f"Remaining users after subsetting: {remaining_users}")
-        return JsonResponse({'result': remaining_users})
+        return JsonResponse({'result': remaining_users, 'preservePrivacy': settings.PRESERVE_PRIVACY})
 
 
 @extend_schema_view(delete=delete_context_schema)

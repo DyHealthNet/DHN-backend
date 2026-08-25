@@ -7,7 +7,7 @@ from drf_spectacular.utils import extend_schema_view
 
 from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-from network.utils.utils import list_node_variables, add_cache_header
+from network.utils.utils import list_group_variables, add_cache_header, extract_var_id
 from network.utils.color_utils import define_context_color, get_palette, rgb_to_hex
 from django.conf import settings
 from django.core.cache import cache
@@ -21,35 +21,86 @@ class GetVariablesView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        pheno_meta, phenotypes = self.data_manager.get_df_copy(['pheno_meta', 'phenotypes'])
-        proteins_meta, proteins = self.data_manager.get_df_copy(['proteins_meta', 'proteins'])
-        metabolites = self.data_manager.get_df_copy('metabolites')
+        layers, group_data, group_meta, layer_subgroups = self.data_manager.get_df_copy(
+            ['layers', 'group_data', 'group_meta', 'layer_subgroups']
+        )
         has_context = request.GET.get('contextValue') and request.user.is_authenticated
 
-        def get_node_variables(meta, data, variable_type):
-            return list_node_variables(meta, data, type=variable_type) if data is not None else None
-
-        phenotypes_values = get_node_variables(pheno_meta, phenotypes, "phenotype")
-        protein_values = get_node_variables(proteins_meta, proteins, "protein")
-        metabolite_values = get_node_variables(metabolites, metabolites, "metabolite")
-
+        context_variables = None
+        context_variable_layers = None
+        context_variable_sub_layers = {}
+        removed_variable_ids = set()
         if has_context:
             context = get_context(request.user, request.GET.get('contextValue'))
-            phenotypes_values = phenotypes_values if 'phenomics' in context.params['layers'] else None
-            protein_values = protein_values if 'proteomics' in context.params['layers'] else None
-            metabolite_values = metabolite_values if 'metabolomics' in context.params['layers'] else None
+            context_variables = context.params.get('variables')
+            context_variable_layers = context.params.get('variablesLayers')
+            context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
+            # variables moDiNA flagged as not producing a meaningful statistical result -
+            # still part of the saved selection (so the context page keeps showing exactly
+            # what the user picked), but excluded here since the overview should reflect
+            # what's actually usable.
+            removed_variable_ids = set(context.params.get('removedVariables') or [])
+
+        group_values = {}
+        for group_name in layers:
+            data = group_data.get(group_name)
+            meta = group_meta.get(group_name)
+            if data is None or meta is None:
+                continue
+            values = list_group_variables(meta, data)
+            if has_context:
+                # the group's variable selection is either compact (the whole group, or
+                # some of its subgroups, was fully picked - variablesLayers/
+                # variablesSubLayers, which always mean literally the whole (sub)layer,
+                # unconditionally) and/or explicit (individual leftover exceptions -
+                # context_variables); a variable counts as included by either. A group
+                # with zero presence in both simply ends up with an empty mask below - no
+                # separate whole-layer gate needed, these two fields are self-sufficient.
+                if context_variable_layers and group_name in context_variable_layers:
+                    wanted_subgroups = context_variable_sub_layers.get(group_name)
+                    keep_mask = (
+                        values['subgroup'].isin(wanted_subgroups) if wanted_subgroups
+                        else pd.Series(True, index=values.index)
+                    )
+                else:
+                    keep_mask = pd.Series(False, index=values.index)
+                if context_variables:
+                    keep_mask = keep_mask | values['identifier'].isin(context_variables)
+                if removed_variable_ids:
+                    keep_mask = keep_mask & ~values['identifier'].apply(extract_var_id).isin(removed_variable_ids)
+                values = values[keep_mask]
+            group_values[group_name] = values
 
         if 'all_variables' not in cache or settings.NO_CACHE or has_context:
-            existing_values = [x for x in [phenotypes_values, protein_values, metabolite_values] if x is not None]
+            # create output dict with type as key and identifier as value, plus an explicit
+            # per-variable layer map so consumers don't need to infer layer from the identifier
+            variable_layers = {}
+            variable_sub_layers = {}
+            for group_name, values in group_values.items():
+                for identifier, subgroup in zip(values['identifier'], values['subgroup']):
+                    variable_layers[identifier] = group_name
+                    if pd.notna(subgroup):
+                        variable_sub_layers[identifier] = subgroup
 
-            # create output dict whit type as key and identifier as value and return it
-            combined_vals = pd.concat(existing_values, axis=0)
-            values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            if group_values:
+                combined_vals = pd.concat(group_values.values(), axis=0)
+                values_dict = combined_vals.groupby('group').apply(lambda dd: list(dd.identifier)).to_dict()
+            else:
+                values_dict = {}
 
             # ensure that all keys are present even if they are empty
             for key in ['binaryCategorical', 'continuous', 'nonbinaryCategorical']:
                 if key not in values_dict:
                     values_dict[key] = []
+
+            values_dict['variableLayers'] = variable_layers
+            values_dict['availableLayers'] = list(group_values.keys())
+            values_dict['variableSubLayers'] = variable_sub_layers
+            values_dict['layerSubLayers'] = {
+                group_name: sorted(layer_subgroups[group_name].keys())
+                for group_name in group_values
+                if layer_subgroups.get(group_name)
+            }
 
             response = JsonResponse(values_dict, safe=True)
             if not settings.NO_CACHE and not has_context:
@@ -113,3 +164,13 @@ class GetColorView(generics.GenericAPIView):
 
         # return html
         return HttpResponse(base + color_html + end)
+
+
+class GetNetworkConfigView(generics.GenericAPIView):
+    """Exposes read-only network-computation config (currently just the multiple-
+    testing correction used to precompute the static network's edges) so the
+    frontend can show what was actually used instead of an editable toggle that
+    doesn't affect anything."""
+    @staticmethod
+    def get(request):
+        return JsonResponse({"correction": settings.MULTIPLE_TESTING})

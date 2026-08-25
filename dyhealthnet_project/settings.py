@@ -27,21 +27,12 @@ env = environ.Env(
     REDIS_URL=(str, 'localhost:6379'),
     NAN_VALUE=(int, -89),
 
-    PROTEIN_PATH=(str, None),
-    PROTEIN_META_PATH=(str, None),
-    PROTEIN_LABEL_COLUMN=(str, None),
-    PROTEIN_DESCRIPTION_COLUMN=(str, None),
-
-    PHENOTYPE_PATH=(str, None),
-    PHENOTYPE_META_PATH=(str, None),
-    PHENOTYPE_LABEL_COLUMN=(str, None),
-    PHENOTYPE_DESCRIPTION_COLUMN=(str, None),
-    PHENOTYPE_TYPE_COLUMN=(str, None),
-
-    METABOLITE_PATH=(str, None),
     CALCULATED_EDGES_PATH=(str, None),
     VAR_LABEL_MAPPING=(str, None),
-    PATIENT_ID_COLUMN=(str, None)
+    PATIENT_ID_COLUMN=(str, None),
+
+    PLATFORM_BASIC_AUTH_ENABLED=(bool, True),
+    PLATFORM_BASIC_AUTH_USERS=(str, ''),
 )
 environ.Env.read_env()
 
@@ -59,11 +50,23 @@ SECRET_KEY = env('SECRET_KEY')
 
 FRONTEND_HOME_URL = env('FRONTEND_HOME_URL')
 
+# HTTP Basic Auth gate in front of the whole backend (see network/middleware.py).
+# Independent of per-user login (allauth) and DRF permissions.
+# PLATFORM_BASIC_AUTH_USERS format: "user1:pass1,user2:pass2,..."
+PLATFORM_BASIC_AUTH_ENABLED = env('PLATFORM_BASIC_AUTH_ENABLED')
+PLATFORM_BASIC_AUTH_USERS = dict(
+    pair.split(':', 1) for pair in env('PLATFORM_BASIC_AUTH_USERS').split(',') if ':' in pair
+)
+
 OAUTH_GITHUB_CLIENT_ID = env('OAUTH_GITHUB_CLIENT_ID')
 
 OAUTH_GITHUB_SECRET = env('OAUTH_GITHUB_SECRET')
 
-ALLOWED_HOSTS = ['*']
+# Free-tier API key from Google AI Studio, used by the Gemini community-labeling feature.
+# Optional: the feature returns a clean error if left blank rather than failing at startup.
+GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
+# TODO remove gnext.gm.eurac.edu and add comment to add users own allowed hosts
+ALLOWED_HOSTS = ['gnext.gm.eurac.edu', '127.0.0.1', 'localhost']
 
 SITE_ID = 1 # Django’s Sites framework is required for django-allauth
 
@@ -138,6 +141,13 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS':'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    # Per-user auth is session-cookie based (see LoginView); dropping the
+    # BasicAuthentication default avoids it intercepting requests that carry
+    # a browser-cached Authorization header from the PlatformBasicAuthMiddleware
+    # gate and rejecting them before the view's own logic runs.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -156,10 +166,13 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    # Must run ahead of PlatformBasicAuthMiddleware so request.session exists
+    # there (it checks a session flag set by the platform-login page).
+    'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
+    'network.middleware.PlatformBasicAuthMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware', # Associates users with requests using sessions.
@@ -263,7 +276,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True  # TODO set to false in production
+CORS_ALLOW_ALL_ORIGINS = False  # TODO set to false in production
 
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
 
@@ -318,30 +331,6 @@ CACHES = {
 
 
 # Custom DyHealthNet settings
-INPUT_FILES = {
-    'proteins': {
-        'path': env("PROTEIN_PATH"),
-        'meta': env("PROTEIN_META_PATH"),
-        'label': env("PROTEIN_LABEL_COLUMN"),
-        'description': env("PROTEIN_DESCRIPTION_COLUMN"),
-    },
-    'phenotypes': {
-        'path': env("PHENOTYPE_PATH"),
-        'meta': env("PHENOTYPE_META_PATH"),
-        'label': env("PHENOTYPE_LABEL_COLUMN"),
-        'description': env("PHENOTYPE_DESCRIPTION_COLUMN"),
-        'type': env("PHENOTYPE_TYPE_COLUMN"),
-    },
-    'metabolites': {
-        'path': env("METABOLITE_PATH"),
-    },
-    'edges': {
-        'path': env("CALCULATED_EDGES_PATH"),
-    },
-    'labels': {
-        'path': env('VAR_LABEL_MAPPING')
-    }
-}
 PATIENT_ID_COLUMN = env("PATIENT_ID_COLUMN")
 
 
@@ -355,6 +344,10 @@ LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
 PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
 CRITICAL_NUMBER = env("CRITICAL_NUMBER", cast=int)
+# Multiple-testing correction used by compute_association_scores.py to precompute
+# the static network's edges -- exposed via GetNetworkConfigView so the frontend
+# can display what was actually used instead of a misleading editable toggle.
+MULTIPLE_TESTING = env("MULTIPLE_TESTING")
 NO_CACHE = env("NO_CACHE", cast=bool)
 
 

@@ -5,80 +5,90 @@ import re
 
 from django.conf import settings
 
-from network.utils.startup_utils import get_file_attr
-
 logger = logging.getLogger('network')
 
 
-def list_node_variables(df, df2=None, type=None):
-    if type == 'phenotype':
-        return list_phenotype_variables(df, df2)
-    elif type == 'protein':
-        return list_protein_variables(df, df2)
-    elif type == 'metabolite':
-        return list_metabolite_variables(df)
-    return None
-
-
-def list_phenotype_variables(pheno_meta_filtered, phenotypes_filtered):
+def list_group_variables(meta, data):
+    """
+    Build the statistical-type grouping and display identifier for every variable in one
+    data group (phenotype/protein/metabolite/... - any group produced by DataManager).
+    :param meta: metadata DataFrame for this group, indexed by label, with 'type',
+                 'description' and 'subgroup' columns (description/subgroup may be
+                 all-NaN if not configured for this group).
+    :param data: data DataFrame for this group (columns = variable labels).
+    :return: DataFrame indexed by label with columns 'group' (continuous/binaryCategorical/
+             nonbinaryCategorical), 'identifier' (display string) and 'subgroup' (may be NaN).
+    """
     def make_group(cols):
         ctype = cols['type']
         cnumcat = cols['num_cat']
-        if ctype == 'integer' or ctype == 'float' or ctype == 'time':
+        if ctype == 'continuous':
             return 'continuous'
         elif cnumcat == 2:
             return 'binaryCategorical'
         return 'nonbinaryCategorical'
 
-    type_col = get_file_attr('phenotypes.type')
-    desc_col = get_file_attr('phenotypes.description')
+    type_col = 'type'
+    desc_col = 'description'
+    subgroup_col = 'subgroup'
 
-    # Get all variables with their type and a suitable identifier and put them in the same format
-    # get Phenotype variables
-    # get subtable of meta data for the variables that are actually in the simulated phenotypes dataset
-    filtered_rows = pheno_meta_filtered[pheno_meta_filtered.index.isin(phenotypes_filtered.columns)]
-    phenotypes_values = filtered_rows[[type_col, desc_col]].copy()
+    # get subtable of meta data for the variables that are actually in the data
+    filtered_rows = meta[meta.index.isin(data.columns)]
+    values = filtered_rows[[type_col, desc_col, subgroup_col]].copy()
 
-    phenotypes_values.loc[:, 'num_cat'] = pd.Series(phenotypes_filtered.nunique())
-    phenotypes_values.loc[:, 'group'] = phenotypes_values.loc[:, [type_col, 'num_cat']].apply(
-        make_group, axis=1)
+    values.loc[:, 'num_cat'] = pd.Series(data.nunique())
+    values.loc[:, 'group'] = values.loc[:, [type_col, 'num_cat']].apply(make_group, axis=1)
 
     # if description is NaN only return the index
-    phenotypes_values.loc[:, 'identifier'] = np.where(
-        phenotypes_values[desc_col].isna(),
-        phenotypes_values.index,
-        phenotypes_values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
+    values.loc[:, 'identifier'] = np.where(
+        values[desc_col].isna(),
+        values.index,
+        values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
     )
 
-    phenotypes_values.drop(columns=[desc_col, 'num_cat', type_col],
-                           inplace=True)
-    return phenotypes_values
+    values.drop(columns=[desc_col, 'num_cat', type_col], inplace=True)
+    return values
 
 
-def list_protein_variables(proteins_meta, proteins):
-    desc_col = get_file_attr('proteins.description')
-    protein_values = proteins_meta[proteins_meta.index.isin(proteins.columns)][
-        [desc_col]].copy()
+def resolve_layer_selection(layer_names, sub_layers_map, layers, layer_subgroups):
+    """
+    Resolve a compact (sub)layer selection -- a list of layer names plus an optional
+    lowercase-keyed map of layer -> selected subgroup names -- into the union of raw
+    column ids it refers to, via the `layers`/`layer_subgroups` dicts DataManager
+    provides (group name -> pd.Index of all its labels; group name ->
+    {subgroup: pd.Index of labels}).
 
-    # Create 'identifier' column based on conditions
-    # (if description is NaN only return the index)
-    protein_values['identifier'] = np.where(
-        protein_values[desc_col].isna(),
-        protein_values.index,
-        protein_values.apply(lambda row: f'{row[desc_col]} / Protein ({row.name})',
-                             axis=1)
-    )
+    A layer name present in `layer_names` without its own entry in `sub_layers_map` means
+    literally every subgroup that layer has -- the whole layer, full stop. There is no
+    outer restriction to fall back on: the frontend only ever compacts a (sub)layer
+    reference when EVERY variable it refers to, globally, is actually selected (see
+    ContextSetup.vue's layerCoverage()/variablesAvailableIn*), so `variablesLayers`/
+    `missingnessLayers` are unambiguous on their own -- Context.params has no separate
+    top-level `layers`/`subLayers` selection field to fall back on or consult here.
 
-    protein_values.drop(columns=[desc_col], inplace=True)
-    protein_values.loc[:, 'group'] = 'continuous'
-    return protein_values
-
-
-def list_metabolite_variables(metabolites):
-    metabolite_values = pd.DataFrame(index=metabolites.columns,
-                                     data={'identifier': metabolites.columns + ' / Metabolite'})
-    metabolite_values.loc[:, 'group'] = 'continuous'
-    return metabolite_values
+    Used to expand a context's compact variable selection (variablesLayers/
+    variablesSubLayers) and its compact missingness-check selection (missingnessLayers/
+    missingnessSubLayers) the same way, in restrict_variables() and layer_counts().
+    :return: set of raw column ids.
+    """
+    if not layer_names or layers is None:
+        return set()
+    sub_layers_map = sub_layers_map or {}
+    result = set()
+    for layer in layer_names:
+        layer_key = layer.lower()
+        subgroups = (layer_subgroups or {}).get(layer_key)
+        wanted_subgroups = sub_layers_map.get(layer_key)
+        if subgroups and wanted_subgroups:
+            for subgroup in wanted_subgroups:
+                labels = subgroups.get(subgroup)
+                if labels is not None:
+                    result.update(labels)
+        else:
+            labels = layers.get(layer_key)
+            if labels is not None:
+                result.update(labels)
+    return result
 
 
 # Function to extract the variable Id from the user-friendly input
