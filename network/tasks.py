@@ -264,7 +264,12 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     CommunityAnnotationStatusView can show which stage/community is in flight -- this can take a
     few minutes (one g:Profiler call total, but one Reactome call per community).
     """
-    all_node_ids = sorted({node_id for node_ids in communities.values() for node_id in node_ids})
+    all_node_ids = sorted({
+        node_id
+        for node_ids in communities.values()
+        if isinstance(node_ids, list)
+        for node_id in node_ids
+    })
     node_rows = query_node_annotation_details(all_node_ids)
     nodes_by_id = {row['node_id']: row for row in node_rows}
 
@@ -272,6 +277,8 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     community_proteins = {}
     community_chebi_ids = {}
     for community_id, node_ids in communities.items():
+        if not isinstance(node_ids, list):
+            continue
         details = [nodes_by_id[node_id] for node_id in node_ids if node_id in nodes_by_id]
         if not details:
             continue
