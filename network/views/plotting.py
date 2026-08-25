@@ -215,7 +215,7 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
                 "label": "Whole Cohort",
-                "backgssroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
+                "backgroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
                 "data": agg_df_mean[y_idx].tolist()
             })
         # Store unique x_var values
