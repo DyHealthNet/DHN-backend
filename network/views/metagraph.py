@@ -1,20 +1,11 @@
 import json
 import importlib
 from math import ceil
-import os
 import time
 import timeit
 from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dyhealthnet_project.settings')
-
-import django
-from django.apps import apps as django_apps
-
-if not django_apps.ready:
-    django.setup()
 
 import igraph as ig
 import leidenalg
