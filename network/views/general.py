@@ -92,9 +92,15 @@ class GetVariablesView(generics.GenericAPIView):
             for key in ['binaryCategorical', 'continuous', 'nonbinaryCategorical']:
                 if key not in values_dict:
                     values_dict[key] = []
+            available_layers = [
+                group_name for group_name in layers
+                if group_name in group_values and not group_values[group_name].empty
+            ]
+            if not available_layers:
+                available_layers = ["All"]
 
             values_dict['variableLayers'] = variable_layers
-            values_dict['availableLayers'] = list(group_values.keys())
+            values_dict['availableLayers'] = available_layers
             values_dict['variableSubLayers'] = variable_sub_layers
             values_dict['layerSubLayers'] = {
                 group_name: sorted(layer_subgroups[group_name].keys())
