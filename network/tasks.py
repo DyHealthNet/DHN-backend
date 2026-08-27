@@ -306,12 +306,20 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     gprofiler_results = run_gprofiler_multi_query({
         community_id: proteins for community_id, proteins in community_proteins.items() if proteins
     })
+    gprofiler_failed = gprofiler_results is None
+    if gprofiler_failed:
+        gprofiler_results = {}
 
     reactome_results = {}
+    reactome_failed = False
     for i, community_id in enumerate(communities_details):
         identifiers = community_proteins.get(community_id, []) + community_chebi_ids.get(community_id, [])
         if identifiers:
-            reactome_results[community_id] = run_reactome_analysis(identifiers)
+            result = run_reactome_analysis(identifiers)
+            if result is None:
+                reactome_failed = True
+                result = []
+            reactome_results[community_id] = result
         self.update_state(
             state='PROGRESS',
             meta={'stage': 'reactome', 'completed': i + 1, 'total': total_communities},
@@ -323,14 +331,18 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     labels = label_data.get('communities', {})
 
     return {
-        community_id: {
-            'label': labels.get(community_id, {}).get('label', ''),
-            'rationale': labels.get(community_id, {}).get('rationale', ''),
-            'node_count': len(details),
-            'gprofiler': gprofiler_results.get(community_id, []),
-            'reactome': reactome_results.get(community_id, []),
-        }
-        for community_id, details in communities_details.items()
+        'communities': {
+            community_id: {
+                'label': labels.get(community_id, {}).get('label', ''),
+                'rationale': labels.get(community_id, {}).get('rationale', ''),
+                'node_count': len(details),
+                'gprofiler': gprofiler_results.get(community_id, []),
+                'reactome': reactome_results.get(community_id, []),
+            }
+            for community_id, details in communities_details.items()
+        },
+        'reactome_failed': reactome_failed,
+        'gprofiler_failed': gprofiler_failed,
     }
 
 
