@@ -149,9 +149,11 @@ def restrict_variables(data: pd.DataFrame, selected_variables, variable_layers=N
     `removed_variable_ids` (raw column ids) subtracts out variables moDiNA flagged as not
     producing a meaningful statistical result (Context.params['removedVariables'], written
     by create_context_wrapper()) -- callers that want the context's saved selection as-is
-    (context creation/filtering, still driven by in-flight params before removal is even
-    known) simply omit it; callers reflecting what's actually usable (overview, moDiNA
-    itself) pass it.
+    (context creation/filtering; a moDiNA differential comparison, which needs both contexts'
+    original selections aligned so moDiNA's own reconciliation can resolve any per-context
+    removal asymmetry -- see network/views/modina.py's _resolve_context_data) simply omit it;
+    callers reflecting what's actually usable in a single context on its own (the overview
+    page) pass it.
 
     Any row with a missing value in one of the resolved missingness columns is dropped,
     but every selected-variable column is still kept for the rows that survive, so the

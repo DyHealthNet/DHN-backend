@@ -25,10 +25,17 @@ def _resolve_context_data(user, context_value, all_data, layers, meta_file, laye
     Context.params has no separate top-level layers/subLayers field) -- the raw subset itself
     isn't kept around after context creation, but is deterministic given Context.params and the
     (static, process-wide)
-    DataManager data, so it can be re-derived here. Restricting to the same variables/complete-case
-    sample set the context's association scores were actually computed on matters here specifically
-    because the STC node metric compares the two contexts' raw variable distributions directly, and
-    the "do these two contexts share the same variables" check right after this call relies on it.
+    DataManager data, so it can be re-derived here.
+
+    Deliberately does NOT subtract params['removedVariables'] here (unlike the overview page):
+    two contexts built on the very same variable selection can still end up with different
+    removedVariables sets, since moDiNA flags a variable as unusable independently per context
+    (no signal in that context's patients). Restricting to each context's own post-removal
+    columns here would make the "do these two contexts share the same variables" check below
+    reject that case, even though it's exactly what compute_diff_network's own reconciliation
+    (modina.statistics_utils.reconcile_flagged_variables) is built to handle transparently once
+    both sides start from the same raw column set. Keeping the original selection here means that
+    check instead reflects genuine, user-driven variable/layer selection differences.
     """
     context = get_context(user, context_value)
     if context is None:
@@ -42,7 +49,7 @@ def _resolve_context_data(user, context_value, all_data, layers, meta_file, laye
     partial_data = restrict_variables(
         partial_data, params.get('variables'), params.get('variablesLayers'), params.get('variablesSubLayers'),
         params.get('missingnessVariables'), params.get('missingnessLayers'), params.get('missingnessSubLayers'),
-        layers, layer_subgroups, params.get('removedVariables'),
+        layers, layer_subgroups,
     )
     context_meta = meta_file[meta_file['label'].isin(partial_data.columns)].reset_index(drop=True)
     partial_data = partial_data[context_meta['label'].tolist()]
@@ -96,6 +103,12 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
                                             'choose two contexts with disjoint patient sets.'},
                                 status=400)
 
+        # data1/data2 reflect each context's original variable selection (see
+        # _resolve_context_data), not what's left after moDiNA's own per-context removal -- so
+        # this only rejects a genuine, user-driven selection mismatch. Variables that moDiNA
+        # flagged as unusable in only one of the two contexts are still allowed through here; they
+        # get reconciled out transparently inside compute_diff_network and reported to the caller
+        # instead (see create_comparison_wrapper's excludedVariables).
         if not data1.columns.equals(data2.columns):
             return JsonResponse({'status': 'error',
                                  'message': 'The two contexts do not share the same set of variables. Please '
