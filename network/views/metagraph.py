@@ -370,6 +370,78 @@ def _run_louvain_clustering(graph):
     return _assign_membership(graph, communities.membership), 'louvain'
 
 
+MAX_SIGNIFICANT_RANKING_RESULTS = 10000
+
+
+def _edge_ranking_sort_key(edge):
+    """p-value ascending, |effect size| descending tiebreak, missing values sort last on
+    either key -- mirrors the frontend's rankEdges() (networkRanking.js) exactly, so the
+    globally top-ranked edges computed here match what the client would have picked."""
+    p_value = edge['p_value']
+    p_key = (1, 0.0) if p_value is None else (0, float(p_value))
+    effect_size = edge['effect_size']
+    abs_effect = None if effect_size is None else abs(float(effect_size))
+    effect_key = (1, 0.0) if abs_effect is None else (0, -abs_effect)
+    return (p_key, effect_key)
+
+
+def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_RANKING_RESULTS,
+                                            max_nodes=MAX_SIGNIFICANT_RANKING_RESULTS):
+    """
+    Ranks and truncates GetCosmographView's unbounded significance case (threshold given,
+    no explicit limit/per_node_limit/density -- what the frontend's "Full Network
+    Statistics" panel requests): candidate_links there is otherwise every edge matching
+    threshold, unsorted and unbounded, which doesn't scale to bigger cohorts.
+
+    Every edge is read once regardless -- to know the true total, and because a node's
+    weighted degree (see _compute_edge_weight) sums over ALL of its significant edges, not
+    just whichever ones survive the top-max_edges cut below -- but only the top max_edges
+    edges and top max_nodes nodes (by weighted degree) are actually kept, so the response
+    stays bounded regardless of how many edges pass the threshold.
+
+    Returns (meta, node_stats_by_id, top_edges):
+        - meta: total_significant_edges/nodes (true counts, pre-truncation),
+          edges_truncated/nodes_truncated, max_edges/max_nodes.
+        - node_stats_by_id: {node_id: {degree, weighted_degree, rank}} for the top nodes only.
+        - top_edges: candidate_links truncated to max_edges, each with a 'rank' (1..N,
+          global) attached.
+    """
+    degree = defaultdict(int)
+    weighted_degree = defaultdict(float)
+    for edge in candidate_links:
+        weight = _compute_edge_weight(edge)
+        for node_id in (edge['source'], edge['target']):
+            degree[node_id] += 1
+            weighted_degree[node_id] += weight
+
+    total_significant_edges = len(candidate_links)
+    total_significant_nodes = len(weighted_degree)
+
+    candidate_links.sort(key=_edge_ranking_sort_key)
+    top_edges = candidate_links[:max_edges]
+    for rank, edge in enumerate(top_edges, start=1):
+        edge['rank'] = rank
+
+    ranked_node_ids = sorted(
+        weighted_degree.keys(),
+        key=lambda node_id: (-weighted_degree[node_id], -degree[node_id], node_id),
+    )
+    node_stats_by_id = {
+        node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id], 'rank': rank}
+        for rank, node_id in enumerate(ranked_node_ids[:max_nodes], start=1)
+    }
+
+    meta = {
+        'total_significant_edges': total_significant_edges,
+        'total_significant_nodes': total_significant_nodes,
+        'edges_truncated': total_significant_edges > max_edges,
+        'nodes_truncated': total_significant_nodes > max_nodes,
+        'max_edges': max_edges,
+        'max_nodes': max_nodes,
+    }
+    return meta, node_stats_by_id, top_edges
+
+
 #TODO: add @extend_schema_view
 class GetCosmographView(generics.GenericAPIView):
     @staticmethod
@@ -437,16 +509,34 @@ class GetCosmographView(generics.GenericAPIView):
             context_id=context_id,
         )
 
+        # The unbounded "whole significant network" case -- threshold given, no explicit
+        # limit/per_node_limit/density -- is what the frontend's "Full Network Statistics"
+        # panel requests. Left as-is, selected_links there is every edge matching threshold,
+        # unsorted and unbounded, which doesn't scale to bigger cohorts -- rank and truncate
+        # it (see _rank_and_truncate_significant_network) so the response stays bounded, and
+        # restrict points to the top-ranked nodes instead of the whole cohort/context below.
+        # Any other combination (explicit limit/per_node_limit, or density -- i.e. "Send
+        # Whole Network" building the graph itself) already comes back bounded and keeps its
+        # existing shape untouched.
+        ranking_meta = None
+        node_stats_by_id = {}
+        if threshold is not None and limit is None and per_node_limit is None and density is None:
+            ranking_meta, node_stats_by_id, selected_links = _rank_and_truncate_significant_network(selected_links)
+
         response_links = selected_links
 
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
-        if context_id is not None:
-            # Nodes/points are otherwise every row of the (context-independent) Nodes
-            # table -- restrict to only the variables actually part of this context
-            # (e.g. a protein-only context shouldn't surface phenotype/metabolite nodes).
-            context_node_ids = get_context_node_ids(context_id)
-            cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
+        if node_stats_by_id:
+            cohort_nodes = node_model.objects.filter(node_id__in=node_stats_by_id.keys()).values(
+                'node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+        else:
+            cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+            if context_id is not None:
+                # Nodes/points are otherwise every row of the (context-independent) Nodes
+                # table -- restrict to only the variables actually part of this context
+                # (e.g. a protein-only context shouldn't surface phenotype/metabolite nodes).
+                context_node_ids = get_context_node_ids(context_id)
+                cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
 
         points = [
             {
@@ -457,10 +547,15 @@ class GetCosmographView(generics.GenericAPIView):
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
+                **(node_stats_by_id[node['node_id']] if node_stats_by_id else {}),
             }
             for node in cohort_nodes
-            if node.get('node_id')
+            if node.get('node_id') and (not node_stats_by_id or node['node_id'] in node_stats_by_id)
         ]
+        if node_stats_by_id:
+            # The DB lookup above doesn't preserve order -- put points back in
+            # weighted-degree rank order.
+            points.sort(key=lambda point: point['rank'])
 
         logger.info(
             'Retrieval complete. points=%s links=%s candidates=%s',
@@ -469,19 +564,23 @@ class GetCosmographView(generics.GenericAPIView):
             len(candidate_links),
         )
 
+        meta = {
+            'point_count': len(points),
+            'link_count': len(response_links),
+            'candidate_link_count': len(candidate_links),
+            'limit': limit,
+            'threshold': threshold,
+            'per_node_limit': per_node_limit,
+            'test_type': test_type,
+            'context_id': context_id,
+            #'edge_weight': edge_weight,
+        }
+        if ranking_meta:
+            meta.update(ranking_meta)
+
         response = JsonResponse(
             {
-                'meta': {
-                    'point_count': len(points),
-                    'link_count': len(response_links),
-                    'candidate_link_count': len(candidate_links),
-                    'limit': limit,
-                    'threshold': threshold,
-                    'per_node_limit': per_node_limit,
-                    'test_type': test_type,
-                    'context_id': context_id,
-                    #'edge_weight': edge_weight,
-                },
+                'meta': meta,
                 'points': points,
                 'links': response_links,
             },
