@@ -213,6 +213,20 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
                 filter_metric=filter_metric, filter_rule=filter_rule,
             )
 
+        # The two contexts can share the same original variable selection (enforced by the view)
+        # yet still end up with asymmetric scores1/scores2 -- moDiNA drops a variable from a
+        # context's own scores entirely if it had no usable variation there, or if every pairwise
+        # test for it came back NaN, independently per context. compute_diff_network below
+        # reconciles this automatically, but doesn't report which side each excluded variable was
+        # missing from -- derive that here, from the very scores1/scores2 about to be handed to
+        # it, so the frontend can tell the user why a variable is absent from the comparison.
+        nodes1 = set(scores1['label1']) | set(scores1['label2'])
+        nodes2 = set(scores2['label1']) | set(scores2['label2'])
+        excluded_variables = {
+            'missingFromContext1': sorted(nodes2 - nodes1),
+            'missingFromContext2': sorted(nodes1 - nodes2),
+        }
+
         edges_diff, nodes_diff, edge_node_stats = compute_diff_network(
             scores1=scores1,
             scores2=scores2,
@@ -245,6 +259,7 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
         )
 
         result = _shape_modina_result(edges_diff, stc_ranking, pagerank_ranking, name1, name2)
+        result['excludedVariables'] = excluded_variables
     finally:
         if os.path.exists(dir_path) and os.path.isdir(dir_path):
             shutil.rmtree(dir_path)
