@@ -7,9 +7,12 @@ create_comparison_schema = extend_schema(
         "Given two contextValues belonging to the logged in user, reuses each context's already-"
         "computed association scores and starts an asynchronous moDiNA differential network "
         "computation (STC node metric, diff-L-P edge metric, optional density-based filtering). "
-        "The two contexts must share the same variable set and the same testType/correction (used "
-        "when their scores were originally computed) -- these are not request parameters. Returns "
-        "a runId to poll via comparisonStatus."
+        "The two contexts must share the same originally selected variable set and the same "
+        "testType/correction (used when their scores were originally computed) -- these are not "
+        "request parameters. A variable moDiNA flagged as unusable in only one of the two contexts "
+        "does not block the comparison; it is excluded from the result instead and reported back "
+        "via 'excludedVariables' (see comparisonStatus). Returns a runId to poll via "
+        "comparisonStatus."
     ),
     parameters=[
         OpenApiParameter(
@@ -79,7 +82,9 @@ comparison_status_schema = extend_schema(
     summary="Get the status of a moDiNA differential network comparison",
     description=(
         "Given a runId returned by createComparison, returns the Celery task status and, once "
-        "'SUCCESS', the shaped result (points, links, edgeRanking)."
+        "'SUCCESS', the shaped result (points, links, edgeRanking, and excludedVariables -- the "
+        "variables moDiNA flagged as unusable in only one of the two contexts and therefore left "
+        "out of the comparison, split into 'missingFromContext1'/'missingFromContext2')."
     ),
     parameters=[
         OpenApiParameter(
