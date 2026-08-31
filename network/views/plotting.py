@@ -174,14 +174,14 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Make group by x and c var, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return groups with 5 or more values =! NaN
 
-            agg_df_mean = df.groupby([x_idx, c_idx], observed=True)
-
+            filtered_df = df
             if settings.PRESERVE_PRIVACY:
-                agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
-                if len(agg_df_mean) < len(df):
+                filtered_df = df.groupby([x_idx, c_idx], observed=True).filter(
+                    lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+                if len(filtered_df) < len(df):
                     send_warning = True
 
-            agg_df_mean = (agg_df_mean.groupby([x_idx, c_idx], observed=True)[y_idx].mean()
+            agg_df_mean = (filtered_df.groupby([x_idx, c_idx], observed=True)[y_idx].mean()
                            .reset_index().sort_values(x_idx, ascending=True))
 
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
@@ -204,13 +204,14 @@ class GetDataLinePlotView(generics.GenericAPIView):
             # Make group by x and, aggregate over y using mean (+sort by x var for sorted x-axis in plot)
             # privacy restriction: only return something when there are 5 or more values =! NaN
             # (opposite is very unlikely)
-            agg_df_mean = df.groupby(x_idx, observed=True)
+            filtered_df = df
             if settings.PRESERVE_PRIVACY:
-                agg_df_mean = agg_df_mean.filter(lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
-                if len(agg_df_mean) < len(df):
+                filtered_df = df.groupby(x_idx, observed=True).filter(
+                    lambda x: x[y_idx].notna().sum() >= settings.CRITICAL_NUMBER)
+                if len(filtered_df) < len(df):
                     send_warning = True
 
-            agg_df_mean = agg_df_mean.groupby(x_idx, observed=True)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            agg_df_mean = filtered_df.groupby(x_idx, observed=True)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
 
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
