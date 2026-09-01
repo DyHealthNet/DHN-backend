@@ -60,9 +60,14 @@ def delete_context_tables(context_id: str):
 
     # create_context_id() assigns max(existing context_id) + 1, so once this context
     # is gone that same numeric id can be handed to a future context. Without this,
-    # its still-live participants_context_/variables_context_ cache entries would be
-    # silently served to that unrelated future context until their timeout elapses.
-    cache.delete_many([f'participants_context_{context_id}', f'variables_context_{context_id}'])
+    # its still-live participants_context_/variables_context_/context_node_ids_ cache
+    # entries would be silently served to that unrelated future context until their
+    # timeout elapses.
+    cache.delete_many([
+        f'participants_context_{context_id}',
+        f'variables_context_{context_id}',
+        f'context_node_ids_{context_id}',
+    ])
 
 
 def create_context_id() -> str:

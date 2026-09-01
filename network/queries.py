@@ -3,6 +3,8 @@ from math import ceil
 from collections import defaultdict
 
 import numpy as np
+from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import Q, F
 from django.apps import apps
@@ -126,7 +128,17 @@ def get_context_node_ids(context_id):
     edge filtering" behavior for the global case (there it's every row of the
     Nodes table; here it's scoped down to the context's own variable set instead
     of the entire database).
+
+    Result only changes if the context's edge table changes, which never happens
+    after creation -- cached like participants_context_/variables_context_, and
+    invalidated the same way by delete_context_tables() (network/contexts/contexts.py).
+    Called on every keystroke of a context-scoped typeahead search (network/views/
+    network.py's TypeaheadView), so this is the hottest of the three.
     """
+    cache_key = f'context_node_ids_{context_id}'
+    if not settings.NO_CACHE and cache_key in cache:
+        return cache.get(cache_key)
+
     table_name, _ = resolve_context_edge_table(context_id)
     sql = (
         f"SELECT node_id_1 AS node_id FROM {table_name} "
@@ -134,7 +146,11 @@ def get_context_node_ids(context_id):
     )
     with connection.cursor() as cursor:
         cursor.execute(sql)
-        return {row[0] for row in cursor.fetchall() if row[0]}
+        node_ids = {row[0] for row in cursor.fetchall() if row[0]}
+
+    if not settings.NO_CACHE:
+        cache.set(cache_key, node_ids, timeout=3600 * 24 * 30)
+    return node_ids
 
 
 def _get_flat_edge_models(context_id=None, test_type=None):

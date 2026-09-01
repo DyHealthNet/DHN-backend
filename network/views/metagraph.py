@@ -383,6 +383,24 @@ def _edge_ranking_sort_key(edge):
     return (p_key, effect_key)
 
 
+def _compute_node_degree_stats(links):
+    """
+    {node_id: {'degree': int, 'weighted_degree': float}} for every node touched by links,
+    where weighted_degree sums _compute_edge_weight over each node's incident edges.
+    """
+    degree = defaultdict(int)
+    weighted_degree = defaultdict(float)
+    for edge in links:
+        weight = _compute_edge_weight(edge)
+        for node_id in (edge['source'], edge['target']):
+            degree[node_id] += 1
+            weighted_degree[node_id] += weight
+    return {
+        node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id]}
+        for node_id in degree
+    }
+
+
 def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_RANKING_RESULTS,
                                             max_nodes=MAX_SIGNIFICANT_RANKING_RESULTS):
     """
@@ -404,13 +422,9 @@ def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIF
         - top_edges: candidate_links truncated to max_edges, each with a 'rank' (1..N,
           global) attached.
     """
-    degree = defaultdict(int)
-    weighted_degree = defaultdict(float)
-    for edge in candidate_links:
-        weight = _compute_edge_weight(edge)
-        for node_id in (edge['source'], edge['target']):
-            degree[node_id] += 1
-            weighted_degree[node_id] += weight
+    degree_stats = _compute_node_degree_stats(candidate_links)
+    weighted_degree = {node_id: stats['weighted_degree'] for node_id, stats in degree_stats.items()}
+    degree = {node_id: stats['degree'] for node_id, stats in degree_stats.items()}
 
     total_significant_edges = len(candidate_links)
     total_significant_nodes = len(weighted_degree)
@@ -508,6 +522,12 @@ class GetCosmographView(generics.GenericAPIView):
 
         response_links = selected_links
 
+        # degree/weighted_degree for every node touched by the returned links -- the
+        # ranking branch above already computed these (plus 'rank') for its top nodes;
+        # otherwise (bounded "Send Whole Network"/search fetches) compute them fresh so
+        # every point still carries degree/weighted_degree for e.g. rank-based coloring.
+        degree_stats_by_id = node_stats_by_id if node_stats_by_id else _compute_node_degree_stats(response_links)
+
         node_model = apps.get_model('network', 'Nodes')
         if node_stats_by_id:
             cohort_nodes = node_model.objects.filter(node_id__in=node_stats_by_id.keys()).values(
@@ -530,7 +550,7 @@ class GetCosmographView(generics.GenericAPIView):
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
-                **(node_stats_by_id[node['node_id']] if node_stats_by_id else {}),
+                **degree_stats_by_id.get(node['node_id'], {}),
             }
             for node in cohort_nodes
             if node.get('node_id') and (not node_stats_by_id or node['node_id'] in node_stats_by_id)
@@ -689,6 +709,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
         response_links = selected_links
+        degree_stats_by_id = _compute_node_degree_stats(response_links)
 
         # All nodes, not just used_node_ids (the ones clustered) -- matches
         # GetCosmographView's node set, so switching between "Send Whole Network"
@@ -718,6 +739,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'source_table': node.get('node_group'),
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
+                **degree_stats_by_id.get(node['node_id'], {}),
             }
 
             # Add community field for each resolution
