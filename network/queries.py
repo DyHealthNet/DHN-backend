@@ -596,5 +596,5 @@ def typeahead_query(query, groups=None, node_ids=None, limit=20):
     if node_ids is not None:
         filters &= Q(node_id__in=node_ids)
     return model.objects.filter(filters)[:limit].values(
-        'description', 'display_name', 'xrefs', id=F('node_id'), source_table=F('node_group')
+        'description', 'display_name', 'xrefs', 'data_type', id=F('node_id'), source_table=F('node_group')
     )
