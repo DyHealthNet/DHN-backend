@@ -531,9 +531,9 @@ class GetCosmographView(generics.GenericAPIView):
         node_model = apps.get_model('network', 'Nodes')
         if node_stats_by_id:
             cohort_nodes = node_model.objects.filter(node_id__in=node_stats_by_id.keys()).values(
-                'node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+                'node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
         else:
-            cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+            cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
             if context_id is not None:
                 # Nodes/points are otherwise every row of the (context-independent) Nodes
                 # table -- restrict to only the variables actually part of this context
@@ -548,6 +548,7 @@ class GetCosmographView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
+                'data_type': node.get('data_type') or '',
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
                 **degree_stats_by_id.get(node['node_id'], {}),
@@ -718,7 +719,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # resolution_results dict, so its community_rX fields below come back
         # None/null -- the frontend already renders that as an "Unassigned" bucket.
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
         if context_id is not None:
             # Restrict to this context's own variables (e.g. a protein-only context
             # shouldn't surface phenotype/metabolite nodes) -- see GetCosmographView.
@@ -737,6 +738,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
+                'data_type': node.get('data_type') or '',
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
                 **degree_stats_by_id.get(node['node_id'], {}),

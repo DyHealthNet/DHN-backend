@@ -72,7 +72,7 @@ def _query_new_schema_nodes(node_ids):
     """
     node_model = apps.get_model('network', 'Nodes')
     rows = node_model.objects.filter(node_id__in=node_ids).values(
-        'node_id', 'display_name', 'description', 'node_group', 'xrefs'
+        'node_id', 'display_name', 'description', 'node_group', 'data_type', 'xrefs'
     )
     return [
         {
@@ -80,6 +80,7 @@ def _query_new_schema_nodes(node_ids):
             'display_name': row['display_name'],
             'description': row['description'],
             'source_table': row['node_group'],
+            'data_type': row['data_type'],
             'xrefs': row['xrefs'],
         }
         for row in rows
