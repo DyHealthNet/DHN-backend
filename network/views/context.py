@@ -85,7 +85,34 @@ class CreateUserContext(LoginRequiredMixin, generics.GenericAPIView):
                 layers, layer_subgroups,
             )
         except ValueError as ex:
-            return HttpResponseBadRequest(str(ex), status=405)
+            # JsonResponse, not HttpResponseBadRequest: the frontend's sendContext() always
+            # calls response.json() on this endpoint's response, regardless of status code --
+            # a plain-text body makes that throw, which was silently swallowed by the fetch's
+            # .catch (console.error only), so no banner was ever shown for this error at all.
+            return JsonResponse({'status': 'error', 'message': str(ex)}, status=400)
+
+        # moDiNA needs at least 2 variables with more than one observed value among the
+        # filtered patients to compute any association at all. This is most commonly hit
+        # when a context starts out with only a couple of variables and a row filter (e.g.
+        # restricting to one sex) happens to make one of them constant for this particular
+        # context. Caught here, before the Celery task is even started, so the user gets an
+        # immediate, specific reason instead of the generic "Context calculation failed!"
+        # once the async task fails deep inside moDiNA's own association testing.
+        varying_columns = [col for col in partial_data.columns if partial_data[col].nunique(dropna=True) > 1]
+        if len(varying_columns) < 2:
+            constant_columns = [col for col in partial_data.columns if col not in varying_columns]
+            message = (
+                "This context cannot be created: at least 2 variables with more than one "
+                f"observed value are required among the filtered patients, but only "
+                f"{len(varying_columns)} remain. "
+            )
+            if constant_columns:
+                message += (
+                    f"The following selected variable(s) have only one value (or no data) "
+                    f"for the filtered patients: {', '.join(constant_columns)}. "
+                )
+            message += "Please select additional variables or adjust the filter rules."
+            return JsonResponse({'status': 'error', 'message': message}, status=400)
 
         context_id = create_context_id()
         logger.info(f"Creating context with id {context_id}, {partial_data.shape[1]} variables, "
