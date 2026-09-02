@@ -375,10 +375,23 @@ def _edge_ranking_sort_key(edge):
     """p-value ascending, |effect size| descending tiebreak, missing values sort last on
     either key -- mirrors the frontend's rankEdges() (networkRanking.js) exactly, so the
     globally top-ranked edges computed here match what the client would have picked."""
-    p_value = edge['p_value']
-    p_key = (1, 0.0) if p_value is None else (0, float(p_value))
-    effect_size = edge['effect_size']
-    abs_effect = None if effect_size is None else abs(float(effect_size))
+    p_value_raw = edge.get('p_value')
+    try:
+        p_value = float(p_value_raw)
+        if np.isnan(p_value):
+            p_value = None
+    except (TypeError, ValueError):
+        p_value = None
+    p_key = (1, 0.0) if p_value is None else (0, p_value)
+
+    effect_raw = edge.get('effect_size')
+    try:
+        effect = float(effect_raw)
+        if np.isnan(effect):
+            effect = None
+    except (TypeError, ValueError):
+        effect = None
+    abs_effect = None if effect is None else abs(effect)
     effect_key = (1, 0.0) if abs_effect is None else (0, -abs_effect)
     return (p_key, effect_key)
 
