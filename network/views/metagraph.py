@@ -404,16 +404,12 @@ def _compute_node_degree_stats(links):
 def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_RANKING_RESULTS,
                                             max_nodes=MAX_SIGNIFICANT_RANKING_RESULTS):
     """
-    Ranks and truncates GetCosmographView's unbounded significance case (threshold given,
-    no explicit limit/per_node_limit/density -- what the frontend's "Full Network
-    Statistics" panel requests): candidate_links there is otherwise every edge matching
-    threshold, unsorted and unbounded, which doesn't scale to bigger cohorts.
-
-    Every edge is read once regardless -- to know the true total, and because a node's
-    weighted degree (see _compute_edge_weight) sums over ALL of its significant edges, not
-    just whichever ones survive the top-max_edges cut below -- but only the top max_edges
-    edges and top max_nodes nodes (by weighted degree) are actually kept, so the response
-    stays bounded regardless of how many edges pass the threshold.
+    Ranks the significant network matching the user given threshold and parameter and truncates the 
+    Edges (and Nodes) to MAX_SIGNIFICANT_RANKING_RESULTS. Edges are ranked by p-value (ascending) and 
+    effect size (descending), with missing values sorting last. Nodes are ranked by their weighted 
+    degree (descending) and degree (descending), with missing values sorting last. The Weighted degree 
+    and degree of the returned nodes are computed over the entire significant network, not just the truncated edges.
+    Meta information (total significant edges etc. is returned for displayed in the frontend.)
 
     Returns (meta, node_stats_by_id, top_edges):
         - meta: total_significant_edges/nodes (true counts, pre-truncation),
@@ -486,12 +482,24 @@ class GetCosmographView(generics.GenericAPIView):
             except ValueError as ex:
                 return HttpResponseBadRequest(str(ex), status=405)
 
+        # Explicit opt-in from the "Full Network Statistics" panel (see
+        # buildWholeNetworkByPvalThreshUrl in data-network.vue) -- ranking/truncation
+        # below is gated on this flag rather than inferred from which of
+        # limit/per_node_limit/density happen to be absent, so a future caller can't
+        # accidentally get the truncated ranking view (or the stats panel silently stop
+        # truncating) just because it does/doesn't happen to pass some other param.
+        full_network_stats = request.GET.get('full_network_stats') in ('1', 'true', 'True')
+        if full_network_stats and threshold is None:
+            return HttpResponseBadRequest('threshold is required when full_network_stats is set.', status=405)
+
         logger.info(
-            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s context_id=%s',
+            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s '
+            'full_network_stats=%s test_type=%s context_id=%s',
             limit,
             threshold,
             per_node_limit,
             density,
+            full_network_stats,
             test_type,
             context_id,
         )
@@ -506,18 +514,18 @@ class GetCosmographView(generics.GenericAPIView):
             context_id=context_id,
         )
 
-        # The unbounded "whole significant network" case -- threshold given, no explicit
-        # limit/per_node_limit/density -- is what the frontend's "Full Network Statistics"
-        # panel requests. Left as-is, selected_links there is every edge matching threshold,
+        # Only the explicit "Full Network Statistics" request (full_network_stats=true)
+        # gets ranked and truncated: selected_links there is every edge matching threshold,
         # unsorted and unbounded, which doesn't scale to bigger cohorts -- rank and truncate
         # it (see _rank_and_truncate_significant_network) so the response stays bounded, and
         # restrict points to the top-ranked nodes instead of the whole cohort/context below.
-        # Any other combination (explicit limit/per_node_limit, or density -- i.e. "Send
-        # Whole Network" building the graph itself) already comes back bounded and keeps its
-        # existing shape untouched.
+        # Every other request -- including "Send Whole Network" building the graph itself,
+        # even if it were ever called with threshold instead of density -- comes back
+        # bounded (by density/limit/per_node_limit as given) and keeps its existing,
+        # untruncated shape.
         ranking_meta = None
         node_stats_by_id = {}
-        if threshold is not None and limit is None and per_node_limit is None and density is None:
+        if full_network_stats:
             ranking_meta, node_stats_by_id, selected_links = _rank_and_truncate_significant_network(selected_links)
 
         response_links = selected_links
