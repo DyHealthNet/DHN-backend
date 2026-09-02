@@ -71,7 +71,14 @@ class GetVariablesView(generics.GenericAPIView):
                 values = values[keep_mask]
             group_values[group_name] = values
 
-        if 'all_variables' not in cache or settings.NO_CACHE or has_context:
+        # Context-scoped responses get their own cache entry, capped at 30 days like
+        # participants_context_{id} rather than forever -- unlike 'all_variables' this
+        # key is per-context, so it's also explicitly invalidated on delete by
+        # delete_context_tables() (network/contexts/contexts.py); the 30-day timeout is
+        # just a backstop for that.
+        cache_key = f'variables_context_{context.context_id}' if has_context else 'all_variables'
+        cache_timeout = 3600 * 24 * 30 if has_context else None
+        if cache_key not in cache or settings.NO_CACHE:
             # create output dict with type as key and identifier as value, plus an explicit
             # per-variable layer map so consumers don't need to infer layer from the identifier
             variable_layers = {}
@@ -92,9 +99,15 @@ class GetVariablesView(generics.GenericAPIView):
             for key in ['binaryCategorical', 'continuous', 'nonbinaryCategorical']:
                 if key not in values_dict:
                     values_dict[key] = []
+            available_layers = [
+                group_name for group_name in layers
+                if group_name in group_values and not group_values[group_name].empty
+            ]
+            if not available_layers:
+                available_layers = ["All"]
 
             values_dict['variableLayers'] = variable_layers
-            values_dict['availableLayers'] = list(group_values.keys())
+            values_dict['availableLayers'] = available_layers
             values_dict['variableSubLayers'] = variable_sub_layers
             values_dict['layerSubLayers'] = {
                 group_name: sorted(layer_subgroups[group_name].keys())
@@ -103,12 +116,12 @@ class GetVariablesView(generics.GenericAPIView):
             }
 
             response = JsonResponse(values_dict, safe=True)
-            if not settings.NO_CACHE and not has_context:
+            if not settings.NO_CACHE:
                 response = add_cache_header(response, not has_context)
-                cache.set('all_variables', response, timeout=None)
+                cache.set(cache_key, response, timeout=cache_timeout)
         else:
-            logger.info(f"Cache hit: all_variables")
-            return cache.get('all_variables')
+            logger.info(f"Cache hit: {cache_key}")
+            return cache.get(cache_key)
 
         response = add_cache_header(response, not has_context)
         return response

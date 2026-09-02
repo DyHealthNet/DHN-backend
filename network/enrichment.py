@@ -139,9 +139,9 @@ def run_gprofiler_multi_query(community_gene_lists):
     accepts a dict of named gene lists, scored together in a single request) rather than one
     call per community -- same sources/thresholds as the existing per-selection Protein
     Enrichment feature (runProteinEnrichment, data-network.vue:1846-1877). Returns
-    {community_id: [top 20 terms sorted by p_value asc]}; on total failure, returns {} for
-    every requested community rather than raising, so one bad request doesn't abort the whole
-    community-annotation run.
+    {community_id: [top 20 terms sorted by p_value asc]}, or None if the request itself failed
+    -- callers must keep that distinct from "genuinely no significant terms" (an empty dict) so
+    a g:Profiler outage can be reported instead of silently read as a negative result.
     """
     if not community_gene_lists:
         return {}
@@ -162,7 +162,7 @@ def run_gprofiler_multi_query(community_gene_lists):
         results = response.json().get('result') or []
     except (requests.RequestException, ValueError) as ex:
         logger.error("g:Profiler multi-query request failed: %s", ex)
-        return {}
+        return None
 
     by_community = {community_id: [] for community_id in community_gene_lists}
     for row in results:
@@ -179,8 +179,10 @@ def run_reactome_analysis(identifiers):
     Service -- it only accepts one combined identifier list per request, so (unlike
     g:Profiler) this is called once per community by the caller. Same endpoint/params as the
     existing per-selection Reactome Enrichment feature (runReactomeEnrichment,
-    data-network.vue:1936-1991). Returns the top 20 pathways sorted by entities.pValue asc, or
-    [] on failure/no identifiers.
+    data-network.vue:1936-1991). Returns the top 20 pathways sorted by entities.pValue asc, []
+    if there are no identifiers or Reactome genuinely found nothing significant, or None if the
+    request itself failed -- callers must keep that distinction so a Reactome outage can be
+    reported instead of silently read as "no significant pathways".
     """
     if not identifiers:
         return []
@@ -195,5 +197,5 @@ def run_reactome_analysis(identifiers):
         pathways = response.json().get('pathways') or []
     except (requests.RequestException, ValueError, KeyError) as ex:
         logger.error("Reactome analysis request failed: %s", ex)
-        return []
+        return None
     return sorted(pathways, key=lambda pathway: pathway['entities']['pValue'])[:20]

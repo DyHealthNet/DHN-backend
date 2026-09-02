@@ -318,7 +318,8 @@ class TypeaheadView(generics.GenericAPIView):
         res = typeahead_query(s, groups, node_ids)
         # reformat and return as json
         dict_from_queryset = {item['id']: {'display_name': item['display_name'], 'description': item['description'],
-                                           'source_table': item['source_table'], 'x_refs': item['xrefs']} for item in
+                                           'source_table': item['source_table'], 'x_refs': item['xrefs'],
+                                           'data_type': item['data_type']} for item in
                               res}
         return JsonResponse(dict_from_queryset, safe=True, status=200)
 

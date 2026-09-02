@@ -162,17 +162,24 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
     # need its own (separately configured, and not guaranteed identical) id scheme besides.
     node_meta_df = pd.DataFrame(
         Nodes.objects.filter(node_id__in=points_df['id'].tolist())
-        .values('node_id', 'display_name', 'description', 'node_group')
+        .values('node_id', 'display_name', 'description', 'node_group', 'data_type', 'xrefs')
     )
     if not node_meta_df.empty:
         node_meta_df = node_meta_df.set_index('node_id')
         points_df['display_name'] = points_df['id'].map(node_meta_df['display_name'])
         points_df['description'] = points_df['id'].map(node_meta_df['description'])
         points_df['group'] = points_df['id'].map(node_meta_df['node_group'])
+        # 'type' (continuous/categorical/etc.) -- DiffNodeDetails' distribution-plot
+        # choice and DiffEdgeDetails' relationship-plot choice both already key off
+        # this field name, matching the main network page's own point.type.
+        points_df['type'] = points_df['id'].map(node_meta_df['data_type'])
+        points_df['xrefs'] = points_df['id'].map(node_meta_df['xrefs'])
     else:
         points_df['display_name'] = None
         points_df['description'] = None
         points_df['group'] = None
+        points_df['type'] = None
+        points_df['xrefs'] = None
 
     return {
         'points': _df_records(points_df),
@@ -321,12 +328,20 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     gprofiler_results = run_gprofiler_multi_query({
         community_id: proteins for community_id, proteins in community_proteins.items() if proteins
     })
+    gprofiler_failed = gprofiler_results is None
+    if gprofiler_failed:
+        gprofiler_results = {}
 
     reactome_results = {}
+    reactome_failed = False
     for i, community_id in enumerate(communities_details):
         identifiers = community_proteins.get(community_id, []) + community_chebi_ids.get(community_id, [])
         if identifiers:
-            reactome_results[community_id] = run_reactome_analysis(identifiers)
+            result = run_reactome_analysis(identifiers)
+            if result is None:
+                reactome_failed = True
+                result = []
+            reactome_results[community_id] = result
         self.update_state(
             state='PROGRESS',
             meta={'stage': 'reactome', 'completed': i + 1, 'total': total_communities},
@@ -338,14 +353,18 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     labels = label_data.get('communities', {})
 
     return {
-        community_id: {
-            'label': labels.get(community_id, {}).get('label', ''),
-            'rationale': labels.get(community_id, {}).get('rationale', ''),
-            'node_count': len(details),
-            'gprofiler': gprofiler_results.get(community_id, []),
-            'reactome': reactome_results.get(community_id, []),
-        }
-        for community_id, details in communities_details.items()
+        'communities': {
+            community_id: {
+                'label': labels.get(community_id, {}).get('label', ''),
+                'rationale': labels.get(community_id, {}).get('rationale', ''),
+                'node_count': len(details),
+                'gprofiler': gprofiler_results.get(community_id, []),
+                'reactome': reactome_results.get(community_id, []),
+            }
+            for community_id, details in communities_details.items()
+        },
+        'reactome_failed': reactome_failed,
+        'gprofiler_failed': gprofiler_failed,
     }
 
 

@@ -61,4 +61,17 @@ class CommunityAnnotationStatusView(generics.GenericAPIView):
             return JsonResponse(
                 {'status': task.status, 'result': str(task.result), 'traceback': task.traceback}, status=200
             )
+        if task.status == 'SUCCESS':
+            # run_community_annotation_task wraps its per-community results together with
+            # reactome_failed/gprofiler_failed flags (each external API's failure is silently
+            # tolerated per-community -- see network.enrichment.run_reactome_analysis and
+            # run_gprofiler_multi_query -- so this is the only place those signals surface);
+            # unwrapped here so `result` keeps the flat community_id -> {...} shape the
+            # frontend already expects.
+            return JsonResponse({
+                'status': task.status,
+                'result': task.result.get('communities', {}),
+                'reactomeFailed': task.result.get('reactome_failed', False),
+                'gprofilerFailed': task.result.get('gprofiler_failed', False),
+            })
         return JsonResponse({'status': task.status, 'result': task.result})

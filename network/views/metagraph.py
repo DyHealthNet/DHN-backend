@@ -15,8 +15,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.db.models import Value
 from django.db.models.functions import Least, Coalesce
-from django.conf import settings
-from django.core.cache import cache
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
@@ -370,6 +368,101 @@ def _run_louvain_clustering(graph):
     return _assign_membership(graph, communities.membership), 'louvain'
 
 
+MAX_SIGNIFICANT_RANKING_RESULTS = 10000
+
+
+def _edge_ranking_sort_key(edge):
+    """p-value ascending, |effect size| descending tiebreak, missing values sort last on
+    either key -- mirrors the frontend's rankEdges() (networkRanking.js) exactly, so the
+    globally top-ranked edges computed here match what the client would have picked."""
+    p_value_raw = edge.get('p_value')
+    try:
+        p_value = float(p_value_raw)
+        if np.isnan(p_value):
+            p_value = None
+    except (TypeError, ValueError):
+        p_value = None
+    p_key = (1, 0.0) if p_value is None else (0, p_value)
+
+    effect_raw = edge.get('effect_size')
+    try:
+        effect = float(effect_raw)
+        if np.isnan(effect):
+            effect = None
+    except (TypeError, ValueError):
+        effect = None
+    abs_effect = None if effect is None else abs(effect)
+    effect_key = (1, 0.0) if abs_effect is None else (0, -abs_effect)
+    return (p_key, effect_key)
+
+
+def _compute_node_degree_stats(links):
+    """
+    {node_id: {'degree': int, 'weighted_degree': float}} for every node touched by links,
+    where weighted_degree sums _compute_edge_weight over each node's incident edges.
+    """
+    degree = defaultdict(int)
+    weighted_degree = defaultdict(float)
+    for edge in links:
+        weight = _compute_edge_weight(edge)
+        for node_id in (edge['source'], edge['target']):
+            degree[node_id] += 1
+            weighted_degree[node_id] += weight
+    return {
+        node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id]}
+        for node_id in degree
+    }
+
+
+def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_RANKING_RESULTS,
+                                            max_nodes=MAX_SIGNIFICANT_RANKING_RESULTS):
+    """
+    Ranks the significant network matching the user given threshold and parameter and truncates the 
+    Edges (and Nodes) to MAX_SIGNIFICANT_RANKING_RESULTS. Edges are ranked by p-value (ascending) and 
+    effect size (descending), with missing values sorting last. Nodes are ranked by their weighted 
+    degree (descending) and degree (descending), with missing values sorting last. The Weighted degree 
+    and degree of the returned nodes are computed over the entire significant network, not just the truncated edges.
+    Meta information (total significant edges etc. is returned for displayed in the frontend.)
+
+    Returns (meta, node_stats_by_id, top_edges):
+        - meta: total_significant_edges/nodes (true counts, pre-truncation),
+          edges_truncated/nodes_truncated, max_edges/max_nodes.
+        - node_stats_by_id: {node_id: {degree, weighted_degree, rank}} for the top nodes only.
+        - top_edges: candidate_links truncated to max_edges, each with a 'rank' (1..N,
+          global) attached.
+    """
+    degree_stats = _compute_node_degree_stats(candidate_links)
+    weighted_degree = {node_id: stats['weighted_degree'] for node_id, stats in degree_stats.items()}
+    degree = {node_id: stats['degree'] for node_id, stats in degree_stats.items()}
+
+    total_significant_edges = len(candidate_links)
+    total_significant_nodes = len(weighted_degree)
+
+    candidate_links.sort(key=_edge_ranking_sort_key)
+    top_edges = candidate_links[:max_edges]
+    for rank, edge in enumerate(top_edges, start=1):
+        edge['rank'] = rank
+
+    ranked_node_ids = sorted(
+        weighted_degree.keys(),
+        key=lambda node_id: (-weighted_degree[node_id], -degree[node_id], node_id),
+    )
+    node_stats_by_id = {
+        node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id], 'rank': rank}
+        for rank, node_id in enumerate(ranked_node_ids[:max_nodes], start=1)
+    }
+
+    meta = {
+        'total_significant_edges': total_significant_edges,
+        'total_significant_nodes': total_significant_nodes,
+        'edges_truncated': total_significant_edges > max_edges,
+        'nodes_truncated': total_significant_nodes > max_nodes,
+        'max_edges': max_edges,
+        'max_nodes': max_nodes,
+    }
+    return meta, node_stats_by_id, top_edges
+
+
 #TODO: add @extend_schema_view
 class GetCosmographView(generics.GenericAPIView):
     @staticmethod
@@ -402,30 +495,27 @@ class GetCosmographView(generics.GenericAPIView):
             except ValueError as ex:
                 return HttpResponseBadRequest(str(ex), status=405)
 
+        # Explicit opt-in from the "Full Network Statistics" panel (see
+        # buildWholeNetworkByPvalThreshUrl in data-network.vue) -- ranking/truncation
+        # below is gated on this flag rather than inferred from which of
+        # limit/per_node_limit/density happen to be absent, so a future caller can't
+        # accidentally get the truncated ranking view (or the stats panel silently stop
+        # truncating) just because it does/doesn't happen to pass some other param.
+        full_network_stats = request.GET.get('full_network_stats') in ('1', 'true', 'True')
+        if full_network_stats and threshold is None:
+            return HttpResponseBadRequest('threshold is required when full_network_stats is set.', status=405)
+
         logger.info(
-            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s test_type=%s context_id=%s',
+            'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s '
+            'full_network_stats=%s test_type=%s context_id=%s',
             limit,
             threshold,
             per_node_limit,
             density,
+            full_network_stats,
             test_type,
             context_id,
         )
-
-        # Same Redis cache GetVariablesView (network/views/general.py) uses for
-        # 'all_variables', including the same has_context bypass -- a context
-        # (FilterToolbar's cohort selector, sends 'c') scopes the whole/nonparametric
-        # edge tables to that context, so its response is never the same as the
-        # no-context static network and must never be served from or written to
-        # this cache. Only the no-context request -- one fixed response per
-        # parameter combo, same shape as 'all_variables' being one fixed response
-        # -- is cached, and forever (timeout=None), busted only via the
-        # clear_cache management command.
-        has_context = context_id is not None
-        cache_key = f'cosmograph_{test_type}_{limit}_{threshold}_{per_node_limit}_{density}'
-        if not settings.NO_CACHE and not has_context and cache_key in cache:
-            logger.info(f"Cache hit: {cache_key}")
-            return cache.get(cache_key)
 
         # Extract candidate_links, selected_links, and nodes from the database
         candidate_links, selected_links, used_node_ids = get_whole_network(
@@ -437,16 +527,40 @@ class GetCosmographView(generics.GenericAPIView):
             context_id=context_id,
         )
 
+        # Only the explicit "Full Network Statistics" request (full_network_stats=true)
+        # gets ranked and truncated: selected_links there is every edge matching threshold,
+        # unsorted and unbounded, which doesn't scale to bigger cohorts -- rank and truncate
+        # it (see _rank_and_truncate_significant_network) so the response stays bounded, and
+        # restrict points to the top-ranked nodes instead of the whole cohort/context below.
+        # Every other request -- including "Send Whole Network" building the graph itself,
+        # even if it were ever called with threshold instead of density -- comes back
+        # bounded (by density/limit/per_node_limit as given) and keeps its existing,
+        # untruncated shape.
+        ranking_meta = None
+        node_stats_by_id = {}
+        if full_network_stats:
+            ranking_meta, node_stats_by_id, selected_links = _rank_and_truncate_significant_network(selected_links)
+
         response_links = selected_links
 
+        # degree/weighted_degree for every node touched by the returned links -- the
+        # ranking branch above already computed these (plus 'rank') for its top nodes;
+        # otherwise (bounded "Send Whole Network"/search fetches) compute them fresh so
+        # every point still carries degree/weighted_degree for e.g. rank-based coloring.
+        degree_stats_by_id = node_stats_by_id if node_stats_by_id else _compute_node_degree_stats(response_links)
+
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
-        if context_id is not None:
-            # Nodes/points are otherwise every row of the (context-independent) Nodes
-            # table -- restrict to only the variables actually part of this context
-            # (e.g. a protein-only context shouldn't surface phenotype/metabolite nodes).
-            context_node_ids = get_context_node_ids(context_id)
-            cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
+        if node_stats_by_id:
+            cohort_nodes = node_model.objects.filter(node_id__in=node_stats_by_id.keys()).values(
+                'node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
+        else:
+            cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
+            if context_id is not None:
+                # Nodes/points are otherwise every row of the (context-independent) Nodes
+                # table -- restrict to only the variables actually part of this context
+                # (e.g. a protein-only context shouldn't surface phenotype/metabolite nodes).
+                context_node_ids = get_context_node_ids(context_id)
+                cohort_nodes = cohort_nodes.filter(node_id__in=context_node_ids)
 
         points = [
             {
@@ -455,12 +569,18 @@ class GetCosmographView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
+                'data_type': node.get('data_type') or '',
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
+                **degree_stats_by_id.get(node['node_id'], {}),
             }
             for node in cohort_nodes
-            if node.get('node_id')
+            if node.get('node_id') and (not node_stats_by_id or node['node_id'] in node_stats_by_id)
         ]
+        if node_stats_by_id:
+            # The DB lookup above doesn't preserve order -- put points back in
+            # weighted-degree rank order.
+            points.sort(key=lambda point: point['rank'])
 
         logger.info(
             'Retrieval complete. points=%s links=%s candidates=%s',
@@ -469,26 +589,28 @@ class GetCosmographView(generics.GenericAPIView):
             len(candidate_links),
         )
 
+        meta = {
+            'point_count': len(points),
+            'link_count': len(response_links),
+            'candidate_link_count': len(candidate_links),
+            'limit': limit,
+            'threshold': threshold,
+            'per_node_limit': per_node_limit,
+            'test_type': test_type,
+            'context_id': context_id,
+            #'edge_weight': edge_weight,
+        }
+        if ranking_meta:
+            meta.update(ranking_meta)
+
         response = JsonResponse(
             {
-                'meta': {
-                    'point_count': len(points),
-                    'link_count': len(response_links),
-                    'candidate_link_count': len(candidate_links),
-                    'limit': limit,
-                    'threshold': threshold,
-                    'per_node_limit': per_node_limit,
-                    'test_type': test_type,
-                    'context_id': context_id,
-                    #'edge_weight': edge_weight,
-                },
+                'meta': meta,
                 'points': points,
                 'links': response_links,
             },
             status=200,
         )
-        if not settings.NO_CACHE and not has_context:
-            cache.set(cache_key, response, timeout=None)
         return response
 
 
@@ -609,6 +731,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
             print(f"One run {method} runtime: {end - start_one_leiden_run:.4f} seconds for resolution {resolution}")
 
         response_links = selected_links
+        degree_stats_by_id = _compute_node_degree_stats(response_links)
 
         # All nodes, not just used_node_ids (the ones clustered) -- matches
         # GetCosmographView's node set, so switching between "Send Whole Network"
@@ -617,7 +740,7 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
         # resolution_results dict, so its community_rX fields below come back
         # None/null -- the frontend already renders that as an "Unassigned" bucket.
         node_model = apps.get_model('network', 'Nodes')
-        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'description', 'xrefs')
+        cohort_nodes = node_model.objects.all().values('node_id', 'display_name', 'node_group', 'node_subgroup', 'data_type', 'description', 'xrefs')
         if context_id is not None:
             # Restrict to this context's own variables (e.g. a protein-only context
             # shouldn't surface phenotype/metabolite nodes) -- see GetCosmographView.
@@ -636,8 +759,10 @@ class GetLeidenMetagraphView(generics.GenericAPIView):
                 'type': node.get('node_group') or '',
                 'subtype': node.get('node_subgroup') or '',
                 'source_table': node.get('node_group'),
+                'data_type': node.get('data_type') or '',
                 'description': node.get('description') or '',
                 'xrefs': node.get('xrefs') or '',
+                **degree_stats_by_id.get(node['node_id'], {}),
             }
 
             # Add community field for each resolution

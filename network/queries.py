@@ -3,6 +3,8 @@ from math import ceil
 from collections import defaultdict
 
 import numpy as np
+from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import Q, F
 from django.apps import apps
@@ -70,7 +72,7 @@ def _query_new_schema_nodes(node_ids):
     """
     node_model = apps.get_model('network', 'Nodes')
     rows = node_model.objects.filter(node_id__in=node_ids).values(
-        'node_id', 'display_name', 'description', 'node_group', 'xrefs'
+        'node_id', 'display_name', 'description', 'node_group', 'data_type', 'xrefs'
     )
     return [
         {
@@ -78,6 +80,7 @@ def _query_new_schema_nodes(node_ids):
             'display_name': row['display_name'],
             'description': row['description'],
             'source_table': row['node_group'],
+            'data_type': row['data_type'],
             'xrefs': row['xrefs'],
         }
         for row in rows
@@ -126,7 +129,17 @@ def get_context_node_ids(context_id):
     edge filtering" behavior for the global case (there it's every row of the
     Nodes table; here it's scoped down to the context's own variable set instead
     of the entire database).
+
+    Result only changes if the context's edge table changes, which never happens
+    after creation -- cached like participants_context_/variables_context_, and
+    invalidated the same way by delete_context_tables() (network/contexts/contexts.py).
+    Called on every keystroke of a context-scoped typeahead search (network/views/
+    network.py's TypeaheadView), so this is the hottest of the three.
     """
+    cache_key = f'context_node_ids_{context_id}'
+    if not settings.NO_CACHE and cache_key in cache:
+        return cache.get(cache_key)
+
     table_name, _ = resolve_context_edge_table(context_id)
     sql = (
         f"SELECT node_id_1 AS node_id FROM {table_name} "
@@ -134,7 +147,11 @@ def get_context_node_ids(context_id):
     )
     with connection.cursor() as cursor:
         cursor.execute(sql)
-        return {row[0] for row in cursor.fetchall() if row[0]}
+        node_ids = {row[0] for row in cursor.fetchall() if row[0]}
+
+    if not settings.NO_CACHE:
+        cache.set(cache_key, node_ids, timeout=3600 * 24 * 30)
+    return node_ids
 
 
 def _get_flat_edge_models(context_id=None, test_type=None):
@@ -579,5 +596,5 @@ def typeahead_query(query, groups=None, node_ids=None, limit=20):
     if node_ids is not None:
         filters &= Q(node_id__in=node_ids)
     return model.objects.filter(filters)[:limit].values(
-        'description', 'display_name', 'xrefs', id=F('node_id'), source_table=F('node_group')
+        'description', 'display_name', 'xrefs', 'data_type', id=F('node_id'), source_table=F('node_group')
     )
