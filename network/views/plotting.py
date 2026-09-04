@@ -113,7 +113,9 @@ class GetDataLinePlotView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
         # Get request vars
         try:
             x, y, c = plot_variables(request)
@@ -127,12 +129,12 @@ class GetDataLinePlotView(generics.GenericAPIView):
 
         # Two-context comparison mode -- see GetDataBoxPlotView for the same pattern.
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
-            line_plot_df, _, _ = context_compare_subset(request, all_data)
+            line_plot_df, _, _ = context_compare_subset(request, all_data, layers, layer_subgroups)
             if line_plot_df is None:
                 return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
             c = '__context__'
         else:
-            line_plot_df = context_subset(request, all_data)
+            line_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         if x_idx not in line_plot_df.columns or y_idx not in line_plot_df.columns:
             return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
@@ -236,7 +238,9 @@ class GetDataBarCountView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
 
         send_warning = False
 
@@ -254,12 +258,12 @@ class GetDataBarCountView(generics.GenericAPIView):
         x_idx = extract_var_id(x)
 
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
-            bar_plot_df, _, _ = context_compare_subset(request, all_data)
+            bar_plot_df, _, _ = context_compare_subset(request, all_data, layers, layer_subgroups)
             if bar_plot_df is None:
                 return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
             c = '__context__'
         else:
-            bar_plot_df = context_subset(request, all_data)
+            bar_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         if x_idx not in bar_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
@@ -333,7 +337,9 @@ class GetDataPieCountView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
 
         send_warning = False
 
@@ -349,7 +355,7 @@ class GetDataPieCountView(generics.GenericAPIView):
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
 
-        pie_plot_df = context_subset(request, all_data)
+        pie_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         if x_idx not in pie_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
@@ -388,7 +394,9 @@ class GetDataDensityPlotView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
 
         send_warning = False
 
@@ -408,12 +416,12 @@ class GetDataDensityPlotView(generics.GenericAPIView):
         # (or filtering by) a single contextValue, reusing the exact same c-grouping
         # aggregation below rather than a separate code path (same pattern as GetDataBoxPlotView).
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
-            density_plot_df, _, _ = context_compare_subset(request, all_data)
+            density_plot_df, _, _ = context_compare_subset(request, all_data, layers, layer_subgroups)
             if density_plot_df is None:
                 return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
             c = '__context__'
         else:
-            density_plot_df = context_subset(request, all_data)
+            density_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         # Check if there is in general enough data != nan to ensure privacy protection
         if settings.PRESERVE_PRIVACY:
@@ -509,7 +517,9 @@ class GetDataBoxPlotView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
 
         # Fill NaN values with the NaN boxplot dictionary
         nan_boxplot = {'min': None, 'q1': None, 'median': None, 'mean': None, 'q3': None, 'max': None}
@@ -526,12 +536,12 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         # (or filtering by) a single contextValue, reusing the exact same c-grouping
         # aggregation below rather than a separate code path.
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
-            box_plot_df, _, _ = context_compare_subset(request, all_data)
+            box_plot_df, _, _ = context_compare_subset(request, all_data, layers, layer_subgroups)
             if box_plot_df is None:
                 return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
             c = '__context__'
         else:
-            box_plot_df = context_subset(request, all_data)
+            box_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
         if x_idx not in box_plot_df.columns or y_idx not in box_plot_df.columns:
@@ -642,7 +652,9 @@ class GetDataHeatmapView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
         # Get request vars
         x = request.GET.get("x")
         y = request.GET.get("y")
@@ -666,7 +678,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
             # to proportions-of-that-context (so differently-sized contexts are comparable),
             # then subtracted. The result is just another x/y-indexed table of numbers, so
             # it feeds the same serialization below as the single-context contingency table.
-            subset1, subset2, _, _ = context_compare_subsets(request, all_data)
+            subset1, subset2, _, _ = context_compare_subsets(request, all_data, layers, layer_subgroups)
             if subset1 is None:
                 return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
             if (x_idx not in subset1.columns or y_idx not in subset1.columns
@@ -699,7 +711,7 @@ class GetDataHeatmapView(generics.GenericAPIView):
             prop2 = (tab2 / total2) if total2 else tab2.astype(float)
             contingency_tab = prop1 - prop2
         else:
-            heatmap_df = context_subset(request, all_data)
+            heatmap_df = context_subset(request, all_data, layers, layer_subgroups)
             # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
             if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
                 return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
@@ -742,7 +754,9 @@ class GetDataDensityHistogramPlotView(generics.GenericAPIView):
     data_manager = None
 
     def get(self, request):
-        all_data, var_label_map = self.data_manager.get_df_copy(['all_data', 'var_label_map'])
+        all_data, var_label_map, layers, layer_subgroups = self.data_manager.get_df_copy(
+            ['all_data', 'var_label_map', 'layers', 'layer_subgroups']
+        )
 
         send_warning = False
 
@@ -761,7 +775,7 @@ class GetDataDensityHistogramPlotView(generics.GenericAPIView):
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
 
-        density_plot_df = context_subset(request, all_data)
+        density_plot_df = context_subset(request, all_data, layers, layer_subgroups)
 
         # Check if there is in general enough data != nan to ensure privacy protection
         if settings.PRESERVE_PRIVACY:
