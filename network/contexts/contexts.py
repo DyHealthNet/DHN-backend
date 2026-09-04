@@ -282,7 +282,30 @@ def load_context_scores(context_id: str, test_type: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=['label1', 'label2', 'raw-P', 'raw-E', 'test_type'])
 
 
-def context_subset(request, data):
+def _apply_context_restriction(df, context, layers, layer_subgroups):
+    """
+    Applies the missingness-driven row/column restriction a context defines (the "no
+    missing samples" per-variable check set up in ContextSetup.vue) on top of the
+    conditions-based `subset_patients` filter -- the same restrict_variables() call
+    GetTableView uses to compute the context's true participant count. Without this,
+    a context whose participant reduction comes mainly from that missingness check
+    (rather than explicit rule conditions) would show its unfiltered row count in every
+    plot despite reporting the correct, smaller count in the context summary.
+    """
+    try:
+        return restrict_variables(
+            df, context.params.get('variables'), context.params.get('variablesLayers'),
+            context.params.get('variablesSubLayers'), context.params.get('missingnessVariables'),
+            context.params.get('missingnessLayers'), context.params.get('missingnessSubLayers'),
+            layers, layer_subgroups, context.params.get('removedVariables'),
+        )
+    except ValueError:
+        # selected variables no longer resolve to any real column - fall back to the
+        # rule-only subset rather than erroring out a plot
+        return df
+
+
+def context_subset(request, data, layers=None, layer_subgroups=None):
     # If the user requests a context, subset the data based on the context
     if request.GET.get("contextValue") and request.user.is_authenticated:
         # subset data based on context
@@ -291,19 +314,21 @@ def context_subset(request, data):
             return None
 
         df = subset_patients(data, context.params)
+        df = _apply_context_restriction(df, context, layers, layer_subgroups)
     else:
         df = data.copy()
     return df
 
 
-def context_compare_subsets(request, data):
+def context_compare_subsets(request, data, layers=None, layer_subgroups=None):
     """
     Resolves two contexts at once (contextValue1/contextValue2 GET params) and subsets
-    `data` to each one's own participants via the same subset_patients() filter
-    context_subset() uses for one context. Shared by both callers that need a two-context
-    comparison: context_compare_subset() (below) concatenates the two for callers that want
-    one merged, context-grouped frame; GetDataHeatmapView keeps them separate since it needs
-    each context's own contingency table before combining them into a difference.
+    `data` to each one's own participants via the same subset_patients() +
+    restrict_variables() filtering context_subset() uses for one context. Shared by both
+    callers that need a two-context comparison: context_compare_subset() (below)
+    concatenates the two for callers that want one merged, context-grouped frame;
+    GetDataHeatmapView keeps them separate since it needs each context's own contingency
+    table before combining them into a difference.
     Returns (subset1, subset2, context1, context2), or (None, None, None, None) if the user
     isn't authenticated or either context isn't found.
     """
@@ -319,11 +344,13 @@ def context_compare_subsets(request, data):
         return None, None, None, None
 
     subset1 = subset_patients(data, context1.params)
+    subset1 = _apply_context_restriction(subset1, context1, layers, layer_subgroups)
     subset2 = subset_patients(data, context2.params)
+    subset2 = _apply_context_restriction(subset2, context2, layers, layer_subgroups)
     return subset1, subset2, context1, context2
 
 
-def context_compare_subset(request, data):
+def context_compare_subset(request, data, layers=None, layer_subgroups=None):
     """
     Tags each of context_compare_subsets()'s two subsets with a synthetic '__context__'
     column holding that context's display name, and concatenates them into one frame. A
@@ -332,7 +359,7 @@ def context_compare_subset(request, data):
     their existing c-grouping aggregation unchanged, with context as the group, instead of a
     bespoke merge path. Returns (combined_df, context1, context2), or (None, None, None).
     """
-    subset1, subset2, context1, context2 = context_compare_subsets(request, data)
+    subset1, subset2, context1, context2 = context_compare_subsets(request, data, layers, layer_subgroups)
     if subset1 is None:
         return None, None, None
 
