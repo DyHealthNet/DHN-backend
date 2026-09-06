@@ -183,8 +183,12 @@ class GetDataLinePlotView(generics.GenericAPIView):
                 if len(filtered_df) < len(df):
                     send_warning = True
 
+            # A group whose y-values are all NaN still gets a row here (grouping only
+            # depends on x_idx/c_idx), with mean() == NaN; drop it rather than serialize
+            # invalid JSON (dict-comment above explains we already skip x positions with
+            # no aggregated value, so this keeps that guarantee even without the privacy filter).
             agg_df_mean = (filtered_df.groupby([x_idx, c_idx], observed=True)[y_idx].mean()
-                           .reset_index().sort_values(x_idx, ascending=True))
+                           .reset_index().dropna(subset=[y_idx]).sort_values(x_idx, ascending=True))
 
             # Add for each color var its own dict containing its label, a color from the color palette and a dict that
             # associates the aggregated values with the corresponding x value (this way we do not have to create NaN
@@ -213,7 +217,8 @@ class GetDataLinePlotView(generics.GenericAPIView):
                 if len(filtered_df) < len(df):
                     send_warning = True
 
-            agg_df_mean = filtered_df.groupby(x_idx, observed=True)[y_idx].mean().reset_index().sort_values(x_idx, ascending=True)
+            agg_df_mean = (filtered_df.groupby(x_idx, observed=True)[y_idx].mean().reset_index()
+                           .dropna(subset=[y_idx]).sort_values(x_idx, ascending=True))
 
             # Add dict for y-axis containing the y label, black as the color and the aggregated values
             temp.append({
@@ -426,19 +431,28 @@ class GetDataDensityPlotView(generics.GenericAPIView):
         # Check if there is in general enough data != nan to ensure privacy protection
         if settings.PRESERVE_PRIVACY:
             if len(density_plot_df[x_idx].dropna()) < settings.CRITICAL_NUMBER:
-                return {
+                return JsonResponse({
                     'labels': [],
                     'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
                                   'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
                     "warning" : "Not enough data available to ensure privacy protection."
-                }
+                })
 
         if x_idx not in density_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
 
-        min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
+        # np.min/np.max propagate NaN if any value is missing (unlike nanmin/nanmax), which
+        # would make x_vals -- and the whole response -- all-NaN and unserializable as JSON.
+        valid_x = density_plot_df[x_idx].dropna()
+        if len(valid_x) == 0:
+            return JsonResponse({
+                'labels': [],
+                'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
+                              'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
+            })
+        min_val, max_val = valid_x.min(), valid_x.max()
 
-        kde = gaussian_kde(density_plot_df[x_idx].dropna(), bw_method=0.1)
+        kde = gaussian_kde(valid_x, bw_method=0.1)
 
         x_vals = np.linspace(min_val, max_val, 100)
         y_vals = kde(x_vals)  # Get the density for these x values
@@ -557,20 +571,22 @@ class GetDataBoxPlotView(generics.GenericAPIView):
         privacy_triggered = [False]
 
         def boxplot_stats(group):
-            if (settings.PRESERVE_PRIVACY and group[y_idx].notna().sum() >= settings.CRITICAL_NUMBER or
-                    not settings.PRESERVE_PRIVACY):
-                return {
-                    'min': group[y_idx].min(),
-                    'q1': group[y_idx].quantile(0.25),
-                    'median': group[y_idx].median(),
-                    'mean': group[y_idx].mean(),
-                    'q3': group[y_idx].quantile(0.75),
-                    'max': group[y_idx].max(),
-                }
-            else:
-                if settings.PRESERVE_PRIVACY:
-                    privacy_triggered[0] = True
+            valid_count = group[y_idx].notna().sum()
+            # No valid values: always return the None sentinel, since pandas stats on an
+            # all-NaN slice are real NaN floats, which Django serializes as invalid JSON.
+            if valid_count == 0:
                 return nan_boxplot
+            if settings.PRESERVE_PRIVACY and valid_count < settings.CRITICAL_NUMBER:
+                privacy_triggered[0] = True
+                return nan_boxplot
+            return {
+                'min': group[y_idx].min(),
+                'q1': group[y_idx].quantile(0.25),
+                'median': group[y_idx].median(),
+                'mean': group[y_idx].mean(),
+                'q3': group[y_idx].quantile(0.75),
+                'max': group[y_idx].max(),
+            }
 
         temp = []
         grouped = pd.DataFrame()
@@ -780,17 +796,26 @@ class GetDataDensityHistogramPlotView(generics.GenericAPIView):
         # Check if there is in general enough data != nan to ensure privacy protection
         if settings.PRESERVE_PRIVACY:
             if len(density_plot_df[x_idx].dropna()) < settings.CRITICAL_NUMBER:
-                return {
+                return JsonResponse({
                     'labels': [],
                     'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
                                   'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
                     "warning" : "Not enough data available to ensure privacy protection."
-                }
+                })
 
         if x_idx not in density_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
 
-        min_val, max_val = np.min(density_plot_df[x_idx]), np.max(density_plot_df[x_idx])
+        # np.min/np.max propagate NaN if any value is missing (unlike nanmin/nanmax), which
+        # would make the bins -- and the whole response -- all-NaN and unserializable as JSON.
+        valid_x = density_plot_df[x_idx].dropna()
+        if len(valid_x) == 0:
+            return JsonResponse({
+                'labels': [],
+                'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
+                              'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
+            })
+        min_val, max_val = valid_x.min(), valid_x.max()
         bin_width = (max_val - min_val) / num_bins
 
         # Create histogram bins and bin centers for the entire data
@@ -798,12 +823,17 @@ class GetDataDensityHistogramPlotView(generics.GenericAPIView):
         bin_centers = (bins[:-1] + bins[1:]) / 2  # Compute the bin centers
 
         def compute_density(data):
+            # Drop NaNs so they neither skew the histogram counts nor deflate the total,
+            # and so an all-NaN group produces zeros instead of a 0/0 NaN density.
+            data = data.dropna()
+            total = len(data)
+            if total == 0:
+                return [0.0] * num_bins
 
             # Count the number of values in each bin
             hist, _ = np.histogram(data, bins=bins)
 
             # Normalize the histogram to get the density (integral of density should be 1)
-            total = len(data)
             density = hist / (total * bin_width)
 
             return density.tolist()
