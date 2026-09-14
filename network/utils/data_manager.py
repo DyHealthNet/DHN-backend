@@ -41,6 +41,12 @@ def _resolve_path(path, root):
     return path
 
 
+# Literal fallback group a source falls into when its DATA_GROUP_COLUMNS entry is left
+# blank, so it still gets a slot in DataManager.layers/group_data/group_meta instead of
+# its variables silently vanishing from every layer-based view (GetVariablesView,
+# GetVariableCatalogView, GetTableView, the context feature) - see load_data_sources().
+DEFAULT_GROUP_NAME = "Variables"
+
 # Types accepted by modina's _separate_types().
 VALID_VARIABLE_TYPES = {"ordinal", "nominal", "binary", "continuous"}
 
@@ -291,7 +297,12 @@ def load_data_sources(env):
     COLUMNS, DATA_GROUP_COLUMNS, DATA_SUBGROUP_COLUMNS and DATA_DP_NAME_COLUMNS are
     optional and, like DATA_TYPE_COLUMNS, each entry may be either a column name in that
     source's meta file or a literal value applied to every row of that source (pad an
-    entry with nothing to skip it for one source). DATA_SUBGROUP_COLUMNS values are
+    entry with nothing to skip it for one source). Unlike the others, a blank
+    DATA_GROUP_COLUMNS entry does not skip grouping for that source - every source needs
+    *some* group to get a slot in DataManager.layers/group_data/group_meta, which every
+    layer-based view (GetVariablesView, GetVariableCatalogView, GetTableView, the
+    context feature) is built from, so a blank entry falls back to the literal
+    DEFAULT_GROUP_NAME ("Variables") instead. DATA_SUBGROUP_COLUMNS values are
     scoped to their group - the same subgroup value under two different groups is
     treated as two independent subgroups. DATA_DP_NAME_COLUMNS mirrors the env var of
     the same name in DHN-database's setup_db_new.py (e.g. a SNOMED/UniProt term) - a
@@ -354,7 +365,7 @@ def load_data_sources(env):
         data, meta = _load_typed_data_source(
             data_path, meta_path, label_column, type_column, patient_id_column,
             description_column=description_column or None,
-            group_column=group_column or None,
+            group_column=group_column or DEFAULT_GROUP_NAME,
             subgroup_column=subgroup_column or None,
             dp_name_column=dp_name_column or None,
         )
