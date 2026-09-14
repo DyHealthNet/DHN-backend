@@ -152,7 +152,7 @@ def run_gprofiler_multi_query(community_gene_lists):
                 'organism': 'hsapiens',
                 'query': community_gene_lists,
                 'sources': ['GO:BP', 'GO:CC', 'GO:MF', 'KEGG', 'REAC', 'WP'],
-                'user_threshold': 0.05,
+                'user_threshold': 1, # apply no threshold here
                 'significance_threshold_method': 'g_SCS',
                 'no_evidences': True,
             },
