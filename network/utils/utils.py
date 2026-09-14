@@ -14,10 +14,14 @@ def list_group_variables(meta, data):
     data group (phenotype/protein/metabolite/... - any group produced by DataManager).
     :param meta: metadata DataFrame for this group, indexed by label, with 'type',
                  'description' and 'subgroup' columns (description/subgroup may be
-                 all-NaN if not configured for this group).
-    :param data: data DataFrame for this group (columns = variable labels).
+                 all-NaN if not configured for this group), plus 'display_name' if
+                 DATA_DP_NAME_COLUMNS was configured for this source.
+    :param data: data DataFrame for this group (columns = variable labels), with missing
+                 values already normalized to real NaN (see DataManager._load_and_combine).
     :return: DataFrame indexed by label with columns 'group' (continuous/binaryCategorical/
-             nonbinaryCategorical), 'identifier' (display string) and 'subgroup' (may be NaN).
+             nonbinaryCategorical), 'identifier' (display string), 'description' (may be
+             NaN), 'display_name' (may be NaN), 'subgroup' (may be NaN) and 'missing_count'
+             (NaN count per variable).
     """
     def make_group(cols):
         ctype = cols['type']
@@ -31,10 +35,14 @@ def list_group_variables(meta, data):
     type_col = 'type'
     desc_col = 'description'
     subgroup_col = 'subgroup'
+    display_name_col = 'display_name'
 
     # get subtable of meta data for the variables that are actually in the data
     filtered_rows = meta[meta.index.isin(data.columns)]
     values = filtered_rows[[type_col, desc_col, subgroup_col]].copy()
+    values.loc[:, display_name_col] = (
+        filtered_rows[display_name_col] if display_name_col in filtered_rows.columns else np.nan
+    )
 
     values.loc[:, 'num_cat'] = pd.Series(data.nunique())
     values.loc[:, 'group'] = values.loc[:, [type_col, 'num_cat']].apply(make_group, axis=1)
@@ -45,8 +53,9 @@ def list_group_variables(meta, data):
         values.index,
         values.apply(lambda row: f'{row[desc_col]} ({row.name})', axis=1)
     )
+    values.loc[:, 'missing_count'] = data[values.index].isna().sum()
 
-    values.drop(columns=[desc_col, 'num_cat', type_col], inplace=True)
+    values.drop(columns=['num_cat', type_col], inplace=True)
     return values
 
 

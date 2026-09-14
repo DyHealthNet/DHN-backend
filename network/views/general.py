@@ -83,11 +83,24 @@ class GetVariablesView(generics.GenericAPIView):
             # per-variable layer map so consumers don't need to infer layer from the identifier
             variable_layers = {}
             variable_sub_layers = {}
+            variable_ids = {}
+            variable_descriptions = {}
+            variable_display_names = {}
+            variable_missing_counts = {}
             for group_name, values in group_values.items():
-                for identifier, subgroup in zip(values['identifier'], values['subgroup']):
+                for node_id, identifier, subgroup, description, display_name, missing_count in zip(
+                    values.index, values['identifier'], values['subgroup'],
+                    values['description'], values['display_name'], values['missing_count']
+                ):
                     variable_layers[identifier] = group_name
                     if pd.notna(subgroup):
                         variable_sub_layers[identifier] = subgroup
+                    variable_ids[identifier] = node_id
+                    if pd.notna(description):
+                        variable_descriptions[identifier] = description
+                    if pd.notna(display_name):
+                        variable_display_names[identifier] = display_name
+                    variable_missing_counts[identifier] = int(missing_count)
 
             if group_values:
                 combined_vals = pd.concat(group_values.values(), axis=0)
@@ -109,6 +122,10 @@ class GetVariablesView(generics.GenericAPIView):
             values_dict['variableLayers'] = variable_layers
             values_dict['availableLayers'] = available_layers
             values_dict['variableSubLayers'] = variable_sub_layers
+            values_dict['variableIds'] = variable_ids
+            values_dict['variableDescriptions'] = variable_descriptions
+            values_dict['variableDisplayNames'] = variable_display_names
+            values_dict['variableMissingCounts'] = variable_missing_counts
             values_dict['layerSubLayers'] = {
                 group_name: sorted(layer_subgroups[group_name].keys())
                 for group_name in group_values
