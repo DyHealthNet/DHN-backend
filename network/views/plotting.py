@@ -17,6 +17,70 @@ from network.utils.db_utils import get_context
 from network.utils.utils import *
 
 
+@extend_schema_view(get=variable_catalog_schema)
+class GetVariableCatalogView(generics.GenericAPIView):
+    """Powers the data-overview page's variable metadata table (VariableCatalogTable.vue):
+    one row per variable with its id, description, display name and missing-value count,
+    plus the layer/subgroup info needed for the page's group tabs. See GetVariablesView
+    (network/views/general.py) for the leaner identifier-list response plot/context
+    selection dropdowns use."""
+    data_manager = None
+
+    def get(self, request):
+        group_values, layers, layer_subgroups, has_context, context = build_group_values(self.data_manager, request)
+
+        # Own cache entry (not shared with GetVariablesView's 'all_variables'/
+        # 'variables_context_{id}') since the response shape differs; invalidated the
+        # same way on context delete - see delete_context_tables().
+        cache_key = f'variable_catalog_context_{context.context_id}' if has_context else 'variable_catalog'
+        cache_timeout = 3600 * 24 * 30 if has_context else None
+        if cache_key not in cache or settings.NO_CACHE:
+            variables = []
+            for group_name, values in group_values.items():
+                for node_id, identifier, subgroup, description, display_name, missing_count, var_group in zip(
+                    values.index, values['identifier'], values['subgroup'], values['description'],
+                    values['display_name'], values['missing_count'], values['group']
+                ):
+                    variables.append({
+                        'identifier': identifier,
+                        'id': node_id,
+                        'description': description if pd.notna(description) else None,
+                        'displayName': display_name if pd.notna(display_name) else None,
+                        'subgroup': subgroup if pd.notna(subgroup) else None,
+                        'missingCount': int(missing_count),
+                        'group': var_group,
+                        'layer': group_name,
+                    })
+
+            available_layers = [
+                group_name for group_name in layers
+                if group_name in group_values and not group_values[group_name].empty
+            ]
+            if not available_layers:
+                available_layers = ["All"]
+
+            values_dict = {
+                'variables': variables,
+                'availableLayers': available_layers,
+                'layerSubLayers': {
+                    group_name: sorted(layer_subgroups[group_name].keys())
+                    for group_name in group_values
+                    if layer_subgroups.get(group_name)
+                },
+            }
+
+            response = JsonResponse(values_dict, safe=True)
+            if not settings.NO_CACHE:
+                response = add_cache_header(response, not has_context)
+                cache.set(cache_key, response, timeout=cache_timeout)
+        else:
+            logger.info(f"Cache hit: {cache_key}")
+            return cache.get(cache_key)
+
+        response = add_cache_header(response, not has_context)
+        return response
+
+
 @extend_schema_view(get=get_table_schema)
 class GetTableView(generics.GenericAPIView):
     data_manager = None

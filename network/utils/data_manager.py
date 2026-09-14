@@ -41,6 +41,12 @@ def _resolve_path(path, root):
     return path
 
 
+# Literal fallback group a source falls into when its DATA_GROUP_COLUMNS entry is left
+# blank, so it still gets a slot in DataManager.layers/group_data/group_meta instead of
+# its variables silently vanishing from every layer-based view (GetVariablesView,
+# GetVariableCatalogView, GetTableView, the context feature) - see load_data_sources().
+DEFAULT_GROUP_NAME = "Variables"
+
 # Types accepted by modina's _separate_types().
 VALID_VARIABLE_TYPES = {"ordinal", "nominal", "binary", "continuous"}
 
@@ -69,31 +75,32 @@ TYPE_TO_DTYPE = {
 
 
 def _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column,
-                          subgroup_column=None):
+                          subgroup_column=None, dp_name_column=None):
     """
-    Rename label_column/type_column/description_column/group_column/subgroup_column to
-    their canonical names ('label'/'type'/'description'/'group'/'subgroup') in a single
-    atomic `.rename()` call, rather than one sequential rename per attribute. Each is
-    resolved against `meta`'s *original* column names at once, so no attribute can
-    clobber a source column another attribute still needs regardless of which order
-    they're processed in
+    Rename label_column/type_column/description_column/group_column/subgroup_column/
+    dp_name_column to their canonical names ('label'/'type'/'description'/'group'/
+    'subgroup'/'display_name') in a single atomic `.rename()` call, rather than one
+    sequential rename per attribute. Each is resolved against `meta`'s *original* column
+    names at once, so no attribute can clobber a source column another attribute still
+    needs regardless of which order they're processed in
 
-    type_column/description_column/group_column/subgroup_column may each be either the
-    name of an existing column or a literal value applied to every row (e.g. a fixed
-    group name for a source with no per-row grouping of its own); a falsy value skips
-    that attribute entirely. label_column must always be an existing column (checked by
-    the caller before this is called).
+    type_column/description_column/group_column/subgroup_column/dp_name_column may each
+    be either the name of an existing column or a literal value applied to every row
+    (e.g. a fixed group name for a source with no per-row grouping of its own); a falsy
+    value skips that attribute entirely. label_column must always be an existing column
+    (checked by the caller before this is called).
 
     Raises if two attributes are configured to the same source column with different
     targets (ambiguous - a column can't become two different things, so there's no
     safe default).
 
-    If a target name ('label'/'type'/'description'/'group'/'subgroup') is otherwise
-    already occupied by an existing column that no attribute claims, that column is
-    unrelated to this source's configuration - it's dropped, logging a warning, before
-    the rename/literal assignment runs. Left in place it would otherwise either silently
-    collide with the renamed column (pandas allows duplicate column names) or be
-    silently overwritten by a literal value with no indication anything happened.
+    If a target name ('label'/'type'/'description'/'group'/'subgroup'/'display_name') is
+    otherwise already occupied by an existing column that no attribute claims, that
+    column is unrelated to this source's configuration - it's dropped, logging a
+    warning, before the rename/literal assignment runs. Left in place it would otherwise
+    either silently collide with the renamed column (pandas allows duplicate column
+    names) or be silently overwritten by a literal value with no indication anything
+    happened.
     """
     if type_column not in meta.columns and type_column.lower() not in ALL_VALID_TYPES:
         logger.warning(
@@ -103,7 +110,7 @@ def _rename_meta_columns(meta, meta_path, label_column, type_column, description
 
     targets = {"label": label_column, "type": type_column,
                "description": description_column, "group": group_column,
-               "subgroup": subgroup_column}
+               "subgroup": subgroup_column, "display_name": dp_name_column}
 
     rename_map = {}
     literals = {}
@@ -171,7 +178,8 @@ def _sample_ids(ids, limit=20):
 
 
 def _load_typed_data_source(data_path, meta_path, label_column, type_column, patient_id_column,
-                             description_column=None, group_column=None, subgroup_column=None):
+                             description_column=None, group_column=None, subgroup_column=None,
+                             dp_name_column=None):
     """
     Load one data/meta pair, restricting the (potentially huge) data file to the
     columns modina can actually use. The meta file is read first since it's tiny, so
@@ -179,12 +187,14 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     variables with an unrecognized type and any per-column dtype inference are
     skipped entirely via `usecols`/`dtype` instead of being parsed and then dropped.
 
-    `description_column`/`group_column`/`subgroup_column` are optional and, like
-    `type_column`, may each be either the name of a column already in the meta file or
-    a literal value applied to every row (e.g. a fixed group name for a data source
-    that has no per-variable grouping of its own). `subgroup_column` values are scoped
-    to their `group` - the same subgroup value under two different groups is treated
-    as two independent subgroups.
+    `description_column`/`group_column`/`subgroup_column`/`dp_name_column` are optional
+    and, like `type_column`, may each be either the name of a column already in the meta
+    file or a literal value applied to every row (e.g. a fixed group name for a data
+    source that has no per-variable grouping of its own). `subgroup_column` values are
+    scoped to their `group` - the same subgroup value under two different groups is
+    treated as two independent subgroups. `dp_name_column` mirrors DHN-database's
+    DATA_DP_NAME_COLUMNS (e.g. a SNOMED/UniProt term) - a separate, more formal display
+    name distinct from `description_column`.
 
     `patient_id_column` may be None, in which case the file's default RangeIndex is
     used in place of a real patient id. This is only sound when this is the only data
@@ -192,8 +202,8 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     multiple sources must supply a real patient_id_column (enforced in load_data_sources).
 
     Raises if `label_column` isn't a column in `meta_path`, or if renaming
-    label_column/type_column/description_column/group_column/subgroup_column to their
-    canonical names is ambiguous - see _rename_meta_columns.
+    label_column/type_column/description_column/group_column/subgroup_column/
+    dp_name_column to their canonical names is ambiguous - see _rename_meta_columns.
 
     Raises if `data_path` contains columns with no matching label in `meta_path`,
     since modina cannot assign those a type and would error out later anyway. Meta
@@ -201,7 +211,8 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
     collected) are dropped, logging how many.
 
     :return: tuple (data, meta) - meta has columns ['label', 'type'], plus
-             'description'/'group'/'subgroup' if the corresponding argument is given.
+             'description'/'group'/'subgroup'/'display_name' if the corresponding
+             argument is given.
     """
     meta_sep = _infer_separator(meta_path)
     meta = pd.read_csv(meta_path, sep=meta_sep, low_memory=False)
@@ -211,8 +222,10 @@ def _load_typed_data_source(data_path, meta_path, label_column, type_column, pat
             f"(available columns: {list(meta.columns)})"
         )
     meta = _rename_meta_columns(meta, meta_path, label_column, type_column, description_column, group_column,
-                                 subgroup_column)
-    keep_cols = ["label", "type"] + [c for c in ("description", "group", "subgroup") if c in meta.columns]
+                                 subgroup_column, dp_name_column)
+    keep_cols = ["label", "type"] + [
+        c for c in ("description", "group", "subgroup", "display_name") if c in meta.columns
+    ]
     meta = meta[keep_cols]
     all_meta_labels = set(meta["label"])
 
@@ -281,12 +294,19 @@ def load_data_sources(env):
     DATA_META_PATHS, DATA_LABEL_COLUMNS and DATA_TYPE_COLUMNS, which must all have the
     same number of entries (one per source) and at least one entry. DATA_ROOT, if set,
     is prepended to any relative entry in DATA_PATHS/DATA_META_PATHS. DATA_DESCRIPTION_
-    COLUMNS, DATA_GROUP_COLUMNS and DATA_SUBGROUP_COLUMNS are optional and, like
-    DATA_TYPE_COLUMNS, each entry may be either a column name in that source's meta file
-    or a literal value applied to every row of that source (pad an entry with nothing
-    to skip it for one source). DATA_SUBGROUP_COLUMNS values are scoped to their group -
-    the same subgroup value under two different groups is treated as two independent
-    subgroups.
+    COLUMNS, DATA_GROUP_COLUMNS, DATA_SUBGROUP_COLUMNS and DATA_DP_NAME_COLUMNS are
+    optional and, like DATA_TYPE_COLUMNS, each entry may be either a column name in that
+    source's meta file or a literal value applied to every row of that source (pad an
+    entry with nothing to skip it for one source). Unlike the others, a blank
+    DATA_GROUP_COLUMNS entry does not skip grouping for that source - every source needs
+    *some* group to get a slot in DataManager.layers/group_data/group_meta, which every
+    layer-based view (GetVariablesView, GetVariableCatalogView, GetTableView, the
+    context feature) is built from, so a blank entry falls back to the literal
+    DEFAULT_GROUP_NAME ("Variables") instead. DATA_SUBGROUP_COLUMNS values are
+    scoped to their group - the same subgroup value under two different groups is
+    treated as two independent subgroups. DATA_DP_NAME_COLUMNS mirrors the env var of
+    the same name in DHN-database's setup_db_new.py (e.g. a SNOMED/UniProt term) - a
+    separate, more formal display name distinct from DATA_DESCRIPTION_COLUMNS.
 
     PATIENT_ID_COLUMN may be left unset only when a single data source is configured,
     in which case that file's row order is used as the patient id. With more than one
@@ -326,22 +346,28 @@ def load_data_sources(env):
     description_columns = _parse_aligned_list_env(env, "DATA_DESCRIPTION_COLUMNS", len(data_paths))
     group_columns = _parse_aligned_list_env(env, "DATA_GROUP_COLUMNS", len(data_paths))
     subgroup_columns = _parse_aligned_list_env(env, "DATA_SUBGROUP_COLUMNS", len(data_paths))
+    dp_name_columns = _parse_aligned_list_env(env, "DATA_DP_NAME_COLUMNS", len(data_paths))
     if len(description_columns) != len(data_paths):
         raise ValueError("DATA_DESCRIPTION_COLUMNS, if set, must have one entry per data source.")
     if len(group_columns) != len(data_paths):
         raise ValueError("DATA_GROUP_COLUMNS, if set, must have one entry per data source.")
     if len(subgroup_columns) != len(data_paths):
         raise ValueError("DATA_SUBGROUP_COLUMNS, if set, must have one entry per data source.")
+    if len(dp_name_columns) != len(data_paths):
+        raise ValueError("DATA_DP_NAME_COLUMNS, if set, must have one entry per data source.")
 
     sources = {}
-    for data_path, meta_path, label_column, type_column, description_column, group_column, subgroup_column in zip(
-        data_paths, meta_paths, label_columns, type_columns, description_columns, group_columns, subgroup_columns
+    for (data_path, meta_path, label_column, type_column, description_column, group_column, subgroup_column,
+         dp_name_column) in zip(
+        data_paths, meta_paths, label_columns, type_columns, description_columns, group_columns, subgroup_columns,
+        dp_name_columns
     ):
         data, meta = _load_typed_data_source(
             data_path, meta_path, label_column, type_column, patient_id_column,
             description_column=description_column or None,
-            group_column=group_column or None,
+            group_column=group_column or DEFAULT_GROUP_NAME,
             subgroup_column=subgroup_column or None,
+            dp_name_column=dp_name_column or None,
         )
         logger.info(f"Loaded {data_path}: {data.shape[0]} patients, {data.shape[1]} variables.")
         sources[data_path] = (data, meta)

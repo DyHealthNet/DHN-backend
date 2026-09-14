@@ -37,6 +37,42 @@ get_table_schema = extend_schema(
         }
     )
 
+variable_catalog_schema = extend_schema(
+        summary="Returns the full per-variable metadata table for the data-overview page",
+        description='Returns one entry per variable (id, description, display name, subgroup, type bucket and '
+                    'missing-value count) plus the layer/subgroup info needed for the page\'s group tabs. If a '
+                    'sessionid and contextValue is provided, the variables will be restricted to that context\'s '
+                    'selection.',
+        parameters=[
+            OpenApiParameter(
+                name='csrftoken',
+                description='The CSRF token provided in the request header.',
+                required=True,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.COOKIE,
+            ),
+            OpenApiParameter(
+                name="sessionid",
+                location=OpenApiParameter.COOKIE,
+                required=False,
+                description="Session cookie for authentication.",
+                type=OpenApiTypes.STR,
+            ),
+            OpenApiParameter(
+                name='contextValue',
+                description='The value of the context which specifies at which tab it is supposed to be shown.',
+                required=False,
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Variable catalog returned successfully",
+            ),
+        }
+    )
+
 get_data_schema = extend_schema(
         summary="Returns averaged data for the given variables x and y grouped by c (optional) to produce a Line Plot",
         description="""Returns averaged data for the given variables x (e.g. time) and y (e.g. dosage) in JSON format 
