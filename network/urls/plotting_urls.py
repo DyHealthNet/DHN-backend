@@ -6,6 +6,8 @@ config = apps.get_app_config('network')
 
 urlpatterns = [
     path("api/table/", views.GetTableView.as_view(data_manager=config.DATA_MANAGER), name="get_table"),
+    path("api/variableCatalog/", views.GetVariableCatalogView.as_view(data_manager=config.DATA_MANAGER),
+         name="get_variable_catalog"),
     path("api/plotDataLine/", views.GetDataLinePlotView.as_view(data_manager=config.DATA_MANAGER), name="get_plot_data"),
     path("api/plotDataDensity/", views.GetDataDensityPlotView.as_view(data_manager=config.DATA_MANAGER), name="get_density_data"),
     path("api/plotDataBarCount/", views.GetDataBarCountView.as_view(data_manager=config.DATA_MANAGER), name="get_barcount_data"),

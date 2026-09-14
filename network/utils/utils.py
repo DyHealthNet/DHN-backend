@@ -5,6 +5,8 @@ import re
 
 from django.conf import settings
 
+from network.utils.db_utils import get_context
+
 logger = logging.getLogger('network')
 
 
@@ -108,6 +110,69 @@ def extract_var_id(var):
     var = var.replace(' / Metabolite', '')
     # var = var.replace(' / Protein', '') # -> not needed because id gets extracted from brackets at the end anyways
     return re.sub(r'^.*\(|\)$', '', var) if re.search(r'\(.*?\)', var) else var
+
+
+def build_group_values(data_manager, request):
+    """
+    Shared by GetVariablesView (network/views/general.py) and GetVariableCatalogView
+    (network/views/plotting.py): resolve every data group to its list_group_variables()
+    DataFrame, restricted to a context's variable selection when one is given. The two
+    views differ only in which columns of that DataFrame they turn into JSON.
+    :return: (group_values, layers, layer_subgroups, has_context, context) - context is
+             None unless has_context.
+    """
+    layers, group_data, group_meta, layer_subgroups = data_manager.get_df_copy(
+        ['layers', 'group_data', 'group_meta', 'layer_subgroups']
+    )
+    has_context = request.GET.get('contextValue') and request.user.is_authenticated
+
+    context = None
+    context_variables = None
+    context_variable_layers = None
+    context_variable_sub_layers = {}
+    removed_variable_ids = set()
+    if has_context:
+        context = get_context(request.user, request.GET.get('contextValue'))
+        context_variables = context.params.get('variables')
+        context_variable_layers = context.params.get('variablesLayers')
+        context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
+        # variables moDiNA flagged as not producing a meaningful statistical result -
+        # still part of the saved selection (so the context page keeps showing exactly
+        # what the user picked), but excluded here since the overview should reflect
+        # what's actually usable.
+        removed_variable_ids = set(context.params.get('removedVariables') or [])
+
+    group_values = {}
+    for group_name in layers:
+        data = group_data.get(group_name)
+        meta = group_meta.get(group_name)
+        if data is None or meta is None:
+            continue
+        values = list_group_variables(meta, data)
+        if has_context:
+            # the group's variable selection is either compact (the whole group, or
+            # some of its subgroups, was fully picked - variablesLayers/
+            # variablesSubLayers, which always mean literally the whole (sub)layer,
+            # unconditionally) and/or explicit (individual leftover exceptions -
+            # context_variables); a variable counts as included by either. A group
+            # with zero presence in both simply ends up with an empty mask below - no
+            # separate whole-layer gate needed, these two fields are self-sufficient.
+            if context_variable_layers and group_name in context_variable_layers:
+                wanted_subgroups = context_variable_sub_layers.get(group_name)
+                keep_mask = (
+                    values['subgroup'].isin(wanted_subgroups) if wanted_subgroups
+                    else pd.Series(True, index=values.index)
+                )
+            else:
+                keep_mask = pd.Series(False, index=values.index)
+            if context_variables:
+                keep_mask = keep_mask | values['identifier'].isin(context_variables)
+            if removed_variable_ids:
+                keep_mask = keep_mask & ~values['identifier'].apply(extract_var_id).isin(removed_variable_ids)
+            values = values[keep_mask]
+        group_values[group_name] = values
+
+    return group_values, layers, layer_subgroups, has_context, context
 
 
 # Strip xref string of db -> Not used currently

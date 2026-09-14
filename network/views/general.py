@@ -5,9 +5,8 @@ from django.http import JsonResponse, HttpResponse
 from rest_framework import generics
 from drf_spectacular.utils import extend_schema_view
 
-from network.utils.db_utils import get_context
 from network.schemas.general_schemas import *
-from network.utils.utils import list_group_variables, add_cache_header, extract_var_id
+from network.utils.utils import add_cache_header, build_group_values
 from network.utils.color_utils import define_context_color, get_palette, rgb_to_hex
 from django.conf import settings
 from django.core.cache import cache
@@ -18,58 +17,16 @@ logger = logging.getLogger('network')
 
 @extend_schema_view(get=variables_schema)
 class GetVariablesView(generics.GenericAPIView):
+    """Powers plot/context variable-selection dropdowns (PlotComponent, VariableSelector,
+    LayerVariableSelector): just the type-bucketed identifier lists consumers select
+    from, plus the layer/subgroup maps needed to group and label them. See
+    GetVariableCatalogView (network/views/plotting.py) for the data-overview page's full
+    per-variable metadata table - the two no longer share a response shape, only the
+    build_group_values() they're built from."""
     data_manager = None
 
     def get(self, request):
-        layers, group_data, group_meta, layer_subgroups = self.data_manager.get_df_copy(
-            ['layers', 'group_data', 'group_meta', 'layer_subgroups']
-        )
-        has_context = request.GET.get('contextValue') and request.user.is_authenticated
-
-        context_variables = None
-        context_variable_layers = None
-        context_variable_sub_layers = {}
-        removed_variable_ids = set()
-        if has_context:
-            context = get_context(request.user, request.GET.get('contextValue'))
-            context_variables = context.params.get('variables')
-            context_variable_layers = context.params.get('variablesLayers')
-            context_variable_sub_layers = context.params.get('variablesSubLayers') or {}
-            # variables moDiNA flagged as not producing a meaningful statistical result -
-            # still part of the saved selection (so the context page keeps showing exactly
-            # what the user picked), but excluded here since the overview should reflect
-            # what's actually usable.
-            removed_variable_ids = set(context.params.get('removedVariables') or [])
-
-        group_values = {}
-        for group_name in layers:
-            data = group_data.get(group_name)
-            meta = group_meta.get(group_name)
-            if data is None or meta is None:
-                continue
-            values = list_group_variables(meta, data)
-            if has_context:
-                # the group's variable selection is either compact (the whole group, or
-                # some of its subgroups, was fully picked - variablesLayers/
-                # variablesSubLayers, which always mean literally the whole (sub)layer,
-                # unconditionally) and/or explicit (individual leftover exceptions -
-                # context_variables); a variable counts as included by either. A group
-                # with zero presence in both simply ends up with an empty mask below - no
-                # separate whole-layer gate needed, these two fields are self-sufficient.
-                if context_variable_layers and group_name in context_variable_layers:
-                    wanted_subgroups = context_variable_sub_layers.get(group_name)
-                    keep_mask = (
-                        values['subgroup'].isin(wanted_subgroups) if wanted_subgroups
-                        else pd.Series(True, index=values.index)
-                    )
-                else:
-                    keep_mask = pd.Series(False, index=values.index)
-                if context_variables:
-                    keep_mask = keep_mask | values['identifier'].isin(context_variables)
-                if removed_variable_ids:
-                    keep_mask = keep_mask & ~values['identifier'].apply(extract_var_id).isin(removed_variable_ids)
-                values = values[keep_mask]
-            group_values[group_name] = values
+        group_values, layers, layer_subgroups, has_context, context = build_group_values(self.data_manager, request)
 
         # Context-scoped responses get their own cache entry, capped at 30 days like
         # participants_context_{id} rather than forever -- unlike 'all_variables' this
@@ -83,24 +40,11 @@ class GetVariablesView(generics.GenericAPIView):
             # per-variable layer map so consumers don't need to infer layer from the identifier
             variable_layers = {}
             variable_sub_layers = {}
-            variable_ids = {}
-            variable_descriptions = {}
-            variable_display_names = {}
-            variable_missing_counts = {}
             for group_name, values in group_values.items():
-                for node_id, identifier, subgroup, description, display_name, missing_count in zip(
-                    values.index, values['identifier'], values['subgroup'],
-                    values['description'], values['display_name'], values['missing_count']
-                ):
+                for identifier, subgroup in zip(values['identifier'], values['subgroup']):
                     variable_layers[identifier] = group_name
                     if pd.notna(subgroup):
                         variable_sub_layers[identifier] = subgroup
-                    variable_ids[identifier] = node_id
-                    if pd.notna(description):
-                        variable_descriptions[identifier] = description
-                    if pd.notna(display_name):
-                        variable_display_names[identifier] = display_name
-                    variable_missing_counts[identifier] = int(missing_count)
 
             if group_values:
                 combined_vals = pd.concat(group_values.values(), axis=0)
@@ -122,10 +66,6 @@ class GetVariablesView(generics.GenericAPIView):
             values_dict['variableLayers'] = variable_layers
             values_dict['availableLayers'] = available_layers
             values_dict['variableSubLayers'] = variable_sub_layers
-            values_dict['variableIds'] = variable_ids
-            values_dict['variableDescriptions'] = variable_descriptions
-            values_dict['variableDisplayNames'] = variable_display_names
-            values_dict['variableMissingCounts'] = variable_missing_counts
             values_dict['layerSubLayers'] = {
                 group_name: sorted(layer_subgroups[group_name].keys())
                 for group_name in group_values
