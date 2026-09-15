@@ -67,6 +67,7 @@ def delete_context_tables(context_id: str):
         f'participants_context_{context_id}',
         f'variables_context_{context_id}',
         f'context_node_ids_{context_id}',
+        f'full_network_stats_{context_id}',
     ])
 
 

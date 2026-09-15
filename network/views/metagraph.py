@@ -1,5 +1,6 @@
 import json
 import importlib
+import heapq
 from math import ceil
 import time
 import timeit
@@ -11,7 +12,9 @@ import igraph as ig
 import leidenalg
 import numpy as np
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.db.models import Value
 from django.db.models.functions import Least, Coalesce
@@ -368,7 +371,26 @@ def _run_louvain_clustering(graph):
     return _assign_membership(graph, communities.membership), 'louvain'
 
 
-MAX_SIGNIFICANT_RANKING_RESULTS = 10000
+MAX_SIGNIFICANT_RANKING_RESULTS = 1000
+
+# Only the standard significance threshold is cached -- other thresholds are rare/
+# exploratory and would otherwise fill the cache with one-off entries that are never
+# hit again. Cached forever (no timeout), like all_variables/variables_context_* in
+# general.py: invalidated manually via `manage.py clear_cache` when scores are
+# recomputed, and (for a specific context) by delete_context_tables() on context
+# deletion.
+FULL_NETWORK_STATS_CACHEABLE_THRESHOLD = 0.05
+
+
+def _full_network_stats_cache_key(test_type, context_id):
+    """
+    A context's edge table already pins its own test_type, so context_id alone is a
+    unique key there; the global (no context) case is keyed by test_type since both
+    parametric and nonparametric are cached independently.
+    """
+    if context_id is not None:
+        return f'full_network_stats_{context_id}'
+    return f'full_network_stats_global_{test_type}'
 
 
 def _edge_ranking_sort_key(edge):
@@ -438,18 +460,22 @@ def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIF
     total_significant_edges = len(candidate_links)
     total_significant_nodes = len(weighted_degree)
 
-    candidate_links.sort(key=_edge_ranking_sort_key)
-    top_edges = candidate_links[:max_edges]
+    # Only the top max_edges/max_nodes are ever kept, so select with heapq.nsmallest
+    # (O(n log max_edges), equivalent to sorted(...)[:max_edges] including tie order --
+    # see https://docs.python.org/3/library/heapq.html#heapq.nsmallest) instead of a full
+    # O(n log n) sort of every candidate edge/node, which doesn't scale to huge networks.
+    top_edges = heapq.nsmallest(max_edges, candidate_links, key=_edge_ranking_sort_key)
     for rank, edge in enumerate(top_edges, start=1):
         edge['rank'] = rank
 
-    ranked_node_ids = sorted(
+    ranked_node_ids = heapq.nsmallest(
+        max_nodes,
         weighted_degree.keys(),
         key=lambda node_id: (-weighted_degree[node_id], -degree[node_id], node_id),
     )
     node_stats_by_id = {
         node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id], 'rank': rank}
-        for rank, node_id in enumerate(ranked_node_ids[:max_nodes], start=1)
+        for rank, node_id in enumerate(ranked_node_ids, start=1)
     }
 
     meta = {
@@ -504,6 +530,13 @@ class GetCosmographView(generics.GenericAPIView):
         full_network_stats = request.GET.get('full_network_stats') in ('1', 'true', 'True')
         if full_network_stats and threshold is None:
             return HttpResponseBadRequest('threshold is required when full_network_stats is set.', status=405)
+
+        full_network_stats_cache_key = None
+        if full_network_stats and threshold == FULL_NETWORK_STATS_CACHEABLE_THRESHOLD:
+            full_network_stats_cache_key = _full_network_stats_cache_key(test_type, context_id)
+            if not settings.NO_CACHE and full_network_stats_cache_key in cache:
+                logger.info(f"Cache hit: {full_network_stats_cache_key}")
+                return cache.get(full_network_stats_cache_key)
 
         logger.info(
             'Start Cosmograph request with limit=%s threshold=%s per_node_limit=%s density=%s '
@@ -611,6 +644,8 @@ class GetCosmographView(generics.GenericAPIView):
             },
             status=200,
         )
+        if full_network_stats_cache_key is not None and not settings.NO_CACHE:
+            cache.set(full_network_stats_cache_key, response, timeout=None)
         return response
 
 
