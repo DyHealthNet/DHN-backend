@@ -579,18 +579,21 @@ def external_query(query_id, cohort_node=True):
 # Search for 'query' in all fields of the flat nodes table.
 def typeahead_query(query, groups=None, node_ids=None, limit=20):
     """
-    Search Nodes by display_name/description/node_id/xrefs, optionally restricted to
+    Search Nodes by display_name/description/node_id, optionally restricted to
     a set of node_group values and/or an explicit set of node_ids (e.g. a context's
     ground-truth node set from get_context_node_ids()). Replaces the old
     ViewDescriptionFTS-based lookup, which only covers the old per-node-type tables and
     has no knowledge of `nodes`. Returns values aliased to the old view's field names
     (id/source_table) so TypeaheadView's response shape doesn't change.
+
+    xrefs is intentionally not searched (no trigram index): a still-unindexed branch in
+    this OR would force Postgres back to a sequential scan even with the other three
+    columns indexed. xrefs is still returned in .values() below for display.
     """
     model = apps.get_model('network', 'Nodes')
     filters = (Q(description__icontains=query) |
               Q(display_name__icontains=query) |
-              Q(node_id__icontains=query) |
-              Q(xrefs__icontains=query))
+              Q(node_id__icontains=query))
     if groups:
         filters &= Q(node_group__in=groups)
     if node_ids is not None:

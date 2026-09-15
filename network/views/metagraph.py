@@ -11,6 +11,7 @@ from pathlib import Path
 import igraph as ig
 import leidenalg
 import numpy as np
+import pandas as pd
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -371,7 +372,8 @@ def _run_louvain_clustering(graph):
     return _assign_membership(graph, communities.membership), 'louvain'
 
 
-MAX_SIGNIFICANT_RANKING_RESULTS = 1000
+MAX_SIGNIFICANT_EDGES_RESULTS = 1000
+MAX_SIGNIFICANT_NODES_RESULTS = 10000
 
 # Only the standard significance threshold is cached -- other thresholds are rare/
 # exploratory and would otherwise fill the cache with one-off entries that are never
@@ -393,31 +395,6 @@ def _full_network_stats_cache_key(test_type, context_id):
     return f'full_network_stats_global_{test_type}'
 
 
-def _edge_ranking_sort_key(edge):
-    """p-value ascending, |effect size| descending tiebreak, missing values sort last on
-    either key -- mirrors the frontend's rankEdges() (networkRanking.js) exactly, so the
-    globally top-ranked edges computed here match what the client would have picked."""
-    p_value_raw = edge.get('p_value')
-    try:
-        p_value = float(p_value_raw)
-        if np.isnan(p_value):
-            p_value = None
-    except (TypeError, ValueError):
-        p_value = None
-    p_key = (1, 0.0) if p_value is None else (0, p_value)
-
-    effect_raw = edge.get('effect_size')
-    try:
-        effect = float(effect_raw)
-        if np.isnan(effect):
-            effect = None
-    except (TypeError, ValueError):
-        effect = None
-    abs_effect = None if effect is None else abs(effect)
-    effect_key = (1, 0.0) if abs_effect is None else (0, -abs_effect)
-    return (p_key, effect_key)
-
-
 def _compute_node_degree_stats(links):
     """
     {node_id: {'degree': int, 'weighted_degree': float}} for every node touched by links,
@@ -436,15 +413,25 @@ def _compute_node_degree_stats(links):
     }
 
 
-def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_RANKING_RESULTS,
-                                            max_nodes=MAX_SIGNIFICANT_RANKING_RESULTS):
+def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIFICANT_EDGES_RESULTS,
+                                            max_nodes=MAX_SIGNIFICANT_NODES_RESULTS):
     """
-    Ranks the significant network matching the user given threshold and parameter and truncates the 
-    Edges (and Nodes) to MAX_SIGNIFICANT_RANKING_RESULTS. Edges are ranked by p-value (ascending) and 
-    effect size (descending), with missing values sorting last. Nodes are ranked by their weighted 
-    degree (descending) and degree (descending), with missing values sorting last. The Weighted degree 
+    Ranks the significant network matching the user given threshold and parameter and truncates the
+    Edges to MAX_SIGNIFICANT_EDGES_RESULTS and Nodes to MAX_SIGNIFICANT_NODES_RESULTS. Edges are ranked by p-value (ascending) and
+    effect size (descending), with missing values sorting last. Nodes are ranked by their weighted
+    degree (descending) and degree (descending), with missing values sorting last. The Weighted degree
     and degree of the returned nodes are computed over the entire significant network, not just the truncated edges.
     Meta information (total significant edges etc. is returned for displayed in the frontend.)
+
+    candidate_links can run into the tens of millions for an unbounded whole-network fetch, where
+    only the top max_edges/max_nodes are ever kept -- so ranking/degree computation here is done
+    with vectorized numpy/pandas operations (factorize/bincount/lexsort) instead of a per-edge
+    Python loop or heapq key-function call, either of which still costs O(n) Python-interpreter
+    overhead even though almost all of that work gets thrown away. Verified equivalent to the
+    previous per-edge/heapq implementation, tie-breaks included (see _edge_ranking_sort_key's git
+    history for the reference semantics this mirrors). _compute_node_degree_stats stays Python-loop
+    based for the much smaller bounded link lists used elsewhere in this module, where that
+    overhead doesn't matter.
 
     Returns (meta, node_stats_by_id, top_edges):
         - meta: total_significant_edges/nodes (true counts, pre-truncation),
@@ -453,29 +440,67 @@ def _rank_and_truncate_significant_network(candidate_links, max_edges=MAX_SIGNIF
         - top_edges: candidate_links truncated to max_edges, each with a 'rank' (1..N,
           global) attached.
     """
-    degree_stats = _compute_node_degree_stats(candidate_links)
-    weighted_degree = {node_id: stats['weighted_degree'] for node_id, stats in degree_stats.items()}
-    degree = {node_id: stats['degree'] for node_id, stats in degree_stats.items()}
-
     total_significant_edges = len(candidate_links)
-    total_significant_nodes = len(weighted_degree)
+    sources = [edge['source'] for edge in candidate_links]
+    targets = [edge['target'] for edge in candidate_links]
+    p_arr = np.array([edge['p_value'] for edge in candidate_links], dtype=float)  # None -> nan
+    effect_arr = np.array([edge['effect_size'] for edge in candidate_links], dtype=float)  # None -> nan
 
-    # Only the top max_edges/max_nodes are ever kept, so select with heapq.nsmallest
-    # (O(n log max_edges), equivalent to sorted(...)[:max_edges] including tie order --
-    # see https://docs.python.org/3/library/heapq.html#heapq.nsmallest) instead of a full
-    # O(n log n) sort of every candidate edge/node, which doesn't scale to huge networks.
-    top_edges = heapq.nsmallest(max_edges, candidate_links, key=_edge_ranking_sort_key)
-    for rank, edge in enumerate(top_edges, start=1):
+    # Integer-code every node touched by an edge (source+target) in one pass -- pandas'
+    # factorize() uses a C hash table, dramatically faster at this size than either a
+    # Python dict loop or np.unique's comparison sort over object-dtype strings.
+    node_codes, all_nodes = pd.factorize(np.asarray(sources + targets, dtype=object))
+    source_codes = node_codes[:total_significant_edges]
+    target_codes = node_codes[total_significant_edges:]
+    total_significant_nodes = len(all_nodes)
+
+    # weight = -log10(p) * |effect size|, mirroring _compute_edge_weight/_compute_minus_log_p
+    # (None p_value/effect_size -> nan here -> treated the same as their None case below).
+    with np.errstate(divide='ignore', invalid='ignore'):
+        p_safe = np.where(p_arr <= 0, np.finfo(float).tiny, p_arr)
+        minus_log_p = -np.log10(p_safe)
+    minus_log_p = np.where(np.isnan(p_arr), 0.0, minus_log_p)
+    abs_effect = np.where(np.isnan(effect_arr), 0.0, np.abs(effect_arr))
+    weight = minus_log_p * abs_effect
+
+    degree_counts = (np.bincount(source_codes, minlength=total_significant_nodes)
+                      + np.bincount(target_codes, minlength=total_significant_nodes))
+    weighted_degree_sums = (np.bincount(source_codes, weights=weight, minlength=total_significant_nodes)
+                             + np.bincount(target_codes, weights=weight, minlength=total_significant_nodes))
+
+    # Top edges: p-value ascending, |effect size| descending, missing values sort last on
+    # either key -- mirrors the frontend's rankEdges() (networkRanking.js) exactly, so the
+    # globally top-ranked edges computed here match what the client would have picked.
+    # np.lexsort sorts ascending by keys in last-to-first priority order (and is stable, so
+    # ties keep candidate_links' original order, same as the previous sorted()/heapq
+    # implementation) -- passing (effect_key, effect_missing, p_key, p_missing) reproduces the
+    # same (p_missing, p_value, effect_missing, -|effect|) tuple comparison as before.
+    p_missing = np.isnan(p_arr)
+    effect_missing = np.isnan(effect_arr)
+    p_sort_key = np.where(p_missing, 0.0, p_arr)
+    effect_sort_key = np.where(effect_missing, 0.0, -np.abs(effect_arr))
+    edge_order = np.lexsort((effect_sort_key, effect_missing, p_sort_key, p_missing))
+
+    top_edges = []
+    for rank, idx in enumerate(edge_order[:max_edges], start=1):
+        edge = candidate_links[idx]
         edge['rank'] = rank
+        top_edges.append(edge)
 
-    ranked_node_ids = heapq.nsmallest(
+    # Top nodes: only total_significant_nodes candidates (a tiny fraction of
+    # total_significant_edges), so a plain heapq.nsmallest is already fast here.
+    ranked_node_indices = heapq.nsmallest(
         max_nodes,
-        weighted_degree.keys(),
-        key=lambda node_id: (-weighted_degree[node_id], -degree[node_id], node_id),
+        range(total_significant_nodes),
+        key=lambda i: (-weighted_degree_sums[i], -degree_counts[i], all_nodes[i]),
     )
     node_stats_by_id = {
-        node_id: {'degree': degree[node_id], 'weighted_degree': weighted_degree[node_id], 'rank': rank}
-        for rank, node_id in enumerate(ranked_node_ids, start=1)
+        all_nodes[i]: {
+            'degree': int(degree_counts[i]),
+            'weighted_degree': float(weighted_degree_sums[i]),
+            'rank': rank,
+        }
+        for rank, i in enumerate(ranked_node_indices, start=1)
     }
 
     meta = {
