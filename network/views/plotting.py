@@ -29,6 +29,17 @@ class GetVariableCatalogView(generics.GenericAPIView):
     def get(self, request):
         group_values, layers, layer_subgroups, has_context, context = build_group_values(self.data_manager, request)
 
+        # build_group_values() only restricts which *variables* are in scope for a
+        # context - list_group_variables()'s missing_count is computed over every
+        # patient in the group, context or not. Get the context's actual patient subset
+        # (same rule + missingness-check restriction every plot/GetTableView uses) so
+        # missingCount reflects it too, rather than always reporting the whole cohort's
+        # count regardless of which context is selected.
+        context_data = None
+        if has_context:
+            all_data, = self.data_manager.get_df_copy(['all_data'])
+            context_data = context_subset(request, all_data, layers, layer_subgroups)
+
         # Own cache entry (not shared with GetVariablesView's 'all_variables'/
         # 'variables_context_{id}') since the response shape differs; invalidated the
         # same way on context delete - see delete_context_tables().
@@ -41,6 +52,8 @@ class GetVariableCatalogView(generics.GenericAPIView):
                     values.index, values['identifier'], values['subgroup'], values['description'],
                     values['display_name'], values['missing_count'], values['group']
                 ):
+                    if context_data is not None and node_id in context_data.columns:
+                        missing_count = context_data[node_id].isna().sum()
                     variables.append({
                         'identifier': identifier,
                         'id': node_id,
