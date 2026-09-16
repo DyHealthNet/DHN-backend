@@ -16,6 +16,14 @@ from network.schemas.modina_schemas import *
 
 logger = logging.getLogger('network')
 
+# Comparing more shared variables than this without first reducing each context's own scores (via
+# a 'context-specific' filter, applied before compute_diff_network runs) builds a differential
+# network from the full O(n^2) pairwise score tables -- for thousands of variables that's tens of
+# millions of candidate edges, too large to compute and return in one request. 'differential'
+# filtering doesn't help here: it only trims edges_diff *after* compute_diff_network has already
+# built it. See CreateComparisonView.post's threshold check below.
+MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD = 1000
+
 
 def _resolve_context_data(user, context_value, all_data, layers, meta_file, layer_subgroups):
     """
@@ -83,6 +91,21 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
                                             "or null."},
                                 status=405)
 
+        filter_metric = params.get('filterMetric')
+        filter_rule = params.get('filterRule')
+        filter_param = params.get('filterParam') or 1
+        if filter_target == 'context-specific':
+            if filter_metric not in ('raw-P', 'rescaled-E'):
+                return JsonResponse({'status': 'error',
+                                     'message': "Parameter 'filterMetric' must be 'raw-P' or 'rescaled-E' when "
+                                                "'filterTarget' is 'context-specific'."},
+                                    status=405)
+            if filter_rule not in ('union', 'zero'):
+                return JsonResponse({'status': 'error',
+                                     'message': "Parameter 'filterRule' must be 'union' or 'zero' when "
+                                                "'filterTarget' is 'context-specific'."},
+                                    status=405)
+
         try:
             context1, data1, meta1 = _resolve_context_data(
                 request.user, context1_value, all_data, layers, meta_file, layer_subgroups)
@@ -114,6 +137,23 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
                                  'message': 'The two contexts do not share the same set of variables. Please '
                                             'choose two contexts built on the same data layers.'},
                                 status=400)
+
+        variable_count = len(data1.columns)
+        if variable_count > MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD and filter_target != 'context-specific':
+            return JsonResponse({
+                'status': 'error',
+                'requiresContextSpecificFilter': True,
+                'variableCount': variable_count,
+                'thresholdVariableCount': MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD,
+                'message': (
+                    f"These contexts share {variable_count} variables. Comparing more than "
+                    f"{MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD} variables without filtering first builds a "
+                    "differential network from the full pairwise score tables, which is too large to compute "
+                    "and return. Please choose the 'context-specific' filter (reduces each context's own "
+                    "variables before the differential network is built) rather than 'differential' filtering, "
+                    "which only trims the result afterward and would not avoid this."
+                ),
+            }, status=400)
 
         # testType/correction are properties of each context's already-computed association
         # scores (fixed at context-creation time), not something to re-pick here -- we reuse the
@@ -148,9 +188,9 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
 
         settings_params = {
             'filterTarget': filter_target,
-            'filterMetric': params.get('filterMetric'),
-            'filterRule': params.get('filterRule'),
-            'filterParam': params.get('filterParam') or 1,
+            'filterMetric': filter_metric,
+            'filterRule': filter_rule,
+            'filterParam': filter_param,
         }
 
         task = create_comparison_wrapper.delay(
