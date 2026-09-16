@@ -276,12 +276,23 @@ def load_context_scores(context_id: str, test_type: str) -> pd.DataFrame:
     frame moDiNA's differential-network functions expect -- the inverse of insert_context's
     rename. Used to build a differential network from two existing contexts without recomputing
     their (already corrected) association scores.
+
+    label1/label2/test_type are cast to 'category' dtype before returning: moDiNA's own
+    differential-network code (compute_diff_network, edge_filtering.filter) merges, groups and
+    indexes on these columns repeatedly, and for a many-variable context (potentially millions of
+    rows) pandas merges/groupbys on categoricals are substantially cheaper than on plain
+    object/string columns -- every operation moDiNA runs on them (set membership, np.concatenate
+    on .values, MultiIndex construction/union/reindex) behaves identically on categoricals, so this
+    is a transparent speedup rather than a behavior change.
     """
     table_name = f"edges_{test_type}_{context_id}"
     with connection.cursor() as cursor:
         cursor.execute(f"SELECT node_id_1, node_id_2, p_value, effect_size, test_type FROM {table_name}")
         rows = cursor.fetchall()
-    return pd.DataFrame(rows, columns=['label1', 'label2', 'raw-P', 'raw-E', 'test_type'])
+    scores = pd.DataFrame(rows, columns=['label1', 'label2', 'raw-P', 'raw-E', 'test_type'])
+    for col in ('label1', 'label2', 'test_type'):
+        scores[col] = scores[col].astype('category')
+    return scores
 
 
 def _apply_context_restriction(df, context, layers, layer_subgroups):
