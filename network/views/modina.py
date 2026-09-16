@@ -33,7 +33,7 @@ MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD = 1000
 # independently of how many variables are involved or what density the user (or a prefilled
 # default) picked -- see _density_target_edges/_suggested_density and their use in
 # CreateComparisonView.post below.
-MODINA_MAX_FILTERED_EDGES = 20000
+MODINA_MAX_FILTERED_EDGES = 300000
 
 
 def _density_target_edges(filter_param: float, variable_count: int) -> int:
