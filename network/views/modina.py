@@ -1,4 +1,5 @@
 import os
+import math
 import uuid
 import logging
 
@@ -23,6 +24,36 @@ logger = logging.getLogger('network')
 # filtering doesn't help here: it only trims edges_diff *after* compute_diff_network has already
 # built it. See CreateComparisonView.post's threshold check below.
 MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD = 1000
+
+# Hard ceiling on the number of edges a 'context-specific' filter is allowed to keep per context.
+# 'density' (the only filter_method moDiNA_filter is ever called with -- see tasks.py) is a
+# *fraction of all possible pairs*, which scales quadratically with variable count: a fixed
+# density like 0.01 keeps ~320k edges at 8000 variables but barely a dozen at 50, so no single
+# density value is safe as a blanket default. This caps the actual resulting edge count instead,
+# independently of how many variables are involved or what density the user (or a prefilled
+# default) picked -- see _density_target_edges/_suggested_density and their use in
+# CreateComparisonView.post below.
+MODINA_MAX_FILTERED_EDGES = 20000
+
+
+def _density_target_edges(filter_param: float, variable_count: int) -> int:
+    """
+    Mirrors moDiNA's edge_filtering._num_target_edges('density', ...) formula -- duplicated here
+    (rather than imported) since it's a private helper of the moDiNA package, but it's a single
+    stable formula. Predicts exactly how many edges per context edge_filtering.filter() is about
+    to keep for a 'context-specific' filter, using the same n_nodes (context1.shape[1], i.e. the
+    already-resolved variable_count) filter() itself uses -- so this is exact, not an estimate.
+    """
+    possible_edges = variable_count * (variable_count - 1) / 2
+    return math.ceil(filter_param * possible_edges)
+
+
+def _suggested_density(variable_count: int, target_edges: int = MODINA_MAX_FILTERED_EDGES) -> float:
+    """The largest density that keeps _density_target_edges at or under target_edges."""
+    possible_edges = variable_count * (variable_count - 1) / 2
+    if possible_edges <= 0:
+        return 1.0
+    return round(min(1.0, target_edges / possible_edges), 6)
 
 
 def _resolve_context_data(user, context_value, all_data, layers, meta_file, layer_subgroups):
@@ -140,20 +171,47 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
 
         variable_count = len(data1.columns)
         if variable_count > MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD and filter_target != 'context-specific':
+            suggested_density = _suggested_density(variable_count)
             return JsonResponse({
                 'status': 'error',
                 'requiresContextSpecificFilter': True,
                 'variableCount': variable_count,
                 'thresholdVariableCount': MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD,
+                'suggestedFilterParam': suggested_density,
                 'message': (
                     f"These contexts share {variable_count} variables. Comparing more than "
                     f"{MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD} variables without filtering first builds a "
                     "differential network from the full pairwise score tables, which is too large to compute "
                     "and return. Please choose the 'context-specific' filter (reduces each context's own "
                     "variables before the differential network is built) rather than 'differential' filtering, "
-                    "which only trims the result afterward and would not avoid this."
+                    f"which only trims the result afterward and would not avoid this. A density around "
+                    f"{suggested_density} would keep roughly {MODINA_MAX_FILTERED_EDGES} edges per context."
                 ),
             }, status=400)
+
+        # A 'context-specific' filter's actual resulting edge count is exact and known here (see
+        # _density_target_edges) -- guard it regardless of whether it was just forced above or
+        # chosen directly, and regardless of variable_count, since 'density' at a fixed value
+        # scales quadratically: e.g. the default density of 1 (no filtering) already exceeds
+        # MODINA_MAX_FILTERED_EDGES for as few as ~200 shared variables.
+        if filter_target == 'context-specific':
+            target_edges = _density_target_edges(filter_param, variable_count)
+            if target_edges > MODINA_MAX_FILTERED_EDGES:
+                suggested_density = _suggested_density(variable_count)
+                return JsonResponse({
+                    'status': 'error',
+                    'filterParamTooHigh': True,
+                    'variableCount': variable_count,
+                    'targetEdgeCount': target_edges,
+                    'maxFilteredEdges': MODINA_MAX_FILTERED_EDGES,
+                    'suggestedFilterParam': suggested_density,
+                    'message': (
+                        f"With {variable_count} variables per context, a density of {filter_param} would keep "
+                        f"up to {target_edges} edges per context -- more than the {MODINA_MAX_FILTERED_EDGES}-edge "
+                        f"limit for this comparison. Please lower the Density setting (e.g. to {suggested_density}) "
+                        "and try again."
+                    ),
+                }, status=400)
 
         # testType/correction are properties of each context's already-computed association
         # scores (fixed at context-creation time), not something to re-pick here -- we reuse the
