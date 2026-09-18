@@ -132,7 +132,7 @@ def resolve_metabolite_chebi_ids(node_id, xrefs_string):
     return chebi_ids
 
 
-def run_gprofiler_multi_query(community_gene_lists):
+def run_gprofiler_multi_query(community_gene_lists, background=None):
     """
     community_gene_lists: {community_id: [uniprot_accession, ...]}, communities with an empty
     list already filtered out by the caller. One g:Profiler multi-query POST (its `query` field
@@ -142,6 +142,12 @@ def run_gprofiler_multi_query(community_gene_lists):
     {community_id: [top 20 terms sorted by p_value asc]}, or None if the request itself failed
     -- callers must keep that distinct from "genuinely no significant terms" (an empty dict) so
     a g:Profiler outage can be reported instead of silently read as a negative result.
+
+    background: optional list of UniProt accessions to use as g:Profiler's custom statistical
+    domain (domain_scope=custom) instead of its default whole-genome background -- see
+    get_protein_background_accessions's docstring for why (avoids over-stating significance for
+    pathways the measurement panel itself happens to be enriched for). None/empty falls back to
+    g:Profiler's own default, same as before this parameter existed.
     """
     if not community_gene_lists:
         return {}
@@ -155,6 +161,7 @@ def run_gprofiler_multi_query(community_gene_lists):
                 'user_threshold': 1, # apply no threshold here
                 'significance_threshold_method': 'g_SCS',
                 'no_evidences': True,
+                **({'domain_scope': 'custom', 'background': background} if background else {}),
             },
             timeout=EXTERNAL_API_TIMEOUT_SECONDS,
         )

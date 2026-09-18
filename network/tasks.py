@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import logging
 
 from celery import shared_task
 import time
@@ -9,7 +10,7 @@ from django.conf import settings
 
 from network.models import Context, UserContextLink, Nodes
 from network.contexts.contexts import insert_context, load_context_scores
-from network.queries import query_node_annotation_details
+from network.queries import query_node_annotation_details, get_context_node_ids, get_protein_background_accessions
 from network.enrichment import (
     extract_protein_accessions, resolve_metabolite_chebi_ids,
     run_gprofiler_multi_query, run_reactome_analysis,
@@ -19,6 +20,8 @@ from modina.context_net_inference import compute_context_scores
 from modina.diff_net_construction import compute_diff_network
 from modina.edge_filtering import filter as modina_filter, filter_differential
 from modina.ranking import compute_ranking
+
+logger = logging.getLogger('network')
 
 
 @shared_task(bind=True)
@@ -275,7 +278,7 @@ def create_comparison_wrapper(self, context1_data: str, context2_data: str, meta
 
 
 @shared_task(bind=True)
-def run_community_annotation_task(self, communities: dict, resolution: str):
+def run_community_annotation_task(self, communities: dict, resolution: str, context_id=None):
     """
     For every community, runs g:Profiler + Reactome enrichment on its proteins/metabolites and
     feeds the results into a single bulk Gemini call (one request covering all communities) so
@@ -285,7 +288,24 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
     `communities`: {community_id: [node_id, ...]}. Progress is reported via self.update_state so
     CommunityAnnotationStatusView can show which stage/community is in flight -- this can take a
     few minutes (one g:Profiler call total, but one Reactome call per community).
+
+    context_id: the context the communities were detected in (resolved by the view, since a bad
+    value should fail fast rather than after minutes of work), or None for the whole-network
+    case. Used to scope g:Profiler's statistical background to this context's own protein set
+    instead of its default whole-genome background -- unlike the per-selection Protein Enrichment
+    feature (which lets the user choose), this is always auto-applied here: communities are
+    already a partition of one specific context's network, so there's no ambiguity to ask about.
+    Reactome has no equivalent background parameter, so its call below is unaffected.
     """
+    background_node_ids = None
+    if context_id is not None:
+        try:
+            background_node_ids = get_context_node_ids(context_id)
+        except ValueError as ex:
+            # context calculation hasn't produced its edge table yet (e.g. still pending) --
+            # fall back to the whole-database background rather than failing the whole run
+            logger.debug(f"Could not resolve context node ids for community annotation background: {ex}")
+    gprofiler_background = get_protein_background_accessions(background_node_ids)
     all_node_ids = sorted({
         node_id
         for node_ids in communities.values()
@@ -325,9 +345,10 @@ def run_community_annotation_task(self, communities: dict, resolution: str):
 
     total_communities = len(communities_details)
     self.update_state(state='PROGRESS', meta={'stage': 'gprofiler', 'completed': 0, 'total': total_communities})
-    gprofiler_results = run_gprofiler_multi_query({
-        community_id: proteins for community_id, proteins in community_proteins.items() if proteins
-    })
+    gprofiler_results = run_gprofiler_multi_query(
+        {community_id: proteins for community_id, proteins in community_proteins.items() if proteins},
+        background=gprofiler_background,
+    )
     gprofiler_failed = gprofiler_results is None
     if gprofiler_failed:
         gprofiler_results = {}

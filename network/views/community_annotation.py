@@ -4,6 +4,7 @@ from celery.result import AsyncResult
 from django.http import HttpResponseBadRequest, JsonResponse
 from rest_framework import generics
 
+from network.models import UserContextLink
 from network.tasks import run_community_annotation_task
 from network.views.gemini import _require_gemini_configured
 
@@ -32,13 +33,27 @@ class RunCommunityAnnotationView(generics.GenericAPIView):
         if not has_node_ids:
             return HttpResponseBadRequest("communities must contain at least one node ID.")
 
+        # Resolved here (not inside the task) so a bad/stale context value fails the request
+        # immediately rather than after minutes of g:Profiler/Reactome/Gemini work. None (no
+        # context, or an unauthenticated caller) tells the task to fall back to a whole-database
+        # g:Profiler background -- same fallback GetGprofilerBackgroundView uses.
+        context_id = None
+        context_value = request.data.get('context')
+        if context_value not in (None, '', 'null') and request.user.is_authenticated:
+            try:
+                context_id = UserContextLink.objects.get(
+                    user_id=request.user.id, context_value=context_value
+                ).context_id
+            except UserContextLink.DoesNotExist:
+                return HttpResponseBadRequest('Context not found.', status=404)
+
         # Fail fast on a missing API key rather than spending minutes on g:Profiler/Reactome
         # calls only to be unable to produce labels at the end.
         not_configured = _require_gemini_configured()
         if not_configured is not None:
             return not_configured
 
-        task = run_community_annotation_task.delay(communities, resolution)
+        task = run_community_annotation_task.delay(communities, resolution, context_id)
         logger.info(
             "Community annotation run started: %s (%d communities)", task.id, len(communities),
         )

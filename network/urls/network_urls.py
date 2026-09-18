@@ -8,4 +8,5 @@ urlpatterns = [
     path("api/getGroupNetworkContext/", views.GetGroupNetworkContextView.as_view(), name="get_group_network_context"),
     path("api/getAllExternals/", views.GetAllExternalsView.as_view(), name="get_all_externals"),
     path("api/getTypeaheadResults/", views.TypeaheadView.as_view(), name="get_typeahead"),
+    path("api/getGprofilerBackground/", views.GetGprofilerBackgroundView.as_view(), name="get_gprofiler_background"),
 ]

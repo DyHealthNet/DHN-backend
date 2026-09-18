@@ -324,6 +324,38 @@ class TypeaheadView(generics.GenericAPIView):
         return JsonResponse(dict_from_queryset, safe=True, status=200)
 
 
+######### g:Profiler Custom Background ###########
+
+class GetGprofilerBackgroundView(generics.GenericAPIView):
+    """
+    UniProt accessions for g:Profiler's custom statistical background (domain_scope=custom),
+    scoped to the same context as the network currently on screen -- see
+    get_protein_background_accessions's docstring for why this matters (the default
+    whole-genome background over-states significance for panel-enriched pathways).
+    Mirrors TypeaheadView's context-resolution: with no context (or an unauthenticated
+    request), falls back to every protein node in the database.
+    """
+    @staticmethod
+    def get(request):
+        context_value = request.GET.get("c")
+        node_ids = None
+
+        if context_value not in (None, "", "null") and request.user.is_authenticated:
+            try:
+                user_context = UserContextLink.objects.get(user_id=request.user.id, context_value=context_value)
+                context_id = user_context.context_id
+                node_ids = get_context_node_ids(context_id)
+            except UserContextLink.DoesNotExist:
+                return HttpResponseBadRequest('Context not found.', status=404)
+            except ValueError as ex:
+                # context calculation hasn't produced its edge table yet (e.g. still
+                # pending) -- fall back to the whole-database background
+                logger.debug(f"Could not resolve context node ids for g:Profiler background: {ex}")
+                node_ids = None
+
+        return JsonResponse({'background': get_protein_background_accessions(node_ids)}, status=200)
+
+
 ############# Helper Function ###############
 
 

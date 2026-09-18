@@ -102,6 +102,30 @@ def query_node_annotation_details(node_ids):
     )
 
 
+def get_protein_background_accessions(node_ids=None):
+    """
+    UniProt accessions for every protein node in scope, for use as g:Profiler's custom
+    statistical background (domain_scope=custom) instead of its default whole-genome
+    background -- avoids over-stating significance for pathways the measurement panel
+    (e.g. SomaLogic) happens to be enriched for regardless of biology. node_ids=None
+    means every protein node in the whole database; pass get_context_node_ids(context_id)
+    to scope it to a specific context's own variable set instead. Reuses
+    extract_protein_accessions so a protein's accession list is derived identically
+    everywhere (community annotation, per-selection enrichment, and this background).
+    """
+    from network.enrichment import extract_protein_accessions
+
+    node_model = apps.get_model('network', 'Nodes')
+    query = node_model.objects.filter(node_group='protein')
+    if node_ids is not None:
+        query = query.filter(node_id__in=node_ids)
+
+    accessions = set()
+    for display_name in query.values_list('display_name', flat=True):
+        accessions.update(extract_protein_accessions(display_name))
+    return sorted(accessions)
+
+
 def resolve_context_edge_table(context_id):
     """
     Validate context_id and return (table_name, test_type) for its per-context edge
