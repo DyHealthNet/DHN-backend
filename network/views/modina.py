@@ -181,11 +181,9 @@ class CreateComparisonView(LoginRequiredMixin, generics.GenericAPIView):
                 'message': (
                     f"These contexts share {variable_count} variables. Comparing more than "
                     f"{MODINA_CONTEXT_SPECIFIC_FILTER_THRESHOLD} variables without filtering first builds a "
-                    "differential network from the full pairwise score tables, which is too large to compute "
-                    "and return. Please choose the 'context-specific' filter (reduces each context's own "
-                    "variables before the differential network is built) rather than 'differential' filtering, "
-                    f"which only trims the result afterward and would not avoid this. A density around "
-                    f"{suggested_density} would keep roughly {MODINA_MAX_FILTERED_EDGES} edges per context."
+                    f"differential network too large to compute and return. Please choose the 'context-specific' filter"
+                    f" A density of {suggested_density} would keep roughly {MODINA_MAX_FILTERED_EDGES} edges per context,"
+                    f" which is the fixed limit for the compared contexts."
                 ),
             }, status=400)
 
