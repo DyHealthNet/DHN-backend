@@ -404,6 +404,7 @@ class GetDataDensityPlotView(generics.GenericAPIView):
         )
 
         send_warning = False
+        send_data_warning = False
 
         # Get request vars
         x = request.GET.get("x")
@@ -443,16 +444,22 @@ class GetDataDensityPlotView(generics.GenericAPIView):
 
         # np.min/np.max propagate NaN if any value is missing (unlike nanmin/nanmax), which
         # would make x_vals -- and the whole response -- all-NaN and unserializable as JSON.
+        # gaussian_kde also hard-requires at least 2 points (raises ValueError below that) and
+        # nonzero variance (raises LinAlgError for a degenerate/all-identical sample).
         valid_x = density_plot_df[x_idx].dropna()
-        if len(valid_x) == 0:
-            return JsonResponse({
-                'labels': [],
-                'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
-                              'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
-            })
+        no_data_response = {
+            'labels': [],
+            'datasets': [{'label': 'No Data Available', 'data': [], 'borderColor': 'rgba(0,0,0,0)',
+                          'backgroundColor': 'rgba(0,0,0,0, 0.1)', 'fill': False, 'tension': 0.3}],
+        }
+        if len(valid_x) < 2:
+            return JsonResponse(no_data_response)
         min_val, max_val = valid_x.min(), valid_x.max()
 
-        kde = gaussian_kde(valid_x, bw_method=0.1)
+        try:
+            kde = gaussian_kde(valid_x, bw_method=0.1)
+        except np.linalg.LinAlgError:
+            return JsonResponse(no_data_response)
 
         x_vals = np.linspace(min_val, max_val, 100)
         y_vals = kde(x_vals)  # Get the density for these x values
@@ -482,14 +489,25 @@ class GetDataDensityPlotView(generics.GenericAPIView):
             for idx, (group_name, data) in enumerate(grouped_data):
                 # Check per group if there is enough data != nan to ensure privacy protection
                 # if not skip this group
+                valid_data = data.dropna()
                 if settings.PRESERVE_PRIVACY:
-                    if len(data.dropna()) < settings.CRITICAL_NUMBER:
+                    if len(valid_data) < settings.CRITICAL_NUMBER:
                         send_warning = True
                         continue
-                # KDE for each group
-                kde_group = gaussian_kde(data.dropna(), bw_method=bw_method)
-                y_vals_group = kde_group(x_vals)
-                y_vals_group /= np.sum(y_vals_group) * (x_vals[1] - x_vals[0])  # Normalize
+                # gaussian_kde hard-requires at least 2 points (raises ValueError for 0 or 1)
+                # and nonzero variance (raises LinAlgError for an all-identical group) -- with
+                # PRESERVE_PRIVACY off, or CRITICAL_NUMBER set below 2, nothing else catches
+                # this, so skip the group instead of letting the view crash with a 500.
+                if len(valid_data) < 2:
+                    send_data_warning = True
+                    continue
+                try:
+                    kde_group = gaussian_kde(valid_data, bw_method=bw_method)
+                    y_vals_group = kde_group(x_vals)
+                    y_vals_group /= np.sum(y_vals_group) * (x_vals[1] - x_vals[0])  # Normalize
+                except np.linalg.LinAlgError:
+                    send_data_warning = True
+                    continue
 
                 r, g, b = colormap_local[idx]
                 temp.append({
@@ -518,8 +536,13 @@ class GetDataDensityPlotView(generics.GenericAPIView):
             'labels': np.round(x_vals, 2).tolist(),
             'datasets': temp,
         }
+        warnings = []
         if send_warning:
-            req_data["warning"] = "Some groups have been removed to protect privacy."
+            warnings.append("Some groups have been removed to protect privacy.")
+        if send_data_warning:
+            warnings.append("Some groups could not be displayed because they had too few or non-varying values.")
+        if warnings:
+            req_data["warning"] = " ".join(warnings)
 
         response = JsonResponse(req_data, safe=True)
         response = add_cache_header(response, request.GET.get('default'))
