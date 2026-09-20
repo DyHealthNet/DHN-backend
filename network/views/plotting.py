@@ -9,7 +9,7 @@ from django.conf import settings
 from drf_spectacular.utils import extend_schema_view
 from scipy.stats import gaussian_kde
 
-from network.contexts.contexts import subset_patients, context_subset, context_compare_subset, context_compare_subsets, \
+from network.contexts.contexts import subset_patients, context_subset, context_compare_subset, \
     restrict_variables
 from network.schemas.plotting_schemas import *
 from network.utils.color_utils import *
@@ -328,6 +328,9 @@ class GetDataBarCountView(generics.GenericAPIView):
 
         # Get request vars
         x = request.GET.get("x")
+        # Optional second categorical variable: every x tick then stands for one combination of x
+        # and x2 (e.g. "female<br>underweight") instead of a single x category.
+        x2 = request.GET.get("x2")
         c = request.GET.get("c")
 
         # build result dict in right format
@@ -338,6 +341,7 @@ class GetDataBarCountView(generics.GenericAPIView):
         # Get var_id from request var (stored in brackets at the end of the request var which is built
         # from description + (var_id) (in case of phenotypes and proteins))
         x_idx = extract_var_id(x)
+        x2_idx = extract_var_id(x2) if x2 else None
 
         if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
             bar_plot_df, _, _ = context_compare_subset(request, all_data, layers, layer_subgroups)
@@ -349,6 +353,24 @@ class GetDataBarCountView(generics.GenericAPIView):
 
         if x_idx not in bar_plot_df.columns:
             return HttpResponseBadRequest('Variable x must be a valid variable of the data', status=405)
+        if x2_idx is not None:
+            if x2_idx not in bar_plot_df.columns:
+                return HttpResponseBadRequest('Variable x2, if declared, must be a valid variable of the data',
+                                              status=405)
+            if x2_idx == x_idx:
+                return HttpResponseBadRequest('Variable x and x2 must be different', status=405)
+        x_cols = [x_idx] if x2_idx is None else [x_idx, x2_idx]
+
+        def x_labels_for(df):
+            # One tick label per row of a grouped count frame. Built from the raw category codes
+            # (so the frame's own sort order -- x, then x2 -- is what orders the ticks, not the
+            # alphabetical order of the label text) with a line break between the two labels.
+            labels = [var_label_mapping(x_idx, v, var_label_map) for v in df[x_idx]]
+            if x2_idx is None:
+                return labels
+            labels2 = [var_label_mapping(x2_idx, v, var_label_map) for v in df[x2_idx]]
+            return [f"{a}<br>{b}" for a, b in zip(labels, labels2)]
+
         temp = []
 
         if c is not None and c != "":
@@ -360,12 +382,13 @@ class GetDataBarCountView(generics.GenericAPIView):
                 return HttpResponseBadRequest(
                     'Variable c, if declared, must be a valid variable of the data', status=405)
             # Check if variables are equal because this will not return meaningful results and can throw an error later
-            if c == x:
+            if c == x or c_idx in x_cols:
                 return HttpResponseBadRequest('Variable x and c must be different', status=405)
-            # Make df subset with x, c var and a count value for each pair of group
+            # Make df subset with x (and x2), c var and a count value for each group combination
             # TODO Group combinations where c_idx is NaN will not be returned and therefore not appear ->
             #  return 0 instead?
-            df_count = bar_plot_df[[x_idx, c_idx]].groupby([x_idx, c_idx], observed=True).size().reset_index(name='counts')
+            df_count = bar_plot_df[[*x_cols, c_idx]].groupby([*x_cols, c_idx], observed=True).size().reset_index(name='counts')
+            df_count['x_label'] = x_labels_for(df_count)
 
             if settings.PRESERVE_PRIVACY:
                 below_threshold = df_count['counts'] < settings.CRITICAL_NUMBER
@@ -383,14 +406,15 @@ class GetDataBarCountView(generics.GenericAPIView):
                 temp.append({
                     "label": var_label_mapping(c_idx, group_name, var_label_map),
                     "backgroundColor": colormap_local[color],
-                    "data": [{'x': var_label_mapping(x_idx, x, var_label_map), 'y': y} for x, y in
-                             zip(group_data[x_idx], group_data['counts'])]
+                    "data": [{'x': x_label, 'y': y} for x_label, y in
+                             zip(group_data['x_label'], group_data['counts'])]
                 })
                 color += 1
         # if no color var c is given only group by x var
         else:
             # Make df subset with x var and a count variable
-            df_count = pd.DataFrame(bar_plot_df[x_idx]).groupby(x_idx).size().reset_index(name='counts')
+            df_count = pd.DataFrame(bar_plot_df[x_cols]).groupby(x_cols).size().reset_index(name='counts')
+            df_count['x_label'] = x_labels_for(df_count)
             if settings.PRESERVE_PRIVACY:
                 below_threshold = df_count['counts'] < settings.CRITICAL_NUMBER
                 if below_threshold.any():
@@ -403,8 +427,8 @@ class GetDataBarCountView(generics.GenericAPIView):
                 "backgroundColor": rgb_to_hex(get_palette(request.GET.get('colors', 'tab10'), n_colors=1)[0]),
                 "data": df_count['counts'].tolist()
             })
-        # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), var_label_map)
+        # Store unique x tick labels (in the frame's sort order)
+        req_data_dict["labels"] = list(dict.fromkeys(df_count['x_label']))
         # Store the count data values
         req_data_dict["datasets"] = temp
         if send_warning:
@@ -458,8 +482,8 @@ class GetDataPieCountView(generics.GenericAPIView):
             "backgroundColor": colormap_local,
             "data": df_count['counts'].tolist()
         })
-        # Store unique x_var values
-        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].unique().tolist(), var_label_map)
+        # Store unique x tick labels (in the frame's sort order)
+        req_data_dict["labels"] = list(dict.fromkeys(df_count['x_label']))
         # Store the count data values
         req_data_dict["datasets"] = temp
         if send_warning:
@@ -787,66 +811,24 @@ class GetDataHeatmapView(generics.GenericAPIView):
 
         send_warning = False
 
-        if request.GET.get('contextValue1') and request.GET.get('contextValue2'):
-            # Two-context comparison: a heatmap has no spare dimension to group a third
-            # ('context') variable into the way box/line plots do via c, so this builds a
-            # genuine difference grid instead -- each context's contingency table converted
-            # to proportions-of-that-context (so differently-sized contexts are comparable),
-            # then subtracted. The result is just another x/y-indexed table of numbers, so
-            # it feeds the same serialization below as the single-context contingency table.
-            subset1, subset2, _, _ = context_compare_subsets(request, all_data, layers, layer_subgroups)
-            if subset1 is None:
-                return HttpResponseBadRequest('One or both contexts were not found for the current user.', status=404)
-            if (x_idx not in subset1.columns or y_idx not in subset1.columns
-                    or x_idx not in subset2.columns or y_idx not in subset2.columns):
-                return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+        heatmap_df = context_subset(request, all_data, layers, layer_subgroups)
+        # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
+        if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
+            return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
+        contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
 
-            tab1 = pd.crosstab(subset1[x_idx], subset1[y_idx])
-            tab2 = pd.crosstab(subset2[x_idx], subset2[y_idx])
-            # Union of categories (context1's order first, then any context2-only ones), so
-            # a category present in only one context still gets a (zero-filled) row/column.
-            x_index = list(tab1.index) + [v for v in tab2.index if v not in tab1.index]
-            y_index = list(tab1.columns) + [v for v in tab2.columns if v not in tab1.columns]
-            tab1 = tab1.reindex(index=x_index, columns=y_index, fill_value=0)
-            tab2 = tab2.reindex(index=x_index, columns=y_index, fill_value=0)
-
-            # Totals are taken before zeroing small cells below, so a visible cell's proportion
-            # still reflects its true share of that context rather than being inflated by
-            # excluding the suppressed cells from the denominator.
-            total1, total2 = tab1.values.sum(), tab2.values.sum()
-
-            if settings.PRESERVE_PRIVACY:
-                if (tab1.values < settings.CRITICAL_NUMBER).any():
-                    send_warning = True
-                    tab1 = tab1.where(tab1 >= settings.CRITICAL_NUMBER, 0)
-                if (tab2.values < settings.CRITICAL_NUMBER).any():
-                    send_warning = True
-                    tab2 = tab2.where(tab2 >= settings.CRITICAL_NUMBER, 0)
-
-            prop1 = (tab1 / total1) if total1 else tab1.astype(float)
-            prop2 = (tab2 / total2) if total2 else tab2.astype(float)
-            contingency_tab = prop1 - prop2
-        else:
-            heatmap_df = context_subset(request, all_data, layers, layer_subgroups)
-            # Check if x and y var are present in our data -> else throw HttpResponseBadRequest
-            if x_idx not in heatmap_df.columns or y_idx not in heatmap_df.columns:
-                return HttpResponseBadRequest('Variable x and y must be a valid variable of the data', status=405)
-            contingency_tab = pd.crosstab(heatmap_df[x_idx], heatmap_df[y_idx])
-
-            # Zero out cells representing fewer participants than the privacy threshold, same
-            # pattern as GetDataBarCountView/GetDataPieCountView (counts, not proportions, so
-            # there's no denominator to preserve here).
-            if settings.PRESERVE_PRIVACY and (contingency_tab.values < settings.CRITICAL_NUMBER).any():
-                send_warning = True
-                contingency_tab = contingency_tab.where(contingency_tab >= settings.CRITICAL_NUMBER, 0)
+        # Zero out cells representing fewer participants than the privacy threshold, same
+        # pattern as GetDataBarCountView/GetDataPieCountView.
+        if settings.PRESERVE_PRIVACY and (contingency_tab.values < settings.CRITICAL_NUMBER).any():
+            send_warning = True
+            contingency_tab = contingency_tab.where(contingency_tab >= settings.CRITICAL_NUMBER, 0)
 
         x_categories = var_label_mapping(x_idx, [str(v) for v in contingency_tab.index], var_label_map)
         y_categories = var_label_mapping(y_idx, [str(v) for v in contingency_tab.columns], var_label_map)
 
         # 'v'/'c' (a rank string and a pre-baked palette color) used to also be sent per cell,
         # but the frontend (OverviewHeatmap.vue) only ever reads 'r' -- it computes its own
-        # colors from the z grid via Plotly's colorscale -- so those were always dead weight,
-        # and would need a diverging (not sequential) palette here anyway for the diff case.
+        # colors from the z grid via Plotly's colorscale -- so those were always dead weight.
         values = [
             {'x': x_categories[i], 'y': y_categories[j], 'r': float(contingency_tab.iloc[i, j])}
             for i in range(len(contingency_tab.index))
