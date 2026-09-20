@@ -163,6 +163,14 @@ get_bar_count_schema = extend_schema(
                 location=OpenApiParameter.QUERY,
             ),
             OpenApiParameter(
+                name='x2',
+                description='optional second categorical variable; each x value then stands for one '
+                            'combination of x and x2 (labels joined by "<br>")',
+                required=False,
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+            ),
+            OpenApiParameter(
                 name='csrftoken',
                 description='The CSRF token provided in the request header.',
                 required=True,
@@ -192,6 +200,7 @@ get_bar_count_schema = extend_schema(
                 description="The data could not be returned, possible errors:\n"
                             "- No appropriate context found\n"
                             "- x is not valid\n"
+                            "- x2 is not valid or the same as x\n"
                             "- c is not valid\n"
                             "- x and c are the same"
             )
