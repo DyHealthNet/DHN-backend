@@ -482,8 +482,8 @@ class GetDataPieCountView(generics.GenericAPIView):
             "backgroundColor": colormap_local,
             "data": df_count['counts'].tolist()
         })
-        # Store unique x tick labels (in the frame's sort order)
-        req_data_dict["labels"] = list(dict.fromkeys(df_count['x_label']))
+        # Store unique x_var values (in the frame's sort order)
+        req_data_dict["labels"] = var_label_mapping(x_idx, df_count[x_idx].tolist(), var_label_map)
         # Store the count data values
         req_data_dict["datasets"] = temp
         if send_warning:
