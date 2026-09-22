@@ -107,6 +107,11 @@ MODINA_EDGE_METRIC = 'diff-L-P'
 MODINA_NODE_METRIC = 'STC'
 MODINA_RANKING_ALGORITHM = 'PageRank+'
 
+# How many edges the edge-ranking table carries to the frontend. Node-level aggregates
+# (_neighbour_summary) and the graph itself are computed over the FULL edge set -- this caps
+# only the table's own rows.
+EDGE_RANKING_LIMIT = 20000
+
 _EDGE_STAT_RENAME = {
     'edge-min': 'edgeMin', 'edge-max': 'edgeMax', 'edge-median': 'edgeMedian',
     'edge-mean': 'edgeMean', 'edge-sd': 'edgeSd', 'edge-percentile-mean': 'edgePercentileMean',
@@ -194,9 +199,17 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
         f'raw-P_{name2}': 'rawP2', f'raw-E_{name2}': 'rawE2',
     })[['source', 'target', 'weight', 'signed', 'rank', 'rawP1', 'rawE1', 'rawP2', 'rawE2']]
 
+    # Top EDGE_RANKING_LIMIT edges only. A large comparison produces ~1.6M of them, and the
+    # ranking table is the one consumer that ships every row to the browser (result.links feeds
+    # the graph, which is Top-N trimmed for display anyway) -- serializing, transferring and
+    # holding all of them is what made the page unusable. Sorted by rank first, so this keeps
+    # the most differential edges, which is what the table is read for.
     edge_ranking_df = edges_diff.rename(columns={
         MODINA_EDGE_METRIC: 'score', f'{MODINA_EDGE_METRIC}_signed': 'signed',
     })[['label1', 'label2', 'rank', 'score', 'signed']].sort_values('rank').reset_index(drop=True)
+    edge_ranking_truncated = len(edge_ranking_df) > EDGE_RANKING_LIMIT
+    edge_ranking_total = len(edge_ranking_df)
+    edge_ranking_df = edge_ranking_df.head(EDGE_RANKING_LIMIT)
 
     points_df = stc_ranking.rename(columns={
         'node': 'id', 'rank': 'nodeMetricRank', MODINA_NODE_METRIC: 'nodeMetricValue', **_EDGE_STAT_RENAME,
@@ -247,6 +260,9 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
         'points': _df_records(points_df),
         'links': _df_records(links_df),
         'edgeRanking': _df_records(edge_ranking_df),
+        # So the table can say it is showing a top slice rather than silently looking complete.
+        'edgeRankingTotal': edge_ranking_total,
+        'edgeRankingTruncated': edge_ranking_truncated,
         'nodeMetric': MODINA_NODE_METRIC,
         'edgeMetric': MODINA_EDGE_METRIC,
         'rankingAlgorithm': MODINA_RANKING_ALGORITHM,
