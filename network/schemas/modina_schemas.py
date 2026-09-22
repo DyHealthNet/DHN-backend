@@ -82,7 +82,8 @@ comparison_status_schema = extend_schema(
     summary="Get the status of a moDiNA differential network comparison",
     description=(
         "Given a runId returned by createComparison, returns the Celery task status and, once "
-        "'SUCCESS', the shaped result (points, links, edgeRanking, and excludedVariables -- the "
+        "'SUCCESS', the shaped result (points, links -- each edge with its rank, weight and "
+        "signed value, which is what the edge ranking table reads -- and excludedVariables, the "
         "variables moDiNA flagged as unusable in only one of the two contexts and therefore left "
         "out of the comparison, split into 'missingFromContext1'/'missingFromContext2')."
     ),

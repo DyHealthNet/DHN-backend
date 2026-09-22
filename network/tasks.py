@@ -117,7 +117,7 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
                          pagerank_ranking: pd.DataFrame, name1: str, name2: str) -> dict:
     """
     Reshape the moDiNA pipeline's pandas outputs into the JSON contract differential-network.vue
-    already expects (result.points / result.links / result.edgeRanking). `stc_ranking`
+    already expects (result.points / result.links). `stc_ranking`
     (ranking_alg='nodeRank') is node-metric-indexed and covers every node with a node-metric
     value, including ones with no surviving edges -- compute_ranking already merges the node
     metric and the incident-edge statistics onto it, so it's used as the base for `points`
@@ -125,10 +125,13 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
     (ranking_alg=MODINA_RANKING_ALGORITHM) only covers nodes present in edges_diff's graph, so its
     rank/score are left-merged onto the stc_ranking base as the primary displayed rank/score,
     while stc_ranking's own rank survives as 'nodeMetricRank' -- neither ranking silently drops a
-    node the other one would have shown. The edge ranking is derived directly from edges_diff
-    instead of a second compute_ranking(..., ranking_alg='edgeRank') call, since that branch
-    discards label1/label2 (collapses them into a single 'edge' string) which result.links/
-    EdgeRankPanel both need back.
+    node the other one would have shown.
+
+    There is deliberately no separate edge ranking array: `links` already carries every edge with
+    its rank, weight (the edge metric) and signed value, so EdgeRankPanel ranks straight off it.
+    Shipping a second, near-identical row per edge doubled a payload that reaches ~1.6M edges on
+    a large comparison -- several hundred MB of JSON parsed into a second object graph, which is
+    enough on its own to run the browser tab out of memory.
     """
     edges_diff = edges_diff.copy()
     edges_diff['rank'] = edges_diff[MODINA_EDGE_METRIC].rank(method='min', ascending=False).astype(int)
@@ -139,10 +142,6 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
         f'raw-P_{name1}': 'rawP1', f'raw-E_{name1}': 'rawE1',
         f'raw-P_{name2}': 'rawP2', f'raw-E_{name2}': 'rawE2',
     })[['source', 'target', 'weight', 'signed', 'rank', 'rawP1', 'rawE1', 'rawP2', 'rawE2']]
-
-    edge_ranking_df = edges_diff.rename(columns={
-        MODINA_EDGE_METRIC: 'score', f'{MODINA_EDGE_METRIC}_signed': 'signed',
-    })[['label1', 'label2', 'rank', 'score', 'signed']].sort_values('rank').reset_index(drop=True)
 
     points_df = stc_ranking.rename(columns={
         'node': 'id', 'rank': 'nodeMetricRank', MODINA_NODE_METRIC: 'nodeMetricValue', **_EDGE_STAT_RENAME,
@@ -184,7 +183,6 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
     return {
         'points': _df_records(points_df),
         'links': _df_records(links_df),
-        'edgeRanking': _df_records(edge_ranking_df),
         'nodeMetric': MODINA_NODE_METRIC,
         'edgeMetric': MODINA_EDGE_METRIC,
         'rankingAlgorithm': MODINA_RANKING_ALGORITHM,
