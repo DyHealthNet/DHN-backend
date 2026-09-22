@@ -113,6 +113,60 @@ _EDGE_STAT_RENAME = {
 }
 
 
+def _neighbour_summary(links_df: pd.DataFrame, node_metric: pd.Series) -> pd.DataFrame:
+    """
+    Per-node summary of its neighbourhood in the differential network: how many neighbours it
+    has, their mean degree, their mean node metric (STC), and the summed `share` those edges
+    carry. Indexed by node id, with one row per node that has at least one edge.
+
+    `share` for an edge (v, u) is that edge's weight divided by u's total incident weight, i.e.
+    roughly the chance a walker sitting on neighbour u steps to v next -- summing it over v's
+    edges says how much of its neighbours' outgoing mass points back at v, which is what makes
+    a node's PageRank+ position readable.
+
+    This used to be computed in the browser (differential-network.vue's nodeEdgeTotals /
+    selectedNodeNeighbors), which meant shipping the entire edge set to the client and
+    rescanning it on every node click -- a large comparison reaches ~1.6M edges and froze the
+    page. Here it's a single vectorized pass instead: the edge list is mirrored so every edge
+    appears once from each endpoint's perspective, then one groupby per statistic. O(E), no
+    per-node rescan, and only the aggregates travel to the frontend.
+    """
+    empty = pd.DataFrame(
+        columns=['neighbourCount', 'neighbourMeanDegree', 'neighbourSumShare', 'neighbourMeanNodeMetric']
+    )
+    if links_df.empty:
+        return empty
+
+    # Mirror the (undirected) edge list: `node` is the node we're summarizing, `neighbour` is the
+    # one across the edge, so each edge contributes a row to both of its endpoints.
+    mirrored = pd.DataFrame({
+        'node': pd.concat([links_df['source'], links_df['target']], ignore_index=True),
+        'neighbour': pd.concat([links_df['target'], links_df['source']], ignore_index=True),
+        'weight': pd.concat([links_df['weight'], links_df['weight']], ignore_index=True).fillna(0.0),
+    })
+
+    # Degree and total incident weight per node, over the full edge set (not a Top-N view), so a
+    # neighbour's numbers don't shift when the graph's display cutoff moves.
+    grouped = mirrored.groupby('node')['weight']
+    degree = grouped.size()
+    strength = grouped.sum()
+
+    neighbour_strength = mirrored['neighbour'].map(strength)
+    # A neighbour whose incident weights sum to zero splits nothing, so the share is undefined
+    # rather than infinite; those edges simply drop out of the sum below.
+    mirrored['share'] = (mirrored['weight'] / neighbour_strength).where(neighbour_strength != 0)
+    mirrored['neighbourDegree'] = mirrored['neighbour'].map(degree)
+    mirrored['neighbourNodeMetric'] = mirrored['neighbour'].map(node_metric)
+
+    summary = mirrored.groupby('node').agg(
+        neighbourCount=('neighbour', 'size'),
+        neighbourMeanDegree=('neighbourDegree', 'mean'),
+        neighbourSumShare=('share', 'sum'),
+        neighbourMeanNodeMetric=('neighbourNodeMetric', 'mean'),
+    )
+    return summary
+
+
 def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
                          pagerank_ranking: pd.DataFrame, name1: str, name2: str) -> dict:
     """
@@ -153,6 +207,14 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
     # nodeMetricRank/nodeMetricValue from the stc_ranking base above.
     pagerank_scores = pagerank_ranking.rename(columns={'node': 'id'})[['id', 'rank', 'score']]
     points_df = points_df.merge(pagerank_scores, on='id', how='left')
+
+    # Neighbourhood aggregates, joined on so DiffNodeDetails can show them straight off the
+    # selected point. Left join: a node with no surviving edges keeps null aggregates rather
+    # than dropping out of points.
+    neighbour_summary = _neighbour_summary(
+        links_df, points_df.set_index('id')['nodeMetricValue']
+    )
+    points_df = points_df.merge(neighbour_summary, left_on='id', right_index=True, how='left')
     # 'group' (the data layer a variable belongs to, e.g. phenotype/protein/metabolite, drives
     # point coloring on the frontend), 'display_name' (human-readable variable name) and
     # 'description' (a longer blurb) all come from the same place the main network page gets
