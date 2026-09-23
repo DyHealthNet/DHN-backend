@@ -26,6 +26,7 @@ env = environ.Env(
     NO_CACHE=(bool, False),
     REDIS_URL=(str, 'localhost:6379'),
     NAN_VALUE=(int, -89),
+    MODINA_NEIGHBOUR_STATS=(bool, True),
 
     CALCULATED_EDGES_PATH=(str, None),
     VAR_LABEL_MAPPING=(str, None),
@@ -340,6 +341,12 @@ ALPHA = 0.05
 DROP_INSIGNIFICANT = env("DROP_INSIGNIFICANT_EDGES", cast=bool)
 
 NUM_WORKERS = env("NUMBER_OF_WORKERS", cast=int)
+# Whether a moDiNA comparison also computes each node's neighbourhood statistics (degree, mean
+# neighbour degree, mean neighbour node metric, summed neighbour share -- see network/tasks.py's
+# _neighbour_stats). They are optional columns in the node ranking table; turning this off skips
+# the computation and leaves those fields out of the result, which the table handles by not
+# offering the columns at all.
+MODINA_NEIGHBOUR_STATS = env("MODINA_NEIGHBOUR_STATS", cast=bool)
 LOW_MEMORY = env("LOW_MEMORY", cast=bool)
 MAX_CONTEXT_PER_USER = env("MAX_CONTEXT_PER_USER", cast=int)
 PRESERVE_PRIVACY = env("PRESERVE_PRIVACY", cast=bool)
