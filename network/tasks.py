@@ -4,6 +4,7 @@ import shutil
 
 from celery import shared_task
 import time
+import numpy as np
 import pandas as pd
 from django.conf import settings
 
@@ -113,6 +114,76 @@ _EDGE_STAT_RENAME = {
 }
 
 
+def _neighbour_stats(edges_diff: pd.DataFrame, node_metric: pd.Series) -> pd.DataFrame:
+    """
+    Per-node summary of a node's neighbourhood in the differential network, for the optional
+    columns in NodeRankPanel. Explains where a node's PageRank+ score comes from: the walker
+    restarts in proportion to the node metric, so low-metric neighbours seed little mass nearby,
+    and a neighbour spreads whatever mass it holds over all its own edges, so a high-degree
+    neighbour passes only a small cut of it on.
+
+    Returns one row per node that has at least one edge, with:
+      degree                  -- incident edges (= number of neighbours; the graph is simple)
+      neighborMeanDegree      -- mean degree of those neighbours
+      neighborMeanNodeMetric  -- mean node metric over those neighbours, ignoring ones whose
+                                 metric is NaN rather than counting them as zero
+      neighborShareSum        -- summed share: for each neighbour u, this edge's weight divided
+                                 by u's *total* edge weight -- the chance a walker sitting on u
+                                 steps here next -- added up over all neighbours, which is this
+                                 node's whole inflow per step
+
+    The network is undirected and each edge carries one weight. Every edge is still expanded
+    into its two endpoint views ((u as neighbour of v) and (v as neighbour of u)) because that
+    is what per-node aggregation needs; both views carry the same weight. Only the share differs
+    between them, and not because the weight does: it is a transition probability, so it divides
+    by the strength of whichever endpoint the walker is standing on.
+
+    Every aggregate is a bincount over integer node codes rather than a groupby on label
+    strings: one pd.factorize over both endpoint columns at once assigns the codes, and each
+    statistic is then a single pass over flat numpy arrays. At ~1.6M edges (3.2M endpoint views)
+    that is the difference between a couple of hundred ms and tens of seconds.
+    """
+    weights = edges_diff[MODINA_EDGE_METRIC].to_numpy(dtype=float)
+    n_edges = len(weights)
+
+    # Both endpoint columns are factorized in one call, so label1 and label2 share a code space
+    # and the second half of `codes` is exactly label2's codes.
+    codes, ids = pd.factorize(
+        np.concatenate([edges_diff['label1'].to_numpy(), edges_diff['label2'].to_numpy()])
+    )
+    # `src` is the neighbour being summarized, `dst` the node it is a neighbour of. Concatenating
+    # the two halves crosswise covers both endpoint views of every edge without a Python loop.
+    src = codes
+    dst = np.concatenate([codes[n_edges:], codes[:n_edges]])
+    endpoint_weights = np.concatenate([weights, weights])
+
+    n_nodes = len(ids)
+    degree = np.bincount(src, minlength=n_nodes)
+    strength = np.bincount(src, weights=endpoint_weights, minlength=n_nodes)
+
+    # strength[src] is 0 only if every one of that neighbour's edges has weight 0, in which case
+    # it passes nothing on and a 0 share is the right answer.
+    src_strength = strength[src]
+    share = np.divide(endpoint_weights, src_strength, out=np.zeros_like(endpoint_weights),
+                      where=src_strength > 0)
+
+    metric = node_metric.reindex(ids).to_numpy(dtype=float)[src]
+    has_metric = ~np.isnan(metric)
+    metric_sum = np.bincount(dst, weights=np.where(has_metric, metric, 0.0), minlength=n_nodes)
+    metric_count = np.bincount(dst[has_metric], minlength=n_nodes)
+
+    return pd.DataFrame({
+        'id': ids,
+        'degree': degree,
+        # Every node in `ids` comes from the edge list, so its degree is >= 1 -- only the metric
+        # mean below can hit a zero denominator, when no neighbour has a node metric at all.
+        'neighborMeanDegree': np.bincount(dst, weights=degree[src], minlength=n_nodes) / degree,
+        'neighborMeanNodeMetric': np.divide(metric_sum, metric_count, out=np.full(n_nodes, np.nan),
+                                            where=metric_count > 0),
+        'neighborShareSum': np.bincount(dst, weights=share, minlength=n_nodes),
+    })
+
+
 def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
                          pagerank_ranking: pd.DataFrame, name1: str, name2: str) -> dict:
     """
@@ -153,6 +224,21 @@ def _shape_modina_result(edges_diff: pd.DataFrame, stc_ranking: pd.DataFrame,
     # nodeMetricRank/nodeMetricValue from the stc_ranking base above.
     pagerank_scores = pagerank_ranking.rename(columns={'node': 'id'})[['id', 'rank', 'score']]
     points_df = points_df.merge(pagerank_scores, on='id', how='left')
+
+    # Neighbourhood statistics, keyed off the node metric that was just renamed onto points_df.
+    # _neighbour_stats only covers nodes with at least one edge, so an edgeless node keeps NaN
+    # neighbour means (shown as '-') but a real degree of 0 -- it has no neighbours to average
+    # over, which is not the same as having neighbours whose stats are unknown.
+    #
+    # Skipping this (settings.MODINA_NEIGHBOUR_STATS = False) leaves the fields off `points`
+    # entirely rather than sending nulls: NodeRankPanel only offers the columns when the rows
+    # actually carry them, so the table simply has four fewer optional columns.
+    if settings.MODINA_NEIGHBOUR_STATS:
+        points_df = points_df.merge(
+            _neighbour_stats(edges_diff, points_df.set_index('id')['nodeMetricValue']),
+            on='id', how='left',
+        )
+        points_df['degree'] = points_df['degree'].fillna(0).astype(int)
     # 'group' (the data layer a variable belongs to, e.g. phenotype/protein/metabolite, drives
     # point coloring on the frontend), 'display_name' (human-readable variable name) and
     # 'description' (a longer blurb) all come from the same place the main network page gets
