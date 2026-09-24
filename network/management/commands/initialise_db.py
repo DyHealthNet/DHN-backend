@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.db.utils import ProgrammingError
 import sys
 import pandas as pd
 import network.utils.db_utils as db_utils
@@ -22,8 +23,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             # check if the database is already initialized
-            logger.debug(f"Total node rows: {db_utils.get_total_node_rows()}")
-            if db_utils.get_total_node_rows() > 0 and not options['force']:
+            try:
+                node_rows = db_utils.get_total_node_rows()
+            except ProgrammingError:
+                # fresh database: the (unmanaged) nodes table is only created by setup_db_new.py
+                node_rows = 0
+            logger.debug(f"Total node rows: {node_rows}")
+            if node_rows > 0 and not options['force']:
                 logger.info("Database is already filled. Skipping the initialization.")
                 return
 
@@ -52,9 +58,14 @@ class Command(BaseCommand):
                 "Make sure that the following environment variables are set: DATABSE_USER, DATABASE_PASSWORD, "
                 "DATABASE_NAME, DATABASE_HOST")
 
-        # install the dependencies
-        subprocess.run(["pip", "install", "-r", "/app/database/requirements.txt"], check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # The database setup pins versions that conflict with the backend (e.g. networkx), so the Docker
+        # image installs it into its own venv and points DATABASE_SETUP_PYTHON at that interpreter.
+        db_python = env('DATABASE_SETUP_PYTHON', default=None)
+        if db_python is None:
+            # install the dependencies
+            subprocess.run(["pip", "install", "-r", "/app/database/requirements.txt"], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            db_python = "python"
 
         # execute a subprocess to create the database
-        subprocess.run(["python", "-u", "/app/database/setup_db_new.py"], check=True)
+        subprocess.run([db_python, "-u", "/app/database/setup_db_new.py"], check=True)

@@ -27,9 +27,11 @@ pandas==2.2.3
 networkx==3.5
 
 # modina (network.utils.data_manager.combine_data / compute_association_scores_new) stack
-napypi==1.1.7
+napypi==1.1.9
 python-igraph==1.0.0
 torch
+# moDiNA is not on PyPI; pinned to a commit of its main branch (bump the hash to update)
+modina @ https://github.com/DyHealthNet/moDiNA/archive/5a82ace7b377925743ec88add5405d873c89bd84.zip
 
 # metagraph community detection (network/views/metagraph.py)
 leidenalg==0.12.0

@@ -66,8 +66,8 @@ OAUTH_GITHUB_SECRET = env('OAUTH_GITHUB_SECRET')
 # Free-tier API key from Google AI Studio, used by the Gemini community-labeling feature.
 # Optional: the feature returns a clean error if left blank rather than failing at startup.
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
-# TODO remove gnext.gm.eurac.edu and add comment to add users own allowed hosts
-ALLOWED_HOSTS = ['gnext.gm.eurac.edu', '127.0.0.1', 'localhost']
+# Comma-separated list of host names the platform is served under (e.g. "myserver.example.org,localhost")
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['gnext.gm.eurac.edu', '127.0.0.1', 'localhost'])
 
 SITE_ID = 1 # Django’s Sites framework is required for django-allauth
 
